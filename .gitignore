@@ -2,3 +2,7 @@ node_modules
 
 .next/
 .DS_Store
+
+.env.local
+.env*.local
+recovery-codes*.txt

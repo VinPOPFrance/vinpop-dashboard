@@ -1,5 +1,13 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Environment Variables
+
+Create a `.env.local` file in the project root and add:
+
+```bash
+DASHBOARD_PASSWORD=your-password-here
+```
+
 ## Getting Started
 
 First, run the development server:

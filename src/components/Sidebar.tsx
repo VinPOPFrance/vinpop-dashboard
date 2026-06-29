@@ -99,6 +99,29 @@ export function Sidebar() {
             Settings
             <span style={{ marginLeft: 'auto', fontSize: 10, background: '#F5F4F0', color: '#9B9B9B', padding: '1px 6px', borderRadius: 10 }}>Soon</span>
           </div>
+
+          <form action="/api/logout" method="POST" style={{ marginTop: 4 }}>
+            <button
+              type="submit"
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '8px 10px',
+                borderRadius: 7,
+                border: '1px solid #F1DBDE',
+                background: '#FFF6F7',
+                color: '#722F37',
+                fontSize: 13.5,
+                cursor: 'pointer',
+                marginTop: 6,
+              }}
+            >
+              <span style={{ fontSize: 13 }}>⇠</span>
+              Logout
+            </button>
+          </form>
         </div>
       </nav>
 
