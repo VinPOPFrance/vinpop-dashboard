@@ -29,6 +29,11 @@ export type DatabaseTableSchema = SelectedDatabaseTable & {
   columns: DatabaseColumnInfo[];
 };
 
+export type DatabaseTableCount = SelectedDatabaseTable & {
+  status: 'counted' | 'missing' | 'error';
+  rowCount: number | null;
+};
+
 type DatabaseTableInfoRow = {
   table_schema: string;
   table_name: string;
@@ -44,6 +49,15 @@ type DatabaseColumnInfoRow = {
   ordinal_position: number;
 };
 
+type DatabaseTableExistsRow = {
+  table_schema: string;
+  table_name: string;
+};
+
+type DatabaseCountRow = {
+  row_count: string;
+};
+
 export type DatabaseNowResult =
   | { ok: true; now: string }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
@@ -54,6 +68,10 @@ export type DatabaseTablesResult =
 
 export type DatabaseTableSchemasResult =
   | { ok: true; tables: DatabaseTableSchema[] }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type DatabaseTableCountsResult =
+  | { ok: true; tables: DatabaseTableCount[] }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 declare global {
@@ -69,6 +87,14 @@ function getPool(databaseUrl: string): Pool {
   }
 
   return globalThis.vinpopDashboardPgPool;
+}
+
+function quoteIdentifier(identifier: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) {
+    throw new Error('Unsafe database identifier');
+  }
+
+  return `"${identifier}"`;
 }
 
 export async function getDatabaseNow(): Promise<DatabaseNowResult> {
@@ -184,6 +210,72 @@ export async function getDatabaseTableSchemas(
       typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
 
     console.error('Database schema inspection failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getDatabaseTableCounts(
+  selectedTables: SelectedDatabaseTable[],
+): Promise<DatabaseTableCountsResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  if (selectedTables.length === 0) {
+    return { ok: true, tables: [] };
+  }
+
+  try {
+    const pool = getPool(databaseUrl);
+    const tableKeys = selectedTables.map((table) => `${table.schemaName}.${table.tableName}`);
+    const existingTablesResult = await pool.query<DatabaseTableExistsRow>(
+      `
+        SELECT table_schema, table_name
+        FROM information_schema.tables
+        WHERE table_schema || '.' || table_name = ANY($1::text[])
+      `,
+      [tableKeys],
+    );
+    const existingTableKeys = new Set(
+      existingTablesResult.rows.map((row) => `${row.table_schema}.${row.table_name}`),
+    );
+
+    const tables: DatabaseTableCount[] = [];
+
+    for (const table of selectedTables) {
+      const tableKey = `${table.schemaName}.${table.tableName}`;
+
+      if (!existingTableKeys.has(tableKey)) {
+        tables.push({ ...table, status: 'missing', rowCount: null });
+        continue;
+      }
+
+      try {
+        const schemaName = quoteIdentifier(table.schemaName);
+        const tableName = quoteIdentifier(table.tableName);
+        const countResult = await pool.query<DatabaseCountRow>(
+          `SELECT COUNT(*)::text AS row_count FROM ${schemaName}.${tableName}`,
+        );
+        const rowCount = Number(countResult.rows[0]?.row_count ?? 0);
+
+        tables.push({ ...table, status: 'counted', rowCount });
+      } catch (error) {
+        const errorCode =
+          typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+        console.error('Database table count failed', { table: tableKey, code: errorCode });
+        tables.push({ ...table, status: 'error', rowCount: null });
+      }
+    }
+
+    return { ok: true, tables };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Database table counts failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }
