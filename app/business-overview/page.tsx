@@ -21,6 +21,14 @@ function formatMoney(value: number): string {
   });
 }
 
+function formatPercent(value: number | null): string {
+  if (value === null) {
+    return 'Unavailable';
+  }
+
+  return `${value.toLocaleString('en-US', { maximumFractionDigits: 1 })}%`;
+}
+
 export default async function BusinessOverviewPage() {
   await connection();
   const result = await getBusinessOverview();
@@ -43,6 +51,26 @@ export default async function BusinessOverviewPage() {
         { label: 'Total line items', value: formatNumber(metrics.totalLineItems) },
       ]
     : [];
+  const startupCards = metrics
+    ? [
+        { label: 'Startup Pack orders', value: formatNumber(metrics.startupPackOrders) },
+        { label: 'Free bottle quantity', value: formatNumber(metrics.freeQuantityEstimate) },
+        {
+          label: 'Avg free bottles/pack',
+          value: formatNumber(metrics.averageFreeBottlesPerStartupPackOrder),
+        },
+        { label: 'Product discounts', value: formatMoney(metrics.totalProductDiscounts) },
+        { label: 'Total quantity moved', value: formatNumber(metrics.totalQuantitySold) },
+        { label: 'Paid quantity', value: formatNumber(metrics.paidQuantityEstimate) },
+        { label: 'Free quantity', value: formatNumber(metrics.freeQuantityEstimate) },
+        { label: 'Free quantity %', value: formatPercent(metrics.freeQuantityPercentage) },
+      ]
+    : [];
+  const linkCards = [
+    { href: '/startup-pack-analysis', title: 'Startup Packs', subtitle: 'Pack economics and free bottle stock impact' },
+    { href: '/stock-movement-summary', title: 'Stock Movement', subtitle: 'Paid vs free product movement' },
+    { href: '/acquisition-economics-basic', title: 'Acquisition Basic', subtitle: 'Rough acquisition economics' },
+  ];
 
   return (
     <DashboardLayout>
@@ -82,6 +110,52 @@ export default async function BusinessOverviewPage() {
                 </Card>
               ))}
             </div>
+
+            <PageSection>
+              <SectionTitle sub="Pack economics and inventory movement">
+                Startup Pack & Stock Signals
+              </SectionTitle>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))',
+                  gap: 12,
+                }}
+              >
+                {startupCards.map((card) => (
+                  <Card key={card.label}>
+                    <div style={{ color: '#6B6B6B', fontSize: 12, marginBottom: 8 }}>
+                      {card.label}
+                    </div>
+                    <div style={{ color: '#1A1A1A', fontSize: 22, fontWeight: 700 }}>
+                      {card.value}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                  gap: 12,
+                  marginTop: 16,
+                }}
+              >
+                {linkCards.map((link) => (
+                  <a key={link.href} href={link.href} style={{ textDecoration: 'none' }}>
+                    <Card>
+                      <div style={{ color: '#722F37', fontSize: 14, fontWeight: 700 }}>
+                        {link.title}
+                      </div>
+                      <p style={{ color: '#6B6B6B', fontSize: 12, lineHeight: 1.5, margin: '6px 0 0' }}>
+                        {link.subtitle}
+                      </p>
+                    </Card>
+                  </a>
+                ))}
+              </div>
+            </PageSection>
 
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginTop: 28 }}>
               <div>

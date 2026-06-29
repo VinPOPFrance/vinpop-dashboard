@@ -125,6 +125,85 @@ export type BusinessOverviewMetrics = {
   freeQuantityEstimate: number;
   totalLineItems: number | null;
   potentialIssues: string[];
+  startupPackOrders: number;
+  averageFreeBottlesPerStartupPackOrder: number | null;
+  paidQuantityEstimate: number;
+  freeQuantityPercentage: number | null;
+};
+
+export type StartupPackProductRow = {
+  productName: string;
+  vendor: string;
+  quantity: number;
+  grossValue: number;
+  discountValue: number;
+  netRevenue: number;
+  orderCount: number;
+};
+
+export type StartupPackAnalysisMetrics = {
+  startupPackOrderCount: number;
+  startupPackLineItemsSold: number;
+  startupPackGrossRevenue: number;
+  startupPackNetRevenue: number;
+  averageStartupPackNetRevenuePerOrder: number | null;
+  freeBottleLineItemCount: number;
+  freeBottleQuantity: number;
+  freeBottleGrossValue: number;
+  freeBottleDiscountValue: number;
+  paidItemsNetRevenueInStartupPackOrders: number;
+  averageFreeBottlesPerStartupPackOrder: number | null;
+  topFreeWinesByQuantity: StartupPackProductRow[];
+  topFreeWinesByGrossValue: StartupPackProductRow[];
+  topPaidPackProducts: StartupPackProductRow[];
+};
+
+export type StockMovementProduct = {
+  productName: string;
+  vendor: string;
+  sku: string;
+  totalQuantityMoved: number;
+  paidQuantity: number;
+  freeQuantity: number;
+  freeQuantityPercentage: number | null;
+  grossValue: number;
+  discountValue: number;
+  netRevenue: number;
+  averageNetRevenuePerUnit: number;
+  orderCount: number;
+};
+
+export type StockMovementSummaryMetrics = {
+  totalQuantityMoved: number;
+  totalPaidQuantity: number;
+  totalFreeQuantity: number;
+  freeQuantityPercentage: number | null;
+  totalGrossProductValue: number;
+  totalDiscountValue: number;
+  totalNetProductRevenue: number;
+  products: StockMovementProduct[];
+};
+
+export type AcquisitionEconomicsBasicMetrics = {
+  usersCount: number;
+  quizCount: number;
+  ratingsCount: number;
+  shopifyCustomersCount: number | null;
+  ordersCount: number;
+  paidOrdersCount: number;
+  cancelledOrdersCount: number;
+  abandonedCheckoutCount: number;
+  startupPackOrdersCount: number;
+  boxOrdersCount: number;
+  freeBottleQuantity: number;
+  productDiscountValue: number;
+  totalRevenue: number;
+  averageOrderValue: number;
+  ratingsPerUser: number | null;
+  ratingsPerOrder: number | null;
+  quizToOrderRatio: number | null;
+  abandonedCheckoutToOrderRatio: number | null;
+  potentialIssues: string[];
 };
 
 type DatabaseTableInfoRow = {
@@ -215,6 +294,72 @@ type ShopifyFunnelBasicRow = {
   average_order_value: string | null;
 };
 
+type StartupPackMetricsRow = {
+  startup_pack_order_count: string | null;
+  startup_pack_line_items_sold: string | null;
+  startup_pack_gross_revenue: string | null;
+  startup_pack_net_revenue: string | null;
+  average_startup_pack_net_revenue_per_order: string | null;
+  free_bottle_line_item_count: string | null;
+  free_bottle_quantity: string | null;
+  free_bottle_gross_value: string | null;
+  free_bottle_discount_value: string | null;
+  paid_items_net_revenue_in_startup_pack_orders: string | null;
+  average_free_bottles_per_startup_pack_order: string | null;
+};
+
+type StartupPackProductRowResult = {
+  product_name: string | null;
+  vendor: string | null;
+  quantity: string | null;
+  gross_value: string | null;
+  discount_value: string | null;
+  net_revenue: string | null;
+  order_count: string | null;
+};
+
+type StockMovementProductRow = {
+  product_name: string | null;
+  vendor: string | null;
+  sku: string | null;
+  total_quantity_moved: string | null;
+  paid_quantity: string | null;
+  free_quantity: string | null;
+  free_quantity_percentage: string | null;
+  gross_value: string | null;
+  discount_value: string | null;
+  net_revenue: string | null;
+  average_net_revenue_per_unit: string | null;
+  order_count: string | null;
+};
+
+type StockMovementGlobalRow = {
+  total_quantity_moved: string | null;
+  total_paid_quantity: string | null;
+  total_free_quantity: string | null;
+  free_quantity_percentage: string | null;
+  total_gross_product_value: string | null;
+  total_discount_value: string | null;
+  total_net_product_revenue: string | null;
+};
+
+type AcquisitionEconomicsBasicRow = {
+  users_count: string | null;
+  quiz_count: string | null;
+  ratings_count: string | null;
+  shopify_customers_count: string | null;
+  orders_count: string | null;
+  paid_orders_count: string | null;
+  cancelled_orders_count: string | null;
+  abandoned_checkout_count: string | null;
+  startup_pack_orders_count: string | null;
+  box_orders_count: string | null;
+  free_bottle_quantity: string | null;
+  product_discount_value: string | null;
+  total_revenue: string | null;
+  average_order_value: string | null;
+};
+
 export type DatabaseNowResult =
   | { ok: true; now: string }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
@@ -260,6 +405,18 @@ export type ShopifyFunnelBasicResult =
 
 export type BusinessOverviewResult =
   | { ok: true; metrics: BusinessOverviewMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type StartupPackAnalysisResult =
+  | { ok: true; metrics: StartupPackAnalysisMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type StockMovementSummaryResult =
+  | { ok: true; metrics: StockMovementSummaryMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type AcquisitionEconomicsBasicResult =
+  | { ok: true; metrics: AcquisitionEconomicsBasicMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 declare global {
@@ -399,6 +556,115 @@ function mapProductSummaryRow(row: ShopifyProductSummaryRow): ShopifyProductSumm
     averageNetItemPrice: numberFromPg(row.average_net_item_price),
   };
 }
+
+function mapStartupPackProductRow(row: StartupPackProductRowResult): StartupPackProductRow {
+  return {
+    productName: row.product_name || 'Unknown product',
+    vendor: row.vendor || 'Unknown vendor',
+    quantity: numberFromPg(row.quantity),
+    grossValue: numberFromPg(row.gross_value),
+    discountValue: numberFromPg(row.discount_value),
+    netRevenue: numberFromPg(row.net_revenue),
+    orderCount: numberFromPg(row.order_count),
+  };
+}
+
+function mapStockMovementProductRow(row: StockMovementProductRow): StockMovementProduct {
+  return {
+    productName: row.product_name || 'Unknown product',
+    vendor: row.vendor || 'Unknown vendor',
+    sku: row.sku || 'No SKU',
+    totalQuantityMoved: numberFromPg(row.total_quantity_moved),
+    paidQuantity: numberFromPg(row.paid_quantity),
+    freeQuantity: numberFromPg(row.free_quantity),
+    freeQuantityPercentage: row.free_quantity_percentage === null ? null : numberFromPg(row.free_quantity_percentage),
+    grossValue: numberFromPg(row.gross_value),
+    discountValue: numberFromPg(row.discount_value),
+    netRevenue: numberFromPg(row.net_revenue),
+    averageNetRevenuePerUnit: numberFromPg(row.average_net_revenue_per_unit),
+    orderCount: numberFromPg(row.order_count),
+  };
+}
+
+const startupPackTitleCondition = `
+  title_text ILIKE '%starter pack%'
+  OR title_text ILIKE '%startup pack%'
+  OR title_text ILIKE '%start up pack%'
+  OR title_text ILIKE '%calibration kit%'
+  OR title_text ILIKE '%taste kit%'
+  OR title_text ILIKE '%tasting kit%'
+`;
+
+const boxTitleCondition = `
+  title_text ILIKE '%subscription%'
+  OR title_text ILIKE '%smart box%'
+  OR title_text ILIKE '%box%'
+`;
+
+const lineItemsBaseCte = `
+  WITH order_items AS (
+    SELECT
+      id AS order_id,
+      item,
+      COALESCE(NULLIF(item->>'title', ''), NULLIF(item->>'name', ''), '') AS title_text,
+      COALESCE(NULLIF(item->>'title', ''), NULLIF(item->>'name', ''), 'Unknown product') AS product_name,
+      COALESCE(NULLIF(item->>'vendor', ''), 'Unknown vendor') AS vendor,
+      COALESCE(NULLIF(item->>'sku', ''), 'No SKU') AS sku,
+      CASE
+        WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
+        ELSE 0
+      END AS quantity_value,
+      CASE
+        WHEN item->>'price' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'price')::numeric
+        ELSE 0
+      END AS price_value,
+      CASE
+        WHEN item->>'total_discount' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'total_discount')::numeric
+        WHEN jsonb_typeof(item->'discount_allocations') = 'array' THEN COALESCE(
+          (
+            SELECT SUM(
+              CASE
+                WHEN allocation->>'amount' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (allocation->>'amount')::numeric
+                ELSE 0
+              END
+            )
+            FROM jsonb_array_elements(item->'discount_allocations') AS allocation
+          ),
+          0
+        )
+        ELSE 0
+      END AS discount_value
+    FROM shopify.orders
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE
+        WHEN line_items IS NULL THEN '[]'::jsonb
+        WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN line_items::jsonb
+        ELSE '[]'::jsonb
+      END
+    ) AS item
+  ),
+  enriched_items AS (
+    SELECT
+      *,
+      quantity_value * price_value AS gross_value,
+      GREATEST(quantity_value * price_value - discount_value, 0) AS net_value,
+      CASE
+        WHEN quantity_value * price_value > 0
+          AND discount_value / NULLIF(quantity_value * price_value, 0) >= 0.999
+        THEN quantity_value
+        ELSE 0
+      END AS free_quantity,
+      CASE
+        WHEN quantity_value * price_value > 0
+          AND discount_value / NULLIF(quantity_value * price_value, 0) >= 0.999
+        THEN 0
+        ELSE quantity_value
+      END AS paid_quantity,
+      CASE WHEN ${startupPackTitleCondition} THEN true ELSE false END AS is_startup_pack,
+      CASE WHEN ${boxTitleCondition} THEN true ELSE false END AS is_box
+    FROM order_items
+  )
+`;
 
 export async function getDatabaseNow(): Promise<DatabaseNowResult> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -1119,12 +1385,354 @@ export async function getShopifyFunnelBasic(): Promise<ShopifyFunnelBasicResult>
   }
 }
 
+export async function getStartupPackAnalysis(): Promise<StartupPackAnalysisResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  try {
+    const pool = getPool(databaseUrl);
+    const metricsResult = await pool.query<StartupPackMetricsRow>(`
+      ${lineItemsBaseCte},
+      startup_orders AS (
+        SELECT DISTINCT order_id
+        FROM enriched_items
+        WHERE is_startup_pack
+      ),
+      startup_items AS (
+        SELECT enriched_items.*
+        FROM enriched_items
+        INNER JOIN startup_orders ON startup_orders.order_id = enriched_items.order_id
+      )
+      SELECT
+        (SELECT COUNT(*) FROM startup_orders)::text AS startup_pack_order_count,
+        COALESCE(SUM(quantity_value) FILTER (WHERE is_startup_pack), 0)::text AS startup_pack_line_items_sold,
+        COALESCE(SUM(gross_value) FILTER (WHERE is_startup_pack), 0)::text AS startup_pack_gross_revenue,
+        COALESCE(SUM(net_value) FILTER (WHERE is_startup_pack), 0)::text AS startup_pack_net_revenue,
+        COALESCE(
+          SUM(net_value) FILTER (WHERE is_startup_pack) / NULLIF((SELECT COUNT(*) FROM startup_orders), 0),
+          0
+        )::text AS average_startup_pack_net_revenue_per_order,
+        COUNT(*) FILTER (WHERE free_quantity > 0 AND NOT is_startup_pack)::text AS free_bottle_line_item_count,
+        COALESCE(SUM(free_quantity) FILTER (WHERE free_quantity > 0 AND NOT is_startup_pack), 0)::text AS free_bottle_quantity,
+        COALESCE(SUM(gross_value) FILTER (WHERE free_quantity > 0 AND NOT is_startup_pack), 0)::text AS free_bottle_gross_value,
+        COALESCE(SUM(discount_value) FILTER (WHERE free_quantity > 0 AND NOT is_startup_pack), 0)::text AS free_bottle_discount_value,
+        COALESCE(SUM(net_value) FILTER (WHERE free_quantity = 0), 0)::text AS paid_items_net_revenue_in_startup_pack_orders,
+        COALESCE(
+          SUM(free_quantity) FILTER (WHERE free_quantity > 0 AND NOT is_startup_pack)
+          / NULLIF((SELECT COUNT(*) FROM startup_orders), 0),
+          0
+        )::text AS average_free_bottles_per_startup_pack_order
+      FROM startup_items
+    `);
+    const freeByQuantityResult = await pool.query<StartupPackProductRowResult>(`
+      ${lineItemsBaseCte},
+      startup_orders AS (
+        SELECT DISTINCT order_id
+        FROM enriched_items
+        WHERE is_startup_pack
+      )
+      SELECT
+        product_name,
+        vendor,
+        COALESCE(SUM(free_quantity), 0)::text AS quantity,
+        COALESCE(SUM(gross_value), 0)::text AS gross_value,
+        COALESCE(SUM(discount_value), 0)::text AS discount_value,
+        COALESCE(SUM(net_value), 0)::text AS net_revenue,
+        COUNT(DISTINCT enriched_items.order_id)::text AS order_count
+      FROM enriched_items
+      INNER JOIN startup_orders ON startup_orders.order_id = enriched_items.order_id
+      WHERE free_quantity > 0 AND NOT is_startup_pack
+      GROUP BY product_name, vendor
+      ORDER BY SUM(free_quantity) DESC
+      LIMIT 10
+    `);
+    const freeByGrossValueResult = await pool.query<StartupPackProductRowResult>(`
+      ${lineItemsBaseCte},
+      startup_orders AS (
+        SELECT DISTINCT order_id
+        FROM enriched_items
+        WHERE is_startup_pack
+      )
+      SELECT
+        product_name,
+        vendor,
+        COALESCE(SUM(free_quantity), 0)::text AS quantity,
+        COALESCE(SUM(gross_value), 0)::text AS gross_value,
+        COALESCE(SUM(discount_value), 0)::text AS discount_value,
+        COALESCE(SUM(net_value), 0)::text AS net_revenue,
+        COUNT(DISTINCT enriched_items.order_id)::text AS order_count
+      FROM enriched_items
+      INNER JOIN startup_orders ON startup_orders.order_id = enriched_items.order_id
+      WHERE free_quantity > 0 AND NOT is_startup_pack
+      GROUP BY product_name, vendor
+      ORDER BY SUM(gross_value) DESC
+      LIMIT 10
+    `);
+    const paidPackProductsResult = await pool.query<StartupPackProductRowResult>(`
+      ${lineItemsBaseCte}
+      SELECT
+        product_name,
+        vendor,
+        COALESCE(SUM(quantity_value), 0)::text AS quantity,
+        COALESCE(SUM(gross_value), 0)::text AS gross_value,
+        COALESCE(SUM(discount_value), 0)::text AS discount_value,
+        COALESCE(SUM(net_value), 0)::text AS net_revenue,
+        COUNT(DISTINCT order_id)::text AS order_count
+      FROM enriched_items
+      WHERE is_startup_pack
+      GROUP BY product_name, vendor
+      ORDER BY SUM(net_value) DESC
+      LIMIT 10
+    `);
+    const metrics = metricsResult.rows[0];
+
+    return {
+      ok: true,
+      metrics: {
+        startupPackOrderCount: numberFromPg(metrics?.startup_pack_order_count),
+        startupPackLineItemsSold: numberFromPg(metrics?.startup_pack_line_items_sold),
+        startupPackGrossRevenue: numberFromPg(metrics?.startup_pack_gross_revenue),
+        startupPackNetRevenue: numberFromPg(metrics?.startup_pack_net_revenue),
+        averageStartupPackNetRevenuePerOrder:
+          metrics?.average_startup_pack_net_revenue_per_order === null
+            ? null
+            : numberFromPg(metrics?.average_startup_pack_net_revenue_per_order),
+        freeBottleLineItemCount: numberFromPg(metrics?.free_bottle_line_item_count),
+        freeBottleQuantity: numberFromPg(metrics?.free_bottle_quantity),
+        freeBottleGrossValue: numberFromPg(metrics?.free_bottle_gross_value),
+        freeBottleDiscountValue: numberFromPg(metrics?.free_bottle_discount_value),
+        paidItemsNetRevenueInStartupPackOrders: numberFromPg(
+          metrics?.paid_items_net_revenue_in_startup_pack_orders,
+        ),
+        averageFreeBottlesPerStartupPackOrder:
+          metrics?.average_free_bottles_per_startup_pack_order === null
+            ? null
+            : numberFromPg(metrics?.average_free_bottles_per_startup_pack_order),
+        topFreeWinesByQuantity: freeByQuantityResult.rows.map(mapStartupPackProductRow),
+        topFreeWinesByGrossValue: freeByGrossValueResult.rows.map(mapStartupPackProductRow),
+        topPaidPackProducts: paidPackProductsResult.rows.map(mapStartupPackProductRow),
+      },
+    };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Startup Pack analysis failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getStockMovementSummary(): Promise<StockMovementSummaryResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  try {
+    const pool = getPool(databaseUrl);
+    const productsResult = await pool.query<StockMovementProductRow>(`
+      ${lineItemsBaseCte}
+      SELECT
+        product_name,
+        vendor,
+        sku,
+        COALESCE(SUM(quantity_value), 0)::text AS total_quantity_moved,
+        COALESCE(SUM(paid_quantity), 0)::text AS paid_quantity,
+        COALESCE(SUM(free_quantity), 0)::text AS free_quantity,
+        COALESCE((SUM(free_quantity) / NULLIF(SUM(quantity_value), 0)) * 100, 0)::text AS free_quantity_percentage,
+        COALESCE(SUM(gross_value), 0)::text AS gross_value,
+        COALESCE(SUM(discount_value), 0)::text AS discount_value,
+        COALESCE(SUM(net_value), 0)::text AS net_revenue,
+        COALESCE(SUM(net_value) / NULLIF(SUM(quantity_value), 0), 0)::text AS average_net_revenue_per_unit,
+        COUNT(DISTINCT order_id)::text AS order_count
+      FROM enriched_items
+      GROUP BY product_name, vendor, sku
+      ORDER BY SUM(quantity_value) DESC
+      LIMIT 100
+    `);
+    const globalResult = await pool.query<StockMovementGlobalRow>(`
+      ${lineItemsBaseCte}
+      SELECT
+        COALESCE(SUM(quantity_value), 0)::text AS total_quantity_moved,
+        COALESCE(SUM(paid_quantity), 0)::text AS total_paid_quantity,
+        COALESCE(SUM(free_quantity), 0)::text AS total_free_quantity,
+        COALESCE((SUM(free_quantity) / NULLIF(SUM(quantity_value), 0)) * 100, 0)::text AS free_quantity_percentage,
+        COALESCE(SUM(gross_value), 0)::text AS total_gross_product_value,
+        COALESCE(SUM(discount_value), 0)::text AS total_discount_value,
+        COALESCE(SUM(net_value), 0)::text AS total_net_product_revenue
+      FROM enriched_items
+    `);
+    const global = globalResult.rows[0];
+
+    return {
+      ok: true,
+      metrics: {
+        totalQuantityMoved: numberFromPg(global?.total_quantity_moved),
+        totalPaidQuantity: numberFromPg(global?.total_paid_quantity),
+        totalFreeQuantity: numberFromPg(global?.total_free_quantity),
+        freeQuantityPercentage:
+          global?.free_quantity_percentage === null
+            ? null
+            : numberFromPg(global?.free_quantity_percentage),
+        totalGrossProductValue: numberFromPg(global?.total_gross_product_value),
+        totalDiscountValue: numberFromPg(global?.total_discount_value),
+        totalNetProductRevenue: numberFromPg(global?.total_net_product_revenue),
+        products: productsResult.rows.map(mapStockMovementProductRow),
+      },
+    };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Stock movement summary failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getAcquisitionEconomicsBasic(): Promise<AcquisitionEconomicsBasicResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  try {
+    const result = await getPool(databaseUrl).query<AcquisitionEconomicsBasicRow>(`
+      ${lineItemsBaseCte},
+      startup_orders AS (
+        SELECT DISTINCT order_id FROM enriched_items WHERE is_startup_pack
+      ),
+      box_orders AS (
+        SELECT DISTINCT order_id FROM enriched_items WHERE is_box
+      ),
+      movement AS (
+        SELECT
+          COALESCE(SUM(free_quantity), 0)::text AS free_bottle_quantity,
+          COALESCE(SUM(discount_value), 0)::text AS product_discount_value
+        FROM enriched_items
+      )
+      SELECT
+        (SELECT COUNT(*) FROM public.users)::text AS users_count,
+        (SELECT COUNT(*) FROM public.quizz)::text AS quiz_count,
+        (SELECT COUNT(*) FROM public.ratings)::text AS ratings_count,
+        (SELECT COUNT(*) FROM shopify.customers)::text AS shopify_customers_count,
+        (SELECT COUNT(*) FROM shopify.orders)::text AS orders_count,
+        (
+          SELECT COUNT(*)
+          FROM shopify.orders
+          WHERE lower(coalesce(financial_status::text, '')) = 'paid'
+        )::text AS paid_orders_count,
+        (SELECT COUNT(*) FROM shopify.orders WHERE cancelled_at IS NOT NULL)::text AS cancelled_orders_count,
+        (SELECT COUNT(*) FROM shopify.abandoned_checkouts)::text AS abandoned_checkout_count,
+        (SELECT COUNT(*) FROM startup_orders)::text AS startup_pack_orders_count,
+        (SELECT COUNT(*) FROM box_orders)::text AS box_orders_count,
+        movement.free_bottle_quantity,
+        movement.product_discount_value,
+        (
+          SELECT COALESCE(
+            SUM(
+              CASE
+                WHEN total_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN total_price::text::numeric
+                ELSE NULL
+              END
+            ),
+            0
+          )
+          FROM shopify.orders
+        )::text AS total_revenue,
+        (
+          SELECT COALESCE(
+            AVG(
+              CASE
+                WHEN total_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN total_price::text::numeric
+                ELSE NULL
+              END
+            ),
+            0
+          )
+          FROM shopify.orders
+        )::text AS average_order_value
+      FROM movement
+    `);
+    const row = result.rows[0];
+    const usersCount = numberFromPg(row?.users_count);
+    const quizCount = numberFromPg(row?.quiz_count);
+    const ratingsCount = numberFromPg(row?.ratings_count);
+    const ordersCount = numberFromPg(row?.orders_count);
+    const abandonedCheckoutCount = numberFromPg(row?.abandoned_checkout_count);
+    const startupPackOrdersCount = numberFromPg(row?.startup_pack_orders_count);
+    const boxOrdersCount = numberFromPg(row?.box_orders_count);
+    const freeBottleQuantity = numberFromPg(row?.free_bottle_quantity);
+    const potentialIssues: string[] = [];
+
+    if (quizCount > 0 && ordersCount / quizCount < 0.2) {
+      potentialIssues.push('Quiz-to-order conversion may need attention.');
+    }
+
+    if (abandonedCheckoutCount > ordersCount) {
+      potentialIssues.push('Abandoned checkouts exceed completed orders.');
+    }
+
+    if (freeBottleQuantity > 0 && startupPackOrdersCount === 0) {
+      potentialIssues.push('Free stock movement detected outside Startup Pack logic.');
+    }
+
+    if (usersCount > 0 && ratingsCount / usersCount < 1) {
+      potentialIssues.push('Most users have not rated at least one wine yet.');
+    }
+
+    if (boxOrdersCount === 0 && ratingsCount > 0) {
+      potentialIssues.push('Rated users may not yet be converting to Smart Box.');
+    }
+
+    return {
+      ok: true,
+      metrics: {
+        usersCount,
+        quizCount,
+        ratingsCount,
+        shopifyCustomersCount:
+          row?.shopify_customers_count === null ? null : numberFromPg(row?.shopify_customers_count),
+        ordersCount,
+        paidOrdersCount: numberFromPg(row?.paid_orders_count),
+        cancelledOrdersCount: numberFromPg(row?.cancelled_orders_count),
+        abandonedCheckoutCount,
+        startupPackOrdersCount,
+        boxOrdersCount,
+        freeBottleQuantity,
+        productDiscountValue: numberFromPg(row?.product_discount_value),
+        totalRevenue: numberFromPg(row?.total_revenue),
+        averageOrderValue: numberFromPg(row?.average_order_value),
+        ratingsPerUser: ratio(ratingsCount, usersCount),
+        ratingsPerOrder: ratio(ratingsCount, ordersCount),
+        quizToOrderRatio: ratio(ordersCount, quizCount),
+        abandonedCheckoutToOrderRatio: ratio(abandonedCheckoutCount, ordersCount),
+        potentialIssues:
+          potentialIssues.length > 0 ? potentialIssues : ['No major acquisition issue detected.'],
+      },
+    };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Acquisition economics basic failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
 export async function getBusinessOverview(): Promise<BusinessOverviewResult> {
-  const [ordersResult, productsResult, funnelResult] = await Promise.all([
-    getShopifyOrdersSummary(),
-    getShopifyProductsSummary(),
-    getShopifyFunnelBasic(),
-  ]);
+  const [ordersResult, productsResult, funnelResult, startupPackResult, stockMovementResult] =
+    await Promise.all([
+      getShopifyOrdersSummary(),
+      getShopifyProductsSummary(),
+      getShopifyFunnelBasic(),
+      getStartupPackAnalysis(),
+      getStockMovementSummary(),
+    ]);
 
   if (!ordersResult.ok) {
     return ordersResult;
@@ -1136,6 +1744,14 @@ export async function getBusinessOverview(): Promise<BusinessOverviewResult> {
 
   if (!funnelResult.ok) {
     return funnelResult;
+  }
+
+  if (!startupPackResult.ok) {
+    return startupPackResult;
+  }
+
+  if (!stockMovementResult.ok) {
+    return stockMovementResult;
   }
 
   const potentialIssues: string[] = [];
@@ -1158,6 +1774,20 @@ export async function getBusinessOverview(): Promise<BusinessOverviewResult> {
     );
   }
 
+  const averageFreeBottles = startupPackResult.metrics.averageFreeBottlesPerStartupPackOrder;
+  if (
+    startupPackResult.metrics.startupPackOrderCount > 0 &&
+    (averageFreeBottles === null || averageFreeBottles < 3 || averageFreeBottles > 4)
+  ) {
+    potentialIssues.push('Average free bottles per Startup Pack is outside the expected 3 to 4 range.');
+  }
+
+  if ((stockMovementResult.metrics.freeQuantityPercentage ?? 0) > 50) {
+    potentialIssues.push(
+      'A large share of stock movement is discounted/free. Check acquisition economics.',
+    );
+  }
+
   return {
     ok: true,
     metrics: {
@@ -1172,6 +1802,11 @@ export async function getBusinessOverview(): Promise<BusinessOverviewResult> {
       totalProductDiscounts: productsResult.totalProductDiscounts,
       freeQuantityEstimate: productsResult.freeQuantityEstimate,
       totalLineItems: ordersResult.metrics.totalLineItemsCount,
+      startupPackOrders: startupPackResult.metrics.startupPackOrderCount,
+      averageFreeBottlesPerStartupPackOrder:
+        startupPackResult.metrics.averageFreeBottlesPerStartupPackOrder,
+      paidQuantityEstimate: stockMovementResult.metrics.totalPaidQuantity,
+      freeQuantityPercentage: stockMovementResult.metrics.freeQuantityPercentage,
       potentialIssues:
         potentialIssues.length > 0 ? potentialIssues : ['No major Shopify issue detected.'],
     },
