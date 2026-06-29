@@ -62,6 +62,23 @@ export type ShopifyOrderLineItemsSample = {
   lineItems: ShopifyLineItemSample[];
 };
 
+export type ShopifyOrdersAggregateMetrics = {
+  totalOrders: number;
+  paidOrders: number;
+  cancelledOrders: number;
+  fulfilledOrders: number;
+  unfulfilledOrders: number;
+  totalRevenue: number;
+  subtotalRevenue: number;
+  totalTax: number;
+  averageOrderValue: number;
+  firstOrderDate: string | null;
+  latestOrderDate: string | null;
+  totalLineItemsCount: number | null;
+  averageLineItemsPerOrder: number | null;
+  lineItemsCountWorked: boolean;
+};
+
 type DatabaseTableInfoRow = {
   table_schema: string;
   table_name: string;
@@ -92,6 +109,25 @@ type ShopifyOrderLineItemsSampleRow = {
   line_items: unknown;
 };
 
+type ShopifyOrdersAggregateMetricsRow = {
+  total_orders: string;
+  paid_orders: string;
+  cancelled_orders: string;
+  fulfilled_orders: string;
+  unfulfilled_orders: string;
+  total_revenue: string | null;
+  subtotal_revenue: string | null;
+  total_tax: string | null;
+  average_order_value: string | null;
+  first_order_date: Date | string | null;
+  latest_order_date: Date | string | null;
+};
+
+type ShopifyOrdersLineItemsAggregateRow = {
+  total_line_items_count: string | null;
+  average_line_items_per_order: string | null;
+};
+
 export type DatabaseNowResult =
   | { ok: true; now: string }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
@@ -114,6 +150,10 @@ export type ShopifyMetadataSearchResult =
 
 export type ShopifyLineItemsSampleResult =
   | { ok: true; orders: ShopifyOrderLineItemsSample[]; safeFieldsFound: ShopifyLineItemSafeField[] }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type ShopifyOrdersSummaryResult =
+  | { ok: true; metrics: ShopifyOrdersAggregateMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 declare global {
@@ -199,6 +239,23 @@ function sanitizeLineItem(lineItem: unknown): ShopifyLineItemSample {
   }
 
   return safeLineItem;
+}
+
+function numberFromPg(value: string | null | undefined): number {
+  if (!value) {
+    return 0;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function dateFromPg(value: Date | string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
 export async function getDatabaseNow(): Promise<DatabaseNowResult> {
@@ -509,6 +566,134 @@ export async function getShopifyLineItemsSample(): Promise<ShopifyLineItemsSampl
       typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
 
     console.error('Shopify line items sample failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getShopifyOrdersSummary(): Promise<ShopifyOrdersSummaryResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  try {
+    const pool = getPool(databaseUrl);
+    const summaryResult = await pool.query<ShopifyOrdersAggregateMetricsRow>(`
+      SELECT
+        COUNT(*)::text AS total_orders,
+        COUNT(*) FILTER (WHERE lower(coalesce(financial_status::text, '')) = 'paid')::text AS paid_orders,
+        COUNT(*) FILTER (WHERE cancelled_at IS NOT NULL)::text AS cancelled_orders,
+        COUNT(*) FILTER (WHERE lower(coalesce(fulfillment_status::text, '')) = 'fulfilled')::text AS fulfilled_orders,
+        COUNT(*) FILTER (
+          WHERE fulfillment_status IS NULL OR lower(coalesce(fulfillment_status::text, '')) <> 'fulfilled'
+        )::text AS unfulfilled_orders,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN total_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN total_price::text::numeric
+              ELSE NULL
+            END
+          ),
+          0
+        )::text AS total_revenue,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN subtotal_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN subtotal_price::text::numeric
+              ELSE NULL
+            END
+          ),
+          0
+        )::text AS subtotal_revenue,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN total_tax::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN total_tax::text::numeric
+              ELSE NULL
+            END
+          ),
+          0
+        )::text AS total_tax,
+        COALESCE(
+          AVG(
+            CASE
+              WHEN total_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN total_price::text::numeric
+              ELSE NULL
+            END
+          ),
+          0
+        )::text AS average_order_value,
+        MIN(created_at) AS first_order_date,
+        MAX(created_at) AS latest_order_date
+      FROM shopify.orders
+    `);
+    const summary = summaryResult.rows[0];
+
+    let totalLineItemsCount: number | null = null;
+    let averageLineItemsPerOrder: number | null = null;
+    let lineItemsCountWorked = false;
+
+    try {
+      const lineItemsResult = await pool.query<ShopifyOrdersLineItemsAggregateRow>(`
+        SELECT
+          COALESCE(
+            SUM(
+              CASE
+                WHEN line_items IS NULL THEN 0
+                WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN jsonb_array_length(line_items::jsonb)
+                ELSE 0
+              END
+            ),
+            0
+          )::text AS total_line_items_count,
+          COALESCE(
+            AVG(
+              CASE
+                WHEN line_items IS NULL THEN 0
+                WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN jsonb_array_length(line_items::jsonb)
+                ELSE 0
+              END
+            ),
+            0
+          )::text AS average_line_items_per_order
+        FROM shopify.orders
+      `);
+      const lineItemsSummary = lineItemsResult.rows[0];
+      totalLineItemsCount = numberFromPg(lineItemsSummary?.total_line_items_count);
+      averageLineItemsPerOrder = numberFromPg(lineItemsSummary?.average_line_items_per_order);
+      lineItemsCountWorked = true;
+    } catch (error) {
+      const errorCode =
+        typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+      console.error('Shopify line items aggregate failed', { code: errorCode });
+    }
+
+    return {
+      ok: true,
+      metrics: {
+        totalOrders: numberFromPg(summary?.total_orders),
+        paidOrders: numberFromPg(summary?.paid_orders),
+        cancelledOrders: numberFromPg(summary?.cancelled_orders),
+        fulfilledOrders: numberFromPg(summary?.fulfilled_orders),
+        unfulfilledOrders: numberFromPg(summary?.unfulfilled_orders),
+        totalRevenue: numberFromPg(summary?.total_revenue),
+        subtotalRevenue: numberFromPg(summary?.subtotal_revenue),
+        totalTax: numberFromPg(summary?.total_tax),
+        averageOrderValue: numberFromPg(summary?.average_order_value),
+        firstOrderDate: dateFromPg(summary?.first_order_date ?? null),
+        latestOrderDate: dateFromPg(summary?.latest_order_date ?? null),
+        totalLineItemsCount,
+        averageLineItemsPerOrder,
+        lineItemsCountWorked,
+      },
+    };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Shopify orders summary failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }
