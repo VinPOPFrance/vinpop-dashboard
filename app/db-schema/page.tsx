@@ -1,0 +1,152 @@
+import { connection } from 'next/server';
+import { DashboardLayout } from '@/components/DashboardLayout';
+import { Card, PageSection, SectionTitle } from '@/components/Layout';
+import { TopBar } from '@/components/TopBar';
+import { getDatabaseTableSchemas, type SelectedDatabaseTable } from '@/lib/db';
+
+export const runtime = 'nodejs';
+
+const selectedTables: SelectedDatabaseTable[] = [
+  { schemaName: 'public', tableName: 'users' },
+  { schemaName: 'public', tableName: 'quizz' },
+  { schemaName: 'public', tableName: 'ratings' },
+  { schemaName: 'public', tableName: 'wines' },
+  { schemaName: 'public', tableName: 'food_pairing' },
+  { schemaName: 'public', tableName: 'ad_account' },
+  { schemaName: 'public', tableName: 'ad_sets' },
+  { schemaName: 'public', tableName: 'ads' },
+  { schemaName: 'public', tableName: 'ads_insights' },
+  { schemaName: 'public', tableName: 'campaigns' },
+  { schemaName: 'shopify', tableName: 'abandoned_checkouts' },
+  { schemaName: 'shopify', tableName: 'customer_address' },
+];
+
+export default async function DatabaseSchemaPage() {
+  await connection();
+  const result = await getDatabaseTableSchemas(selectedTables);
+
+  const foundCount = result.ok
+    ? result.tables.filter((table) => table.status === 'found').length
+    : 0;
+  const missingTables = result.ok
+    ? result.tables.filter((table) => table.status === 'missing')
+    : [];
+  const message = result.ok
+    ? `${foundCount} of ${selectedTables.length} selected tables found.`
+    : result.reason === 'missing-url'
+      ? 'DATABASE_URL is not configured on the server. Add it to .env.local locally and to Vercel environment variables in production.'
+      : 'Could not inspect PostgreSQL schema metadata. Check DATABASE_URL, database availability, SSL settings, and network access.';
+
+  return (
+    <DashboardLayout>
+      <TopBar
+        title="Database Schema"
+        subtitle="Read-only PostgreSQL column inventory for selected tables"
+      />
+
+      <PageSection>
+        <SectionTitle sub="Columns and types only">Selected Table Schemas</SectionTitle>
+        <Card style={{ marginBottom: 16 }}>
+          <p style={{ margin: '0 0 8px', color: '#1A1A1A', fontSize: 13, fontWeight: 700 }}>
+            Schema inspection only. No customer data is displayed.
+          </p>
+          <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>
+            {message}
+          </p>
+          {result.ok && missingTables.length > 0 ? (
+            <p style={{ margin: '8px 0 0', color: '#B45309', fontSize: 13, lineHeight: 1.5 }}>
+              Missing:{' '}
+              {missingTables
+                .map((table) => `${table.schemaName}.${table.tableName}`)
+                .join(', ')}
+            </p>
+          ) : null}
+        </Card>
+
+        {result.ok ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {result.tables.map((table) => (
+              <Card key={`${table.schemaName}.${table.tableName}`} style={{ padding: 0 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    padding: '16px 18px',
+                    borderBottom: '1px solid #E8E6E1',
+                  }}
+                >
+                  <div>
+                    <div style={{ color: '#1A1A1A', fontSize: 14, fontWeight: 700 }}>
+                      {table.schemaName}.{table.tableName}
+                    </div>
+                    <div style={{ color: '#9B9B9B', fontSize: 12, marginTop: 3 }}>
+                      {table.status === 'found'
+                        ? `${table.columns.length} column${table.columns.length === 1 ? '' : 's'}`
+                        : 'Selected table was not found'}
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      alignSelf: 'flex-start',
+                      background: table.status === 'found' ? '#EAF4EF' : '#FFF7ED',
+                      borderRadius: 999,
+                      color: table.status === 'found' ? '#2D6A4F' : '#B45309',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '4px 9px',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {table.status}
+                  </span>
+                </div>
+
+                {table.status === 'found' ? (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ background: '#F5F4F0', color: '#6B6B6B', textAlign: 'left' }}>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Position</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Schema</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Table</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Column</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Data type</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Nullable</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {table.columns.map((column) => (
+                          <tr key={column.columnName} style={{ borderTop: '1px solid #E8E6E1' }}>
+                            <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>
+                              {column.ordinalPosition}
+                            </td>
+                            <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>
+                              {table.schemaName}
+                            </td>
+                            <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>
+                              {table.tableName}
+                            </td>
+                            <td style={{ padding: '10px 14px', color: '#1A1A1A', fontWeight: 600 }}>
+                              {column.columnName}
+                            </td>
+                            <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>
+                              {column.dataType}
+                            </td>
+                            <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>
+                              {column.isNullable}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </Card>
+            ))}
+          </div>
+        ) : null}
+      </PageSection>
+    </DashboardLayout>
+  );
+}
