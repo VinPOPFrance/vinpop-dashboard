@@ -6,10 +6,14 @@ import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { MetricCard } from '@/components/MetricCard';
 import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
 import { TopBar } from '@/components/TopBar';
-import { getBusinessOverview, getTodayActionPlan } from '@/lib/db';
+import { getBusinessOverview, getCustomerIntelligence, getTodayActionPlan } from '@/lib/db';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
 
 export const runtime = 'nodejs';
+
+function stageSlug(stage: string) {
+  return stage.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
 
 type OverviewProductRow = Record<string, unknown> & {
   product: string;
@@ -27,14 +31,44 @@ const overviewProductColumns: SortableColumn<OverviewProductRow>[] = [
   { key: 'quantity', label: 'Qty', type: 'number' },
 ];
 
+const chipStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  border: '1px solid #E8E6E1',
+  borderRadius: 999,
+  padding: '8px 12px',
+  color: '#722F37',
+  background: '#FFFFFF',
+  fontSize: 12,
+  fontWeight: 700,
+  textDecoration: 'none',
+};
+
 export default async function BusinessOverviewPage() {
   await connection();
-  const [result, actionPlanResult] = await Promise.all([
+  const [result, actionPlanResult, customerResult] = await Promise.all([
     getBusinessOverview(),
     getTodayActionPlan(),
+    getCustomerIntelligence(),
   ]);
   const metrics = result.ok ? result.metrics : null;
   const actionPlan = actionPlanResult.ok ? actionPlanResult.metrics : null;
+  const customers = customerResult.ok ? customerResult.metrics.customers : [];
+  const stageCounts = Array.from(
+    customers.reduce((map, customer) => {
+      map.set(customer.funnelStage, (map.get(customer.funnelStage) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>()),
+  ).sort((a, b) => b[1] - a[1]);
+  const keyStages = [
+    'Taste Kit Buyer',
+    'Needs to Rate Wines',
+    'Rated At Least 1 Wine',
+    'Ready for Smart Box',
+    'Smart Box Buyer',
+    'Repeat Buyer',
+    'Ready for Subscription',
+  ];
   const message = result.ok
     ? 'High-level Shopify business overview loaded from aggregate queries.'
     : result.reason === 'missing-url'
@@ -120,6 +154,49 @@ export default async function BusinessOverviewPage() {
 
         {metrics ? (
           <>
+            <PageSection>
+              <SectionTitle sub="These link to the full stage-driven funnel page">Customer Stage Filters</SectionTitle>
+              <Card style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <a href="/sales-funnel" style={chipStyle}>All</a>
+                  {keyStages.map((stage) => (
+                    <a key={stage} href={`/sales-funnel?stage=${stageSlug(stage)}`} style={chipStyle}>
+                      {stage}
+                    </a>
+                  ))}
+                </div>
+              </Card>
+            </PageSection>
+
+            <PageSection>
+              <SectionTitle sub="Stage counts and missing-data blockers">Sales Funnel Snapshot</SectionTitle>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) minmax(260px, 1fr)', gap: 16, marginBottom: 16 }}>
+                <Card>
+                  <BarChart
+                    data={stageCounts.slice(0, 8).map(([label, value]) => ({
+                      label,
+                      value,
+                      color: label.includes('Ready') || label.includes('Repeat') ? '#2D6A4F' : label.includes('Needs') ? '#B45309' : '#722F37',
+                    }))}
+                  />
+                  <a href="/sales-funnel" style={{ color: '#722F37', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>Open Sales Funnel</a>
+                </Card>
+                <Card>
+                  <div style={{ color: '#1A1A1A', fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Data Quality</div>
+                  {[
+                    'Visitor/session tracking is missing, so early funnel stages are unavailable.',
+                    'Meta attribution to Shopify orders is missing, so CAC/ROAS remain unavailable.',
+                    'Ratings-to-wine mapping uses public.mapping and is available for most ratings.',
+                    'Shopify product IDs map through public.mapping.vp_id for most line items.',
+                  ].map((item) => (
+                    <p key={item} style={{ margin: '0 0 8px', color: item.includes('missing') ? '#B45309' : '#2D6A4F', fontSize: 13, fontWeight: 600 }}>
+                      {item}
+                    </p>
+                  ))}
+                </Card>
+              </div>
+            </PageSection>
+
             {actionPlan ? (
               <PageSection>
                 <SectionTitle sub="Top 3 generated actions">What needs attention today</SectionTitle>

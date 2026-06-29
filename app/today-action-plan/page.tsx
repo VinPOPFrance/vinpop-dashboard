@@ -18,6 +18,15 @@ function ActionCard({ action }: { action: TodayAction }) {
       <p style={{ margin: '0 0 6px', color: '#6B6B6B', fontSize: 13 }}>{action.whyItMatters}</p>
       <p style={{ margin: '0 0 6px', color: '#2D6A4F', fontSize: 13, fontWeight: 600 }}>Today: {action.suggestedAction}</p>
       <p style={{ margin: '0 0 8px', color: '#9B9B9B', fontSize: 12 }}>{action.metricEvidence}</p>
+      {action.stageAffected ? (
+        <div style={{ borderTop: '1px solid #E8E6E1', paddingTop: 8, marginBottom: 8, color: '#6B6B6B', fontSize: 12, lineHeight: 1.5 }}>
+          <div><strong>Stage:</strong> {action.stageAffected}{action.customersAffected ? ` · ${action.customersAffected} customers` : ''}</div>
+          {action.recommendedEmail ? <div><strong>Email:</strong> {action.recommendedEmail}</div> : null}
+          {action.recommendedOffer ? <div><strong>Offer:</strong> {action.recommendedOffer}</div> : null}
+          {action.objectionToAddress ? <div><strong>Objection:</strong> {action.objectionToAddress}</div> : null}
+          {action.businessImpact ? <div><strong>Impact:</strong> {action.businessImpact}</div> : null}
+        </div>
+      ) : null}
       <a href={action.relatedPage} style={{ color: '#722F37', fontSize: 12, textDecoration: 'none', fontWeight: 600 }}>Open related page</a>
     </Card>
   );

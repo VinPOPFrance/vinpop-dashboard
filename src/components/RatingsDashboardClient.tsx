@@ -115,8 +115,28 @@ function hasSelectedRating(row: { love: number; like: number; dislike: number },
 
 export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligenceMetrics }) {
   const [selectedRatingTypes, setSelectedRatingTypes] = useState<RatingType[]>(['love', 'like', 'dislike']);
+  const [stageFilter, setStageFilter] = useState('All');
+  const [colorFilter, setColorFilter] = useState('All');
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [smartBoxFilter, setSmartBoxFilter] = useState('All');
   const [selectedProductId, setSelectedProductId] = useState(metrics.wines[0]?.shopifyProductId ?? '');
   const [selectedCustomerId, setSelectedCustomerId] = useState(metrics.customers[0]?.customerId ?? '');
+  const stages = ['All', ...Array.from(new Set(metrics.customers.map((customer) => customer.funnelStage)))];
+  const colors = ['All', ...Array.from(new Set(metrics.wines.map((wine) => wine.color)))];
+  const customersMatchingFilters = useMemo(
+    () =>
+      metrics.customers.filter((customer) => {
+        if (stageFilter !== 'All' && customer.funnelStage !== stageFilter) return false;
+        if (smartBoxFilter === 'Ready only' && !customer.smartBoxReady) return false;
+        if (customerQuery.trim() && !customer.email.toLowerCase().includes(customerQuery.trim().toLowerCase())) return false;
+        return true;
+      }),
+    [customerQuery, metrics.customers, smartBoxFilter, stageFilter],
+  );
+  const productIdsForMatchingCustomers = useMemo(
+    () => new Set(customersMatchingFilters.flatMap((customer) => customer.ratedWines.map((wine) => wine.shopifyProductId))),
+    [customersMatchingFilters],
+  );
 
   const wineRows = useMemo<RatingTableRow[]>(
     () =>
@@ -137,12 +157,14 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
           averageScore: wine.averageRatingScore,
           action: wine.recommendationLabel,
         }))
-        .filter((row) => hasSelectedRating(row, selectedRatingTypes)),
-    [metrics.wines, selectedRatingTypes],
+        .filter((row) => hasSelectedRating(row, selectedRatingTypes))
+        .filter((row) => colorFilter === 'All' || row.color === colorFilter)
+        .filter((row) => stageFilter === 'All' && smartBoxFilter === 'All' && !customerQuery.trim() ? true : productIdsForMatchingCustomers.has(row.shopifyProductId)),
+    [colorFilter, customerQuery, metrics.wines, productIdsForMatchingCustomers, selectedRatingTypes, smartBoxFilter, stageFilter],
   );
   const customerRows = useMemo<CustomerTableRow[]>(
     () =>
-      metrics.customers
+      customersMatchingFilters
         .map((customer) => ({
           customerId: customer.customerId,
           email: customer.email,
@@ -161,7 +183,7 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
           nextAction: customer.nextAction,
         }))
         .filter((row) => hasSelectedRating(row, selectedRatingTypes) || selectedRatingTypes.length === 3),
-    [metrics.customers, selectedRatingTypes],
+    [customersMatchingFilters, selectedRatingTypes],
   );
   const selectedWine = metrics.wines.find((wine) => wine.shopifyProductId === selectedProductId) ?? metrics.wines[0];
   const selectedCustomer = metrics.customers.find((customer) => customer.customerId === selectedCustomerId) ?? metrics.customers[0];
@@ -171,7 +193,7 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
       )
     : [];
   const colorData = Array.from(
-    metrics.wines.reduce((map, wine) => {
+    metrics.wines.filter((wine) => colorFilter === 'All' || wine.color === colorFilter).reduce((map, wine) => {
       const selectedCount =
         (selectedRatingTypes.includes('love') ? wine.loveCount : 0) +
         (selectedRatingTypes.includes('like') ? wine.likeCount : 0) +
@@ -244,6 +266,24 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
                 {label}
               </button>
             ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            <select value={stageFilter} onChange={(event) => setStageFilter(event.target.value)} style={selectStyle}>
+              {stages.map((stage) => <option key={stage}>{stage}</option>)}
+            </select>
+            <select value={colorFilter} onChange={(event) => setColorFilter(event.target.value)} style={selectStyle}>
+              {colors.map((color) => <option key={color}>{color}</option>)}
+            </select>
+            <select value={smartBoxFilter} onChange={(event) => setSmartBoxFilter(event.target.value)} style={selectStyle}>
+              <option>All</option>
+              <option>Ready only</option>
+            </select>
+            <input
+              value={customerQuery}
+              onChange={(event) => setCustomerQuery(event.target.value)}
+              placeholder="Search customer email..."
+              style={{ ...selectStyle, minWidth: 220 }}
+            />
           </div>
         </Card>
       </PageSection>
@@ -340,8 +380,17 @@ function CustomerDetail({ customer }: { customer?: CustomerRatingsSummary }) {
         <div>Unrated est.: {formatNumber(customer.unratedBottlesRemaining)}</div>
         <div>Stage: {customer.funnelStage}</div>
         <div>Repeat: {customer.repeatCustomer ? 'Yes' : 'No'}</div>
+        <div>Smart Box ready: {customer.smartBoxReady ? 'Yes' : 'No'}</div>
+        <div>Subscription ready: {customer.subscriptionReady ? 'Yes' : 'No'}</div>
       </div>
       <p style={{ margin: '0 0 12px', color: '#2D6A4F', fontSize: 13, fontWeight: 700 }}>{customer.nextAction}</p>
+      <p style={{ margin: '0 0 12px', color: '#6B6B6B', fontSize: 12, lineHeight: 1.5 }}>
+        Email: {customer.emailAngle}
+        <br />
+        Offer: {customer.suggestedOffer}
+        <br />
+        Objection: {customer.objectionToHandle}
+      </p>
       <SectionTitle sub={customer.wineColorsRated}>Rated Wines</SectionTitle>
       <div style={{ border: '1px solid #E8E6E1', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
         <SortableDataTable columns={ratedWineColumns} rows={customer.ratedWines as RatedWineRow[]} enableSearch={false} initialSortKey="ratingDate" />
@@ -353,3 +402,12 @@ function CustomerDetail({ customer }: { customer?: CustomerRatingsSummary }) {
     </Card>
   );
 }
+
+const selectStyle: CSSProperties = {
+  border: '1px solid #E8E6E1',
+  borderRadius: 7,
+  padding: '8px 10px',
+  color: '#1A1A1A',
+  background: '#FFFFFF',
+  fontSize: 13,
+};

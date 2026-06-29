@@ -21,6 +21,9 @@ type CustomerRow = Record<string, unknown> & {
   lastOrderDate: string | null;
   lastRatingDate: string | null;
   repeatCustomer: string;
+  startupPackBuyer: string;
+  smartBoxReady: string;
+  subscriptionReady: string;
   funnelStage: string;
   nextAction: string;
 };
@@ -40,6 +43,8 @@ const customerColumns: SortableColumn<CustomerRow>[] = [
   { key: 'lastOrderDate', label: 'Last order', type: 'date' },
   { key: 'lastRatingDate', label: 'Last rating', type: 'date' },
   { key: 'repeatCustomer', label: 'Repeat', type: 'text' },
+  { key: 'smartBoxReady', label: 'Smart Box ready', type: 'text' },
+  { key: 'subscriptionReady', label: 'Subscription ready', type: 'text' },
   { key: 'funnelStage', label: 'Stage', type: 'text' },
   { key: 'nextAction', label: 'Next action', type: 'text', width: 260 },
 ];
@@ -66,9 +71,25 @@ const ratedWineColumns: SortableColumn<RatedWineRow>[] = [
 
 export function CustomersDashboardClient({ customers }: { customers: CustomerRatingsSummary[] }) {
   const [stageFilter, setStageFilter] = useState('All');
+  const [hasRatingsFilter, setHasRatingsFilter] = useState('All');
+  const [needsRatingFilter, setNeedsRatingFilter] = useState('All');
+  const [repeatFilter, setRepeatFilter] = useState('All');
+  const [startupFilter, setStartupFilter] = useState('All');
+  const [smartBoxFilter, setSmartBoxFilter] = useState('All');
+  const [subscriptionFilter, setSubscriptionFilter] = useState('All');
   const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.customerId ?? '');
   const stages = ['All', ...Array.from(new Set(customers.map((customer) => customer.funnelStage)))];
-  const filteredCustomers = stageFilter === 'All' ? customers : customers.filter((customer) => customer.funnelStage === stageFilter);
+  const filteredCustomers = customers.filter((customer) => {
+    if (stageFilter !== 'All' && customer.funnelStage !== stageFilter) return false;
+    if (hasRatingsFilter === 'Has ratings' && customer.bottlesRated === 0) return false;
+    if (hasRatingsFilter === 'No ratings' && customer.bottlesRated > 0) return false;
+    if (needsRatingFilter === 'Needs rating' && customer.unratedBottlesRemaining <= 0) return false;
+    if (repeatFilter === 'Repeat only' && !customer.repeatCustomer) return false;
+    if (startupFilter === 'Startup Pack only' && !customer.startupPackBuyer) return false;
+    if (smartBoxFilter === 'Ready only' && !customer.smartBoxReady) return false;
+    if (subscriptionFilter === 'Ready only' && !customer.subscriptionReady) return false;
+    return true;
+  });
   const selectedCustomer = customers.find((customer) => customer.customerId === selectedCustomerId) ?? filteredCustomers[0];
   const rows = filteredCustomers.map((customer) => ({
     customerId: customer.customerId,
@@ -83,6 +104,9 @@ export function CustomersDashboardClient({ customers }: { customers: CustomerRat
     lastOrderDate: customer.lastOrderDate,
     lastRatingDate: customer.lastRatingDate,
     repeatCustomer: customer.repeatCustomer ? 'Yes' : 'No',
+    startupPackBuyer: customer.startupPackBuyer ? 'Yes' : 'No',
+    smartBoxReady: customer.smartBoxReady ? 'Yes' : 'No',
+    subscriptionReady: customer.subscriptionReady ? 'Yes' : 'No',
     funnelStage: customer.funnelStage,
     nextAction: customer.nextAction,
   }));
@@ -135,6 +159,33 @@ export function CustomersDashboardClient({ customers }: { customers: CustomerRat
               </button>
             ))}
           </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            <select value={hasRatingsFilter} onChange={(event) => setHasRatingsFilter(event.target.value)} style={selectStyle}>
+              <option>All</option>
+              <option>Has ratings</option>
+              <option>No ratings</option>
+            </select>
+            <select value={needsRatingFilter} onChange={(event) => setNeedsRatingFilter(event.target.value)} style={selectStyle}>
+              <option>All</option>
+              <option>Needs rating</option>
+            </select>
+            <select value={repeatFilter} onChange={(event) => setRepeatFilter(event.target.value)} style={selectStyle}>
+              <option>All</option>
+              <option>Repeat only</option>
+            </select>
+            <select value={startupFilter} onChange={(event) => setStartupFilter(event.target.value)} style={selectStyle}>
+              <option>All</option>
+              <option>Startup Pack only</option>
+            </select>
+            <select value={smartBoxFilter} onChange={(event) => setSmartBoxFilter(event.target.value)} style={selectStyle}>
+              <option>All</option>
+              <option>Ready only</option>
+            </select>
+            <select value={subscriptionFilter} onChange={(event) => setSubscriptionFilter(event.target.value)} style={selectStyle}>
+              <option>All</option>
+              <option>Ready only</option>
+            </select>
+          </div>
         </Card>
       </PageSection>
 
@@ -165,8 +216,17 @@ export function CustomersDashboardClient({ customers }: { customers: CustomerRat
                   <div>Unrated est.: {formatNumber(selectedCustomer.unratedBottlesRemaining)}</div>
                   <div>Stage: {selectedCustomer.funnelStage}</div>
                   <div>Repeat: {selectedCustomer.repeatCustomer ? 'Yes' : 'No'}</div>
+                  <div>Smart Box ready: {selectedCustomer.smartBoxReady ? 'Yes' : 'No'}</div>
+                  <div>Subscription ready: {selectedCustomer.subscriptionReady ? 'Yes' : 'No'}</div>
                 </div>
                 <p style={{ margin: '0 0 14px', color: '#2D6A4F', fontSize: 13, fontWeight: 700 }}>{selectedCustomer.nextAction}</p>
+                <p style={{ margin: '0 0 14px', color: '#6B6B6B', fontSize: 12, lineHeight: 1.5 }}>
+                  Email: {selectedCustomer.emailAngle}
+                  <br />
+                  Offer: {selectedCustomer.suggestedOffer}
+                  <br />
+                  Objection: {selectedCustomer.objectionToHandle}
+                </p>
                 <SectionTitle sub={selectedCustomer.wineColorsRated}>Rated Products</SectionTitle>
                 <div style={{ border: '1px solid #E8E6E1', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
                   <SortableDataTable columns={ratedWineColumns} rows={selectedCustomer.ratedWines as RatedWineRow[]} enableSearch={false} initialSortKey="ratingDate" />
@@ -183,3 +243,12 @@ export function CustomersDashboardClient({ customers }: { customers: CustomerRat
     </>
   );
 }
+
+const selectStyle = {
+  border: '1px solid #E8E6E1',
+  borderRadius: 7,
+  padding: '8px 10px',
+  color: '#1A1A1A',
+  background: '#FFFFFF',
+  fontSize: 13,
+};

@@ -5,9 +5,8 @@ import { usePathname } from 'next/navigation';
 
 const navItems = [
   { href: '/business-overview', label: 'Business Overview', icon: '◆' },
+  { href: '/sales-funnel', label: 'Sales Funnel', icon: '▽' },
   { href: '/today-action-plan', label: 'Today Action Plan', icon: '!' },
-  { href: '/business-overview', label: 'Overview', icon: '▦' },
-  { href: '/funnel', label: 'Funnel', icon: '▽' },
   { href: '/customers', label: 'Customers', icon: '◪' },
   { href: '/ratings-intelligence', label: 'Ratings Intelligence', icon: '♡' },
   { href: '/food-pairing-intelligence', label: 'Food Pairing', icon: '◧' },

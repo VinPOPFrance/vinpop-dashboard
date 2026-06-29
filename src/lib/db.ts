@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { Pool } from 'pg';
+import { classifyCustomerStage } from '@/lib/customerStages';
 
 type DatabaseNowRow = {
   now: Date | string;
@@ -414,8 +415,20 @@ export type CustomerRatingsSummary = {
   lastOrderDate: string | null;
   lastRatingDate: string | null;
   repeatCustomer: boolean;
+  startupPackBuyer: boolean;
+  smartBoxReady: boolean;
+  smartBoxBuyer: boolean;
+  subscriptionReady: boolean;
+  subscriber: boolean;
   funnelStage: string;
   nextAction: string;
+  emailAngle: string;
+  socialAngle: string;
+  suggestedOffer: string;
+  objectionToHandle: string;
+  dataConfidence: string;
+  stageHealth: string;
+  stageExplanation: string;
   loveCount: number;
   likeCount: number;
   dislikeCount: number;
@@ -558,6 +571,12 @@ export type TodayAction = {
   suggestedAction: string;
   relatedPage: string;
   metricEvidence: string;
+  stageAffected?: string;
+  customersAffected?: number;
+  recommendedEmail?: string;
+  recommendedOffer?: string;
+  objectionToAddress?: string;
+  businessImpact?: string;
 };
 
 export type TodayActionPlanMetrics = {
@@ -2997,6 +3016,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         SELECT
           lower(email) AS email,
           COUNT(DISTINCT id)::text AS orders_count,
+          COUNT(DISTINCT id) FILTER (WHERE cancelled_at IS NULL)::text AS non_cancelled_orders_count,
           COALESCE(SUM(total_price), 0)::text AS total_spent,
           MIN(created_at) AS first_order_date,
           MAX(created_at) AS last_order_date
@@ -3012,7 +3032,19 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
               WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
               ELSE 0
             END
-          ), 0)::text AS bottles_bought
+          ), 0)::text AS bottles_bought,
+          BOOL_OR(
+            COALESCE(item->>'title', item->>'name', '') ILIKE '%starter pack%'
+            OR COALESCE(item->>'title', item->>'name', '') ILIKE '%startup pack%'
+            OR COALESCE(item->>'title', item->>'name', '') ILIKE '%taste kit%'
+            OR COALESCE(item->>'title', item->>'name', '') ILIKE '%tasting kit%'
+            OR COALESCE(item->>'title', item->>'name', '') ILIKE '%calibration kit%'
+          )::text AS startup_pack_buyer,
+          BOOL_OR(
+            COALESCE(item->>'title', item->>'name', '') ILIKE '%smart box%'
+            OR COALESCE(item->>'title', item->>'name', '') ILIKE '%box%'
+          )::text AS smart_box_buyer,
+          BOOL_OR(COALESCE(item->>'title', item->>'name', '') ILIKE '%subscription%')::text AS subscriber
         FROM shopify.orders AS orders
         CROSS JOIN LATERAL jsonb_array_elements(
           CASE
@@ -3023,13 +3055,22 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         ) AS item
         WHERE orders.email IS NOT NULL
         GROUP BY lower(orders.email)
+      ),
+      quiz_rollups AS (
+        SELECT customer_id, COUNT(*)::text AS quiz_count
+        FROM public.quizz
+        GROUP BY customer_id
       )
       SELECT
         users.id AS customer_id,
         users.email,
         COALESCE(order_rollups.total_spent, '0') AS total_spent,
         COALESCE(order_rollups.orders_count, '0') AS orders_count,
+        COALESCE(order_rollups.non_cancelled_orders_count, '0') AS non_cancelled_orders_count,
         COALESCE(bottle_rollups.bottles_bought, '0') AS bottles_bought,
+        COALESCE(bottle_rollups.startup_pack_buyer, 'false') AS startup_pack_buyer,
+        COALESCE(bottle_rollups.smart_box_buyer, 'false') AS smart_box_buyer,
+        COALESCE(bottle_rollups.subscriber, 'false') AS subscriber,
         COALESCE(rating_rollups.bottles_rated, '0') AS bottles_rated,
         COALESCE(rating_rollups.total_ratings, '0') AS total_ratings,
         COALESCE(rating_rollups.love_count, '0') AS love_count,
@@ -3038,15 +3079,18 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         order_rollups.first_order_date,
         order_rollups.last_order_date,
         rating_rollups.last_rating_date,
+        COALESCE(quiz_rollups.quiz_count, '0') AS quiz_count,
         COALESCE(rating_rollups.wine_colors_rated, 'None') AS wine_colors_rated
       FROM public.users AS users
       LEFT JOIN order_rollups ON order_rollups.email = lower(users.email)
       LEFT JOIN bottle_rollups ON bottle_rollups.email = lower(users.email)
       LEFT JOIN rating_rollups ON rating_rollups.customer_id = users.id
+      LEFT JOIN quiz_rollups ON quiz_rollups.customer_id = users.id
       WHERE users.email IS NOT NULL
         AND (
           COALESCE(order_rollups.orders_count, '0') <> '0'
           OR COALESCE(rating_rollups.total_ratings, '0') <> '0'
+          OR COALESCE(quiz_rollups.quiz_count, '0') <> '0'
         )
       ORDER BY COALESCE(order_rollups.total_spent, '0')::numeric DESC, users.email
       LIMIT 200
@@ -3189,28 +3233,30 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
       const bottlesRated = numberFromPg(customerRow.bottles_rated as string | null);
       const unrated = Math.max(bottlesBought - bottlesRated, 0);
       const ordersCount = numberFromPg(customerRow.orders_count as string | null);
+      const nonCancelledOrdersCount = numberFromPg(customerRow.non_cancelled_orders_count as string | null);
       const ratedPercentage = rate(bottlesRated, bottlesBought);
-      const repeatCustomer = ordersCount >= 2;
-      const funnelStage =
-        ordersCount === 0
-          ? 'Rated lead'
-          : repeatCustomer
-            ? 'Repeat buyer'
-            : bottlesRated >= 3
-              ? 'Smart Box ready'
-              : bottlesRated > 0
-                ? 'Needs more ratings'
-                : 'Needs first rating';
-      const nextAction =
-        ordersCount === 0
-          ? 'Invite to first purchase.'
-          : repeatCustomer
-            ? 'Offer subscription or Smart Box.'
-            : bottlesRated >= 3
-              ? 'Send Smart Box follow-up.'
-              : unrated > 0
-                ? 'Ask customer to rate remaining bottles.'
-                : 'Send repeat-order offer.';
+      const totalCustomerRatings = numberFromPg(customerRow.total_ratings as string | null);
+      const loveForCustomer = numberFromPg(customerRow.love_count as string | null);
+      const likeForCustomer = numberFromPg(customerRow.like_count as string | null);
+      const startupPackBuyer = customerRow.startup_pack_buyer === 'true';
+      const smartBoxBuyer = customerRow.smart_box_buyer === 'true';
+      const subscriber = customerRow.subscriber === 'true';
+      const repeatCustomer = nonCancelledOrdersCount >= 2;
+      const stage = classifyCustomerStage({
+        ordersCount,
+        nonCancelledOrdersCount,
+        bottlesBought,
+        bottlesRated,
+        ratingsCount: totalCustomerRatings,
+        positiveRatingsCount: loveForCustomer + likeForCustomer,
+        isStartupPackBuyer: startupPackBuyer,
+        isSmartBoxBuyer: smartBoxBuyer,
+        isSubscriber: subscriber,
+        hasEmail: Boolean(customerRow.email),
+        hasQuiz: numberFromPg(customerRow.quiz_count as string | null) > 0,
+      });
+      const smartBoxReady = stage.name === 'Ready for Smart Box' || totalCustomerRatings >= 3;
+      const subscriptionReady = stage.name === 'Ready for Subscription';
 
       return {
         customerId,
@@ -3225,10 +3271,22 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         lastOrderDate: dateFromPg((customerRow.last_order_date as Date | string | null) ?? null),
         lastRatingDate: dateFromPg((customerRow.last_rating_date as Date | string | null) ?? null),
         repeatCustomer,
-        funnelStage,
-        nextAction,
-        loveCount: numberFromPg(customerRow.love_count as string | null),
-        likeCount: numberFromPg(customerRow.like_count as string | null),
+        startupPackBuyer,
+        smartBoxReady,
+        smartBoxBuyer,
+        subscriptionReady,
+        subscriber,
+        funnelStage: stage.name,
+        nextAction: stage.recommendedAction,
+        emailAngle: stage.emailAngle,
+        socialAngle: stage.socialAngle,
+        suggestedOffer: stage.offer,
+        objectionToHandle: stage.objection,
+        dataConfidence: stage.confidence,
+        stageHealth: stage.health,
+        stageExplanation: stage.explanation,
+        loveCount: loveForCustomer,
+        likeCount: likeForCustomer,
         dislikeCount: numberFromPg(customerRow.dislike_count as string | null),
         wineColorsRated: (customerRow.wine_colors_rated as string | null) || 'None',
         ratedWines: ratedWinesByCustomer.get(customerId) ?? [],
@@ -3748,6 +3806,43 @@ export async function getTodayActionPlan(): Promise<TodayActionPlanResult> {
   const meta = metaResult.ok ? metaResult.metrics : null;
   const activity = activityResult.ok ? activityResult.metrics : null;
   const actions: TodayAction[] = [];
+  const stageCustomers = ratingsIntelligence?.customers ?? [];
+  const needsRatingCustomers = stageCustomers.filter((customer) => customer.funnelStage === 'Needs to Rate Wines');
+  const readyForSmartBoxCustomers = stageCustomers.filter((customer) => customer.funnelStage === 'Ready for Smart Box');
+
+  if (needsRatingCustomers.length > 0) {
+    actions.push({
+      priority: 'High',
+      businessProblem: 'Customers need to rate wines before the Smart Box can improve.',
+      whyItMatters: 'Customers bought more bottles than they rated, so the recommendation engine has missing preference data.',
+      suggestedAction: 'Send rating reminder email to customers with unrated bottles.',
+      relatedPage: '/sales-funnel?stage=needs-to-rate-wines',
+      metricEvidence: `${needsRatingCustomers.length} customers in Needs to Rate Wines.`,
+      stageAffected: 'Needs to Rate Wines',
+      customersAffected: needsRatingCustomers.length,
+      recommendedEmail: 'Rate your bottles so we can build your Smart Box.',
+      recommendedOffer: 'Smart Box readiness',
+      objectionToAddress: 'Rating feels like work.',
+      businessImpact: 'More ratings increase Smart Box conversion readiness.',
+    });
+  }
+
+  if (readyForSmartBoxCustomers.length > 0) {
+    actions.push({
+      priority: 'High',
+      businessProblem: 'Customers are ready for Smart Box but need a clear next offer.',
+      whyItMatters: 'These customers have enough ratings to justify a personalized box follow-up.',
+      suggestedAction: 'Send Smart Box ready email.',
+      relatedPage: '/sales-funnel?stage=ready-for-smart-box',
+      metricEvidence: `${readyForSmartBoxCustomers.length} customers in Ready for Smart Box.`,
+      stageAffected: 'Ready for Smart Box',
+      customersAffected: readyForSmartBoxCustomers.length,
+      recommendedEmail: 'Your taste profile is ready for a Smart Box.',
+      recommendedOffer: 'Smart Box',
+      objectionToAddress: 'Will the next box be better than the kit?',
+      businessImpact: 'This is the cleanest conversion segment for the next offer.',
+    });
+  }
 
   if ((repeat?.reorderRate ?? 100) < 20) {
     actions.push({
@@ -3757,6 +3852,11 @@ export async function getTodayActionPlan(): Promise<TodayActionPlanResult> {
       suggestedAction: 'Create a follow-up campaign for first-time customers and Startup Pack buyers.',
       relatedPage: '/repeat-customers',
       metricEvidence: `Reorder rate: ${repeat?.reorderRate?.toFixed(1) ?? '0'}%`,
+      stageAffected: 'Repeat Buyer',
+      recommendedEmail: 'Make your next wine box easier.',
+      recommendedOffer: 'Repeat order / subscription starter',
+      objectionToAddress: 'I only wanted to try it once.',
+      businessImpact: 'Repeat orders reduce dependence on paid acquisition.',
     });
   }
 
@@ -3845,6 +3945,11 @@ export async function getTodayActionPlan(): Promise<TodayActionPlanResult> {
       suggestedAction: 'Set up UTM/meta click tracking and Shopify order attribution.',
       relatedPage: '/meta',
       metricEvidence: `Meta spend detected: €${meta.totalSpend.toFixed(2)}.`,
+      stageAffected: 'Visitor',
+      recommendedEmail: 'Not applicable until attribution exists.',
+      recommendedOffer: 'Tracking fix',
+      objectionToAddress: 'CAC is unknown.',
+      businessImpact: 'Prevents scaling spend without knowing CAC or ROAS.',
     });
   }
 
