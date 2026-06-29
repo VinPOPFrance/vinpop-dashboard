@@ -38,6 +38,30 @@ export type ShopifyMetadataSearchTable = SelectedDatabaseTable & {
   columns: DatabaseColumnInfo[];
 };
 
+export type ShopifyLineItemSafeField =
+  | 'product_id'
+  | 'variant_id'
+  | 'title'
+  | 'name'
+  | 'sku'
+  | 'quantity'
+  | 'price'
+  | 'vendor'
+  | 'product_exists'
+  | 'grams'
+  | 'taxable';
+
+export type ShopifyLineItemSample = Partial<Record<ShopifyLineItemSafeField, string | number | boolean | null>>;
+
+export type ShopifyOrderLineItemsSample = {
+  orderId: string;
+  createdAt: string | null;
+  lineItemsType: string;
+  lineItemCount: number | null;
+  parseError: boolean;
+  lineItems: ShopifyLineItemSample[];
+};
+
 type DatabaseTableInfoRow = {
   table_schema: string;
   table_name: string;
@@ -62,6 +86,12 @@ type DatabaseCountRow = {
   row_count: string;
 };
 
+type ShopifyOrderLineItemsSampleRow = {
+  id: string | number;
+  created_at: Date | string | null;
+  line_items: unknown;
+};
+
 export type DatabaseNowResult =
   | { ok: true; now: string }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
@@ -80,6 +110,10 @@ export type DatabaseTableCountsResult =
 
 export type ShopifyMetadataSearchResult =
   | { ok: true; tables: ShopifyMetadataSearchTable[] }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type ShopifyLineItemsSampleResult =
+  | { ok: true; orders: ShopifyOrderLineItemsSample[]; safeFieldsFound: ShopifyLineItemSafeField[] }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 declare global {
@@ -103,6 +137,68 @@ function quoteIdentifier(identifier: string): string {
   }
 
   return `"${identifier}"`;
+}
+
+function getValueType(value: unknown): string {
+  if (Array.isArray(value)) {
+    return 'array';
+  }
+
+  if (value === null) {
+    return 'null';
+  }
+
+  return typeof value;
+}
+
+function parseLineItems(value: unknown): { value: unknown; parseError: boolean } {
+  if (typeof value !== 'string') {
+    return { value, parseError: false };
+  }
+
+  try {
+    return { value: JSON.parse(value), parseError: false };
+  } catch {
+    return { value: null, parseError: true };
+  }
+}
+
+const shopifyLineItemSafeFields: ShopifyLineItemSafeField[] = [
+  'product_id',
+  'variant_id',
+  'title',
+  'name',
+  'sku',
+  'quantity',
+  'price',
+  'vendor',
+  'product_exists',
+  'grams',
+  'taxable',
+];
+
+function sanitizeLineItem(lineItem: unknown): ShopifyLineItemSample {
+  if (typeof lineItem !== 'object' || lineItem === null || Array.isArray(lineItem)) {
+    return {};
+  }
+
+  const source = lineItem as Record<string, unknown>;
+  const safeLineItem: ShopifyLineItemSample = {};
+
+  for (const field of shopifyLineItemSafeFields) {
+    const value = source[field];
+
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      value === null
+    ) {
+      safeLineItem[field] = value;
+    }
+  }
+
+  return safeLineItem;
 }
 
 export async function getDatabaseNow(): Promise<DatabaseNowResult> {
@@ -357,6 +453,62 @@ export async function searchShopifyTableMetadata(): Promise<ShopifyMetadataSearc
       typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
 
     console.error('Shopify metadata search failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getShopifyLineItemsSample(): Promise<ShopifyLineItemsSampleResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  try {
+    const result = await getPool(databaseUrl).query<ShopifyOrderLineItemsSampleRow>(`
+      SELECT id, created_at, line_items
+      FROM shopify.orders
+      WHERE line_items IS NOT NULL
+      LIMIT 3
+    `);
+    const safeFieldsFound = new Set<ShopifyLineItemSafeField>();
+
+    const orders = result.rows.map((row) => {
+      const parsed = parseLineItems(row.line_items);
+      const lineItemsType = getValueType(parsed.value);
+      const lineItems = Array.isArray(parsed.value) ? parsed.value.map(sanitizeLineItem) : [];
+
+      for (const lineItem of lineItems) {
+        for (const field of Object.keys(lineItem) as ShopifyLineItemSafeField[]) {
+          safeFieldsFound.add(field);
+        }
+      }
+
+      return {
+        orderId: String(row.id),
+        createdAt:
+          row.created_at instanceof Date
+            ? row.created_at.toISOString()
+            : row.created_at
+              ? new Date(row.created_at).toISOString()
+              : null,
+        lineItemsType,
+        lineItemCount: Array.isArray(parsed.value) ? parsed.value.length : null,
+        parseError: parsed.parseError,
+        lineItems,
+      };
+    });
+
+    return {
+      ok: true,
+      orders,
+      safeFieldsFound: shopifyLineItemSafeFields.filter((field) => safeFieldsFound.has(field)),
+    };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Shopify line items sample failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }
