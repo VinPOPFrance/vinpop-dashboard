@@ -45,6 +45,14 @@ export default async function AcquisitionEconomicsBasicPage() {
           label: 'Abandoned/order ratio',
           value: formatNumber(metrics.abandonedCheckoutToOrderRatio),
         },
+        { label: 'Repeat customers', value: formatNumber(metrics.repeatCustomers) },
+        { label: 'Reorder rate', value: formatNumber(metrics.reorderRate) },
+        { label: 'Later-order revenue', value: formatMoney(metrics.laterOrderRevenue) },
+        { label: 'Repeat revenue share', value: formatNumber(metrics.repeatRevenueShare) },
+        { label: 'Startup Pack reorder rate', value: formatNumber(metrics.startupPackReorderRate) },
+        { label: 'Users with ratings', value: formatNumber(metrics.usersWithRatings) },
+        { label: 'Users with 3+ ratings', value: formatNumber(metrics.usersWithThreePlusRatings) },
+        { label: 'Ratings engagement rate', value: formatNumber(metrics.ratingsEngagementRate) },
       ]
     : [];
 

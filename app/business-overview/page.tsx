@@ -66,10 +66,29 @@ export default async function BusinessOverviewPage() {
         { label: 'Free quantity %', value: formatPercent(metrics.freeQuantityPercentage) },
       ]
     : [];
+  const retentionCards = metrics
+    ? [
+        { label: 'Repeat customers', value: formatNumber(metrics.repeatCustomers) },
+        { label: 'Reorder rate', value: formatPercent(metrics.reorderRate) },
+        { label: 'One-time customers', value: formatNumber(metrics.oneTimeCustomers) },
+        { label: 'Later-order revenue', value: formatMoney(metrics.laterOrderRevenue) },
+        { label: 'Repeat revenue share', value: formatPercent(metrics.repeatRevenueShare) },
+        { label: 'Startup Pack reorder rate', value: formatPercent(metrics.startupPackReorderRate) },
+        { label: 'Users with ratings', value: formatNumber(metrics.usersWithRatings) },
+        { label: 'Ratings per user', value: formatNumber(metrics.ratingsPerUser) },
+      ]
+    : [];
   const linkCards = [
     { href: '/startup-pack-analysis', title: 'Startup Packs', subtitle: 'Pack economics and free bottle stock impact' },
     { href: '/stock-movement-summary', title: 'Stock Movement', subtitle: 'Paid vs free product movement' },
     { href: '/acquisition-economics-basic', title: 'Acquisition Basic', subtitle: 'Rough acquisition economics' },
+  ];
+  const retentionLinkCards = [
+    { href: '/repeat-customers', title: 'Repeat Customers', subtitle: 'Reorder rate and repeat revenue' },
+    { href: '/startup-pack-retention', title: 'Startup Pack Retention', subtitle: 'Pack customers and later orders' },
+    { href: '/ratings-conversion', title: 'Ratings Conversion', subtitle: 'Ratings activity and matching status' },
+    { href: '/product-repeat-signals', title: 'Product Repeat Signals', subtitle: 'Products connected to later orders' },
+    { href: '/customer-lifecycle', title: 'Customer Lifecycle', subtitle: 'Acquisition to repeat purchase health' },
   ];
 
   return (
@@ -143,6 +162,52 @@ export default async function BusinessOverviewPage() {
                 }}
               >
                 {linkCards.map((link) => (
+                  <a key={link.href} href={link.href} style={{ textDecoration: 'none' }}>
+                    <Card>
+                      <div style={{ color: '#722F37', fontSize: 14, fontWeight: 700 }}>
+                        {link.title}
+                      </div>
+                      <p style={{ color: '#6B6B6B', fontSize: 12, lineHeight: 1.5, margin: '6px 0 0' }}>
+                        {link.subtitle}
+                      </p>
+                    </Card>
+                  </a>
+                ))}
+              </div>
+            </PageSection>
+
+            <PageSection>
+              <SectionTitle sub="Repeat purchase and engagement">
+                Retention & Lifecycle Signals
+              </SectionTitle>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))',
+                  gap: 12,
+                }}
+              >
+                {retentionCards.map((card) => (
+                  <Card key={card.label}>
+                    <div style={{ color: '#6B6B6B', fontSize: 12, marginBottom: 8 }}>
+                      {card.label}
+                    </div>
+                    <div style={{ color: '#1A1A1A', fontSize: 22, fontWeight: 700 }}>
+                      {card.value}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                  gap: 12,
+                  marginTop: 16,
+                }}
+              >
+                {retentionLinkCards.map((link) => (
                   <a key={link.href} href={link.href} style={{ textDecoration: 'none' }}>
                     <Card>
                       <div style={{ color: '#722F37', fontSize: 14, fontWeight: 700 }}>
