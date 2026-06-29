@@ -447,6 +447,8 @@ export type FoodPairingIntelligenceMetrics = {
 export type MetaPerformanceRow = {
   name: string;
   parentName: string;
+  firstDate: string | null;
+  latestDate: string | null;
   spend: number;
   impressions: number;
   clicks: number;
@@ -466,6 +468,8 @@ export type MetaAdsPerformanceMetrics = {
   totalSpend: number;
   impressions: number;
   clicks: number;
+  firstDate: string | null;
+  latestDate: string | null;
   ctr: number | null;
   cpc: number | null;
   cpm: number | null;
@@ -2822,28 +2826,71 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
   try {
     const pool = getPool(databaseUrl);
     const summaryResult = await pool.query<Record<string, string | Date | null>>(`
-        WITH user_counts AS (
-          SELECT customer_id, COUNT(*) AS ratings_count
+        WITH mapped_ratings AS (
+          SELECT
+            ratings.customer_id,
+            ratings.rating,
+            ratings.created_at,
+            wines.id::text AS wine_id
           FROM public.ratings
+          LEFT JOIN public.mapping ON public.mapping.vp_id::text = ratings.id::text
+          LEFT JOIN public.wines ON public.wines.id::text = public.mapping.wl_id::text
+        ),
+        user_counts AS (
+          SELECT customer_id, COUNT(*) AS ratings_count
+          FROM mapped_ratings
           GROUP BY customer_id
+        ),
+        wine_rollups AS (
+          SELECT
+            wine_id,
+            COUNT(*) AS total_ratings,
+            COUNT(*) FILTER (WHERE rating >= 1) AS love_count,
+            COUNT(*) FILTER (WHERE rating = 0) AS like_count,
+            COUNT(*) FILTER (WHERE rating < 0) AS dislike_count
+          FROM mapped_ratings
+          WHERE wine_id IS NOT NULL
+          GROUP BY wine_id
         )
         SELECT
           (SELECT COUNT(*) FROM public.users)::text AS total_users,
           COUNT(*)::text AS total_ratings,
-          0::text AS unique_rated_wines,
+          COUNT(DISTINCT wine_id)::text AS unique_rated_wines,
           COUNT(DISTINCT customer_id)::text AS users_with_ratings,
           (SELECT COUNT(*) FROM user_counts WHERE ratings_count >= 3)::text AS users_with_three_plus_ratings,
           COUNT(*) FILTER (WHERE rating >= 1)::text AS love_count,
           COUNT(*) FILTER (WHERE rating = 0)::text AS like_count,
           COUNT(*) FILTER (WHERE rating < 0)::text AS dislike_count,
-          0::text AS wines_with_love,
-          0::text AS wines_with_dislike,
-          0::text AS wines_with_high_satisfaction,
-          0::text AS wines_with_high_disappointment,
+          (SELECT COUNT(*) FROM wine_rollups WHERE love_count > 0)::text AS wines_with_love,
+          (SELECT COUNT(*) FROM wine_rollups WHERE dislike_count > 0)::text AS wines_with_dislike,
+          (SELECT COUNT(*) FROM wine_rollups WHERE ((love_count + like_count)::numeric / NULLIF(total_ratings, 0)) >= 0.8)::text AS wines_with_high_satisfaction,
+          (SELECT COUNT(*) FROM wine_rollups WHERE (dislike_count::numeric / NULLIF(total_ratings, 0)) >= 0.3)::text AS wines_with_high_disappointment,
           MIN(created_at) AS first_rating_date,
           MAX(created_at) AS latest_rating_date
-        FROM public.ratings
+        FROM mapped_ratings
       `);
+    const wineResult = await pool.query<Record<string, string | null>>(`
+      WITH mapped_ratings AS (
+        SELECT
+          wines.id::text AS wine_id,
+          COALESCE(wines.name, public.mapping.name, 'Unknown wine') AS wine_name,
+          ratings.rating
+        FROM public.ratings AS ratings
+        JOIN public.mapping ON public.mapping.vp_id::text = ratings.id::text
+        JOIN public.wines AS wines ON wines.id::text = public.mapping.wl_id::text
+      )
+      SELECT
+        wine_id,
+        wine_name,
+        COUNT(*)::text AS total_ratings,
+        COUNT(*) FILTER (WHERE rating >= 1)::text AS love_count,
+        COUNT(*) FILTER (WHERE rating = 0)::text AS like_count,
+        COUNT(*) FILTER (WHERE rating < 0)::text AS dislike_count
+      FROM mapped_ratings
+      GROUP BY wine_id, wine_name
+      ORDER BY COUNT(*) DESC, wine_name
+      LIMIT 100
+    `);
     const row = summaryResult.rows[0];
     const totalRatings = numberFromPg(row?.total_ratings as string | null);
     const loveCount = numberFromPg(row?.love_count as string | null);
@@ -2852,7 +2899,29 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
     const totalUsers = numberFromPg(row?.total_users as string | null);
     const usersWithRatings = numberFromPg(row?.users_with_ratings as string | null);
     const usersWithThreePlusRatings = numberFromPg(row?.users_with_three_plus_ratings as string | null);
-    const wines: WineRatingSummary[] = [];
+    const wines: WineRatingSummary[] = wineResult.rows.map((wineRow) => {
+      const total = numberFromPg(wineRow.total_ratings);
+      const love = numberFromPg(wineRow.love_count);
+      const like = numberFromPg(wineRow.like_count);
+      const dislike = numberFromPg(wineRow.dislike_count);
+      const positive = rate(love + like, total);
+      const dislikeRate = rate(dislike, total);
+
+      return {
+        wineId: wineRow.wine_id || 'Unknown',
+        wineName: wineRow.wine_name || 'Unknown wine',
+        totalRatings: total,
+        loveCount: love,
+        likeCount: like,
+        dislikeCount: dislike,
+        loveRate: rate(love, total),
+        likeRate: rate(like, total),
+        dislikeRate,
+        positiveRate: positive,
+        recommendationLabel:
+          total < 3 ? 'Needs more ratings' : (dislikeRate ?? 0) >= 30 ? 'Risk' : (positive ?? 0) >= 80 ? 'Promote' : 'Watch',
+      };
+    });
     const positiveRatingRate = rate(loveCount + likeCount, totalRatings);
     const recommendedActions: string[] = [];
 
@@ -2861,7 +2930,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
     }
 
     if (totalRatings > 0) {
-      recommendedActions.push('Add a safe wine_id to ratings so Smart Box recommendations can be measured by wine.');
+      recommendedActions.push('Use wine-level Love/Like/Dislike signals to improve Smart Box recommendations.');
     }
 
     if ((positiveRatingRate ?? 0) >= 95 && totalRatings > 0) {
@@ -2896,19 +2965,21 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         latestRatingDate: dateFromPg((row?.latest_rating_date as Date | string | null) ?? null),
         wines,
         interpretation: [
-          'Wine-level ratings are unavailable because public.ratings does not expose a safe wine_id column.',
-          'Overall Love/Like/Dislike distribution is available and can still guide rating engagement work.',
-          'Add a safe wine identifier to ratings before promoting or suppressing specific wines from this page.',
+          'Wine-level ratings are available through public.mapping from VinPop product IDs to wine IDs.',
+          'Love/Like/Dislike distribution can guide Smart Box product ranking and product page confidence.',
+          'Keep monitoring wines with low rating counts before making strong assortment decisions.',
         ],
         recommendedActions,
         missingData: [
-          'Need a safe wine_id or product/wine identifier in public.ratings.',
+          'public.ratings.id maps to public.mapping.vp_id, then public.mapping.wl_id maps to public.wines.id.',
           'Need rating timestamp, already available as created_at.',
           'Need rating value mapped to Love / Like / Dislike, currently inferred from numeric rating values.',
         ],
-        wineLevelAnalysisAvailable: false,
+        wineLevelAnalysisAvailable: wines.length > 0,
         wineLevelUnavailableReason:
-          'public.ratings does not expose a safe wine_id column, so wine-level aggregation cannot be trusted yet.',
+          wines.length > 0
+            ? null
+            : 'No wine-level ratings matched through public.mapping.vp_id to public.wines.id.',
       },
     };
   } catch (error) {
@@ -3120,12 +3191,16 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(clicks), 0)::text AS clicks,
           COUNT(DISTINCT campaign_id)::text AS campaigns_count,
           COUNT(DISTINCT adset_id)::text AS ad_sets_count,
-          COUNT(DISTINCT ad_id)::text AS ads_count
+          COUNT(DISTINCT ad_id)::text AS ads_count,
+          MIN(date_start)::text AS first_date,
+          MAX(date_stop)::text AS latest_date
         FROM public.ads_insights
       `),
       pool.query<Record<string, string | null>>(`
         SELECT
           COALESCE(campaign_name, 'Unknown campaign') AS name,
+          MIN(date_start)::text AS first_date,
+          MAX(date_stop)::text AS latest_date,
           COALESCE(SUM(spend), 0)::text AS spend,
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
@@ -3140,6 +3215,8 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         SELECT
           COALESCE(adset_name, 'Unknown ad set') AS name,
           COALESCE(campaign_name, 'Unknown campaign') AS parent_name,
+          MIN(date_start)::text AS first_date,
+          MAX(date_stop)::text AS latest_date,
           COALESCE(SUM(spend), 0)::text AS spend,
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
@@ -3155,6 +3232,8 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(ad_name, 'Unknown ad') AS name,
           COALESCE(adset_name, 'Unknown ad set') AS parent_name,
           COALESCE(campaign_name, 'Unknown campaign') AS campaign_name,
+          MIN(date_start)::text AS first_date,
+          MAX(date_stop)::text AS latest_date,
           COALESCE(SUM(spend), 0)::text AS spend,
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
@@ -3177,6 +3256,8 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       return {
         name: row.name || 'Unknown',
         parentName: row.parent_name || row.campaign_name || '',
+        firstDate: row.first_date || null,
+        latestDate: row.latest_date || null,
         spend,
         impressions,
         clicks,
@@ -3203,6 +3284,8 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         totalSpend,
         impressions,
         clicks,
+        firstDate: summary?.first_date || null,
+        latestDate: summary?.latest_date || null,
         ctr: rate(clicks, impressions),
         cpc: ratio(totalSpend, clicks),
         cpm: impressions === 0 ? null : (totalSpend / impressions) * 1000,
@@ -3385,6 +3468,17 @@ export async function getTodayActionPlan(): Promise<TodayActionPlanResult> {
     });
   }
 
+  if (ratingsIntelligence && (ratingsIntelligence.positiveRatingRate ?? 0) >= 99 && ratingsIntelligence.totalRatings > 0) {
+    actions.push({
+      priority: 'Medium',
+      businessProblem: 'Ratings are almost entirely positive.',
+      whyItMatters: 'A 100% positive rating signal can mean customers love the wines, or that Dislike is not being captured clearly.',
+      suggestedAction: 'Audit the rating UI and make sure Love, Like and Dislike are all easy to submit.',
+      relatedPage: '/ratings',
+      metricEvidence: `Positive rating rate: ${ratingsIntelligence.positiveRatingRate?.toFixed(1) ?? '100'}%.`,
+    });
+  }
+
   if (funnel && funnel.abandonedCheckoutCount > funnel.orderCount) {
     actions.push({
       priority: 'High',
@@ -3425,7 +3519,7 @@ export async function getTodayActionPlan(): Promise<TodayActionPlanResult> {
       whyItMatters: 'CAC and ROAS cannot be trusted without click/order attribution.',
       suggestedAction: 'Set up UTM/meta click tracking and Shopify order attribution.',
       relatedPage: '/meta',
-      metricEvidence: `Meta spend detected: ${meta.totalSpend.toFixed(2)}.`,
+      metricEvidence: `Meta spend detected: €${meta.totalSpend.toFixed(2)}.`,
     });
   }
 

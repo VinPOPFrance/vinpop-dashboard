@@ -1,18 +1,12 @@
 import { connection } from 'next/server';
+import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { TopBar } from '@/components/TopBar';
 import { getFoodPairingIntelligence } from '@/lib/db';
+import { formatNumber, formatPercent } from '@/lib/format';
 
 export const runtime = 'nodejs';
-
-function formatNumber(value: number | null): string {
-  return value === null ? 'Unavailable' : value.toLocaleString('en-US', { maximumFractionDigits: 2 });
-}
-
-function formatPercent(value: number | null): string {
-  return value === null ? 'Unavailable' : `${value.toLocaleString('en-US', { maximumFractionDigits: 1 })}%`;
-}
 
 export default async function FoodPairingIntelligencePage() {
   await connection();
@@ -55,6 +49,14 @@ export default async function FoodPairingIntelligencePage() {
             </div>
             <PageSection>
               <SectionTitle sub="Why coverage may be low">Pairing Data Status</SectionTitle>
+              <Card style={{ marginBottom: 12 }}>
+                <BarChart
+                  data={[
+                    { label: 'With pairing data', value: metrics.winesWithPairingData, color: '#2D6A4F' },
+                    { label: 'Without pairing data', value: metrics.winesWithoutPairing, color: '#B45309' },
+                  ]}
+                />
+              </Card>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
                 <Card>
                   <div style={{ color: '#6B6B6B', fontSize: 12, marginBottom: 8 }}>food_pairing rows</div>

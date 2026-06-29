@@ -1,33 +1,29 @@
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
+import { MetricCard } from '@/components/MetricCard';
+import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
 import { TopBar } from '@/components/TopBar';
 import { getBusinessOverview, getTodayActionPlan } from '@/lib/db';
+import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
 
 export const runtime = 'nodejs';
 
-function formatNumber(value: number | null): string {
-  if (value === null) {
-    return 'Unavailable';
-  }
+type OverviewProductRow = Record<string, unknown> & {
+  product: string;
+  sku: string;
+  netRevenue: number;
+  discount: number;
+  quantity: number;
+};
 
-  return value.toLocaleString('en-US', { maximumFractionDigits: 0 });
-}
-
-function formatMoney(value: number): string {
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function formatPercent(value: number | null): string {
-  if (value === null) {
-    return 'Unavailable';
-  }
-
-  return `${value.toLocaleString('en-US', { maximumFractionDigits: 1 })}%`;
-}
+const overviewProductColumns: SortableColumn<OverviewProductRow>[] = [
+  { key: 'product', label: 'Product', type: 'text', width: 220 },
+  { key: 'sku', label: 'SKU', type: 'text' },
+  { key: 'netRevenue', label: 'Net revenue', type: 'money' },
+  { key: 'discount', label: 'Discount', type: 'money' },
+  { key: 'quantity', label: 'Qty', type: 'number' },
+];
 
 export default async function BusinessOverviewPage() {
   await connection();
@@ -44,13 +40,13 @@ export default async function BusinessOverviewPage() {
       : 'Could not load the business overview. Check DATABASE_URL, database availability, SSL settings, and network access.';
   const cards = metrics
     ? [
-        { label: 'Total revenue', value: formatMoney(metrics.totalRevenue) },
+        { label: 'Total revenue', value: formatEuro(metrics.totalRevenue) },
         { label: 'Total orders', value: formatNumber(metrics.totalOrders) },
-        { label: 'Average order value', value: formatMoney(metrics.averageOrderValue) },
+        { label: 'Average order value', value: formatEuro(metrics.averageOrderValue) },
         { label: 'Paid orders', value: formatNumber(metrics.paidOrders) },
         { label: 'Cancelled orders', value: formatNumber(metrics.cancelledOrders) },
         { label: 'Abandoned checkouts', value: formatNumber(metrics.abandonedCheckoutCount) },
-        { label: 'Product discounts', value: formatMoney(metrics.totalProductDiscounts) },
+        { label: 'Product discounts', value: formatEuro(metrics.totalProductDiscounts) },
         { label: 'Total quantity sold', value: formatNumber(metrics.totalQuantitySold) },
         { label: 'Total line items', value: formatNumber(metrics.totalLineItems) },
       ]
@@ -63,7 +59,7 @@ export default async function BusinessOverviewPage() {
           label: 'Avg free bottles/pack',
           value: formatNumber(metrics.averageFreeBottlesPerStartupPackOrder),
         },
-        { label: 'Product discounts', value: formatMoney(metrics.totalProductDiscounts) },
+        { label: 'Product discounts', value: formatEuro(metrics.totalProductDiscounts) },
         { label: 'Total quantity moved', value: formatNumber(metrics.totalQuantitySold) },
         { label: 'Paid quantity', value: formatNumber(metrics.paidQuantityEstimate) },
         { label: 'Free quantity', value: formatNumber(metrics.freeQuantityEstimate) },
@@ -75,7 +71,7 @@ export default async function BusinessOverviewPage() {
         { label: 'Repeat customers', value: formatNumber(metrics.repeatCustomers) },
         { label: 'Reorder rate', value: formatPercent(metrics.reorderRate) },
         { label: 'One-time customers', value: formatNumber(metrics.oneTimeCustomers) },
-        { label: 'Later-order revenue', value: formatMoney(metrics.laterOrderRevenue) },
+        { label: 'Later-order revenue', value: formatEuro(metrics.laterOrderRevenue) },
         { label: 'Repeat revenue share', value: formatPercent(metrics.repeatRevenueShare) },
         { label: 'Startup Pack reorder rate', value: formatPercent(metrics.startupPackReorderRate) },
         { label: 'Users with ratings', value: formatNumber(metrics.usersWithRatings) },
@@ -160,14 +156,7 @@ export default async function BusinessOverviewPage() {
               }}
             >
               {cards.map((card) => (
-                <Card key={card.label}>
-                  <div style={{ color: '#6B6B6B', fontSize: 12, marginBottom: 8 }}>
-                    {card.label}
-                  </div>
-                  <div style={{ color: '#1A1A1A', fontSize: 22, fontWeight: 700 }}>
-                    {card.value}
-                  </div>
-                </Card>
+                <MetricCard key={card.label} label={card.label} value={card.value} />
               ))}
             </div>
 
@@ -183,14 +172,7 @@ export default async function BusinessOverviewPage() {
                 }}
               >
                 {startupCards.map((card) => (
-                  <Card key={card.label}>
-                    <div style={{ color: '#6B6B6B', fontSize: 12, marginBottom: 8 }}>
-                      {card.label}
-                    </div>
-                    <div style={{ color: '#1A1A1A', fontSize: 22, fontWeight: 700 }}>
-                      {card.value}
-                    </div>
-                  </Card>
+                  <MetricCard key={card.label} label={card.label} value={card.value} />
                 ))}
               </div>
 
@@ -229,14 +211,7 @@ export default async function BusinessOverviewPage() {
                 }}
               >
                 {retentionCards.map((card) => (
-                  <Card key={card.label}>
-                    <div style={{ color: '#6B6B6B', fontSize: 12, marginBottom: 8 }}>
-                      {card.label}
-                    </div>
-                    <div style={{ color: '#1A1A1A', fontSize: 22, fontWeight: 700 }}>
-                      {card.value}
-                    </div>
-                  </Card>
+                  <MetricCard key={card.label} label={card.label} value={card.value} />
                 ))}
               </div>
 
@@ -291,49 +266,18 @@ export default async function BusinessOverviewPage() {
               <div>
                 <SectionTitle sub="Top 5 products by net revenue">Top Products</SectionTitle>
                 <Card style={{ padding: 0, overflow: 'hidden' }}>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                      <thead>
-                        <tr style={{ background: '#F5F4F0', color: '#6B6B6B', textAlign: 'left' }}>
-                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Product</th>
-                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>SKU</th>
-                          <th style={{ padding: '10px 14px', fontWeight: 700, textAlign: 'right' }}>
-                            Net revenue
-                          </th>
-                          <th style={{ padding: '10px 14px', fontWeight: 700, textAlign: 'right' }}>
-                            Discount
-                          </th>
-                          <th style={{ padding: '10px 14px', fontWeight: 700, textAlign: 'right' }}>
-                            Qty
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {metrics.topProducts.map((product) => (
-                          <tr
-                            key={`${product.productId}.${product.variantId}.${product.sku}`}
-                            style={{ borderTop: '1px solid #E8E6E1' }}
-                          >
-                            <td style={{ padding: '10px 14px', color: '#1A1A1A', fontWeight: 600 }}>
-                              {product.productName}
-                            </td>
-                            <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>
-                              {product.sku}
-                            </td>
-                            <td style={{ padding: '10px 14px', color: '#1A1A1A', textAlign: 'right' }}>
-                              {formatMoney(product.netRevenue)}
-                            </td>
-                            <td style={{ padding: '10px 14px', color: '#B45309', textAlign: 'right' }}>
-                              {formatMoney(product.totalDiscount)}
-                            </td>
-                            <td style={{ padding: '10px 14px', color: '#6B6B6B', textAlign: 'right' }}>
-                              {formatNumber(product.totalQuantitySold)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <SortableDataTable
+                    columns={overviewProductColumns}
+                    rows={metrics.topProducts.map((product) => ({
+                      product: product.productName,
+                      sku: product.sku,
+                      netRevenue: product.netRevenue,
+                      discount: product.totalDiscount,
+                      quantity: product.totalQuantitySold,
+                    }))}
+                    initialSortKey="netRevenue"
+                    enableSearch={false}
+                  />
                 </Card>
               </div>
 

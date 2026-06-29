@@ -1,18 +1,13 @@
 import { connection } from 'next/server';
+import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
+import { DonutChart } from '@/components/DonutChart';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { TopBar } from '@/components/TopBar';
 import { getRatingsIntelligence } from '@/lib/db';
+import { formatDate, formatNumber, formatPercent } from '@/lib/format';
 
 export const runtime = 'nodejs';
-
-function formatNumber(value: number | null): string {
-  return value === null ? 'Unavailable' : value.toLocaleString('en-US', { maximumFractionDigits: 2 });
-}
-
-function formatPercent(value: number | null): string {
-  return value === null ? 'Unavailable' : `${value.toLocaleString('en-US', { maximumFractionDigits: 1 })}%`;
-}
 
 export default async function RatingsIntelligencePage() {
   await connection();
@@ -60,11 +55,35 @@ export default async function RatingsIntelligencePage() {
               ))}
             </div>
             <PageSection>
-              <SectionTitle sub={`${metrics.firstRatingDate ?? 'Unavailable'} to ${metrics.latestRatingDate ?? 'Unavailable'}`}>What this means</SectionTitle>
+              <SectionTitle sub={`${formatDate(metrics.firstRatingDate)} to ${formatDate(metrics.latestRatingDate)}`}>Smart Box Readiness</SectionTitle>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 360px) 1fr', gap: 16, marginBottom: 16 }}>
+                <Card>
+                  <DonutChart
+                    data={[
+                      { label: 'Love', value: metrics.loveCount, color: '#2D6A4F' },
+                      { label: 'Like', value: metrics.likeCount, color: '#A67C00' },
+                      { label: 'Dislike', value: metrics.dislikeCount, color: '#B45309' },
+                    ]}
+                  />
+                </Card>
+                <Card>
+                  <BarChart
+                    data={metrics.wines.slice(0, 8).map((wine) => ({
+                      label: wine.wineName,
+                      value: wine.totalRatings,
+                      color: '#722F37',
+                    }))}
+                  />
+                </Card>
+              </div>
+              <SectionTitle sub="What this means">Decision Notes</SectionTitle>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {metrics.interpretation.map((item) => (
                   <Card key={item}><p style={{ margin: 0, color: '#2D6A4F', fontSize: 13, fontWeight: 600 }}>{item}</p></Card>
                 ))}
+                {(metrics.positiveRatingRate ?? 0) >= 99 ? (
+                  <Card><p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 600 }}>Positive rating rate is near 100%; audit whether Dislike is being captured reliably.</p></Card>
+                ) : null}
               </div>
             </PageSection>
             <PageSection>
