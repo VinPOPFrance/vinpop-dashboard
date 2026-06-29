@@ -1,96 +1,163 @@
-'use client';
-
+import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
+import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { TopBar } from '@/components/TopBar';
-import { StatusBadge } from '@/components/StatusBadge';
-import { SectionTitle, PageSection, Card } from '@/components/Layout';
-import { metaKpis, metaCampaigns, metaInsights } from '@/data/mock-meta';
+import { getMetaAdsPerformance, type MetaPerformanceRow } from '@/lib/db';
 
-export default function MetaPage() {
+export const runtime = 'nodejs';
+
+function formatNumber(value: number | null): string {
+  return value === null ? 'Unavailable' : value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function formatMoney(value: number | null): string {
+  return value === null ? 'Unavailable' : value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatPercent(value: number | null): string {
+  return value === null ? 'Unavailable' : `${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
+}
+
+function ctrLabel(value: number | null): string {
+  if (value === null) return 'CTR is unavailable.';
+  if (value >= 2) return 'CTR is good: Meta is generating traffic.';
+  if (value >= 1) return 'CTR is average: traffic is present, but creative can improve.';
+  return 'CTR is weak: review creative, offer, or audience.';
+}
+
+function cpcLabel(value: number | null): string {
+  if (value === null) return 'CPC is unavailable.';
+  if (value <= 0.5) return 'CPC is good.';
+  if (value <= 1.5) return 'CPC is acceptable.';
+  return 'CPC is high: test new creatives or targeting.';
+}
+
+function PerformanceTable({ title, rows, parentLabel }: { title: string; rows: MetaPerformanceRow[]; parentLabel: string }) {
   return (
-    <DashboardLayout>
-      <TopBar
-        title="Meta Ads"
-        subtitle="Campaign performance — beyond purchases, track rated customers"
-      />
-
-      {/* KPI Cards */}
-      <PageSection>
-        <SectionTitle sub="Key advertising metrics for the current period">Campaign KPIs</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
-          {metaKpis.map(kpi => (
-            <div key={kpi.id} style={{
-              background: '#FFFFFF',
-              border: '1px solid #E8E6E1',
-              borderRadius: 10,
-              padding: '16px 18px',
-            }}>
-              <div style={{ fontSize: 11, color: '#9B9B9B', marginBottom: 8 }}>{kpi.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>{kpi.value}</div>
-              <StatusBadge status={kpi.status} />
-            </div>
-          ))}
-        </div>
-      </PageSection>
-
-      {/* Insight Cards */}
-      <PageSection>
-        <SectionTitle sub="Strategic observations — do not judge ads only by purchases">Campaign Insights</SectionTitle>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {metaInsights.map(insight => {
-            const borderColor = insight.type === 'good' ? '#2D6A4F' : insight.type === 'critical' ? '#C0392B' : '#B45309';
-            const bgColor = insight.type === 'good' ? '#EDF7F3' : insight.type === 'critical' ? '#FDECEA' : '#FEF3CD';
-            return (
-              <div key={insight.id} style={{
-                background: bgColor,
-                border: '1px solid ' + borderColor + '40',
-                borderLeft: '3px solid ' + borderColor,
-                borderRadius: 8,
-                padding: '14px 16px',
-              }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A', marginBottom: 5 }}>{insight.title}</div>
-                <p style={{ fontSize: 12, color: '#6B6B6B', margin: 0 }}>{insight.description}</p>
-              </div>
-            );
-          })}
-        </div>
-      </PageSection>
-
-      {/* Campaign Table */}
-      <PageSection>
-        <SectionTitle sub="Performance by campaign — including post-purchase activation">Campaign Performance</SectionTitle>
-        <Card style={{ padding: 0, overflow: 'hidden' }}>
+    <PageSection>
+      <SectionTitle>{title}</SectionTitle>
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
-              <tr style={{ background: '#F5F4F0', borderBottom: '1px solid #E8E6E1' }}>
-                {['Campaign', 'Spend', 'Clicks', 'CTR', 'Quiz done', 'Kit buyers', 'Rated', 'Revenue', 'ROAS', 'Status'].map(h => (
-                  <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#6B6B6B', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
+              <tr style={{ background: '#F5F4F0', color: '#6B6B6B', textAlign: 'left' }}>
+                {['Name', parentLabel, 'Spend', 'Impressions', 'Clicks', 'CTR', 'CPC', 'CPM', 'Purchases', 'CPA', 'ROAS', 'Label', 'Recommended action'].map((heading) => (
+                  <th key={heading} style={{ padding: '10px 14px', fontWeight: 700 }}>{heading}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {metaCampaigns.map((c, i) => (
-                <tr key={c.id} style={{ borderBottom: i < metaCampaigns.length - 1 ? '1px solid #F5F4F0' : 'none' }}>
-                  <td style={{ padding: '10px 14px', fontWeight: 500, color: '#1A1A1A', maxWidth: 200 }}>{c.name}</td>
-                  <td style={{ padding: '10px 14px', color: '#1A1A1A' }}>€{c.spend}</td>
-                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{c.clicks.toLocaleString()}</td>
-                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{c.ctr}%</td>
-                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{c.quizCompleted}</td>
-                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{c.tasteKitBuyers}</td>
-                  <td style={{ padding: '10px 14px', fontWeight: 600, color: c.ratedCustomers === 0 ? '#C0392B' : '#2D6A4F' }}>{c.ratedCustomers}</td>
-                  <td style={{ padding: '10px 14px', color: '#1A1A1A' }}>€{c.revenue}</td>
-                  <td style={{ padding: '10px 14px', fontWeight: 600, color: c.roas >= 3 ? '#2D6A4F' : c.roas >= 2 ? '#B45309' : '#C0392B' }}>{c.roas}×</td>
-                  <td style={{ padding: '10px 14px' }}>
-                    <StatusBadge status={c.status} />
-                  </td>
+              {rows.map((row) => (
+                <tr key={`${row.name}.${row.parentName}`} style={{ borderTop: '1px solid #E8E6E1' }}>
+                  <td style={{ padding: '10px 14px', color: '#1A1A1A', fontWeight: 600 }}>{row.name}</td>
+                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{row.parentName || '-'}</td>
+                  <td style={{ padding: '10px 14px', color: '#1A1A1A' }}>{formatMoney(row.spend)}</td>
+                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatNumber(row.impressions)}</td>
+                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatNumber(row.clicks)}</td>
+                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatPercent(row.ctr)}</td>
+                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatMoney(row.cpc)}</td>
+                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatMoney(row.cpm)}</td>
+                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatNumber(row.purchases)}</td>
+                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatMoney(row.cpa)}</td>
+                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatNumber(row.roas)}</td>
+                  <td style={{ padding: '10px 14px', color: row.performanceLabel === 'Weak' ? '#B45309' : '#2D6A4F', fontWeight: 600 }}>{row.performanceLabel}</td>
+                  <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{row.recommendedAction}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <div style={{ padding: '10px 14px', background: '#FAFAF8', borderTop: '1px solid #E8E6E1', fontSize: 11, color: '#9B9B9B' }}>
-            ⓘ "Rated" = customers who have rated at least 1 wine after purchasing. This is the most important metric for Smart Box conversion.
-          </div>
+        </div>
+      </Card>
+    </PageSection>
+  );
+}
+
+export default async function MetaPage() {
+  await connection();
+  const result = await getMetaAdsPerformance();
+  const metrics = result.ok ? result.metrics : null;
+  const cards = metrics
+    ? [
+        ['Total spend', formatMoney(metrics.totalSpend)],
+        ['Impressions', formatNumber(metrics.impressions)],
+        ['Clicks', formatNumber(metrics.clicks)],
+        ['CTR', formatPercent(metrics.ctr)],
+        ['CPC', formatMoney(metrics.cpc)],
+        ['CPM', formatMoney(metrics.cpm)],
+        ['Campaigns', formatNumber(metrics.campaignsCount)],
+        ['Ad sets', formatNumber(metrics.adSetsCount)],
+        ['Ads', formatNumber(metrics.adsCount)],
+        ['Purchases', formatNumber(metrics.purchases)],
+        ['CPA', formatMoney(metrics.cpa)],
+        ['ROAS', formatNumber(metrics.roas)],
+      ]
+    : [];
+
+  return (
+    <DashboardLayout>
+      <TopBar title="Meta Ads" subtitle="Real Meta platform metrics and attribution readiness" />
+      <PageSection>
+        <SectionTitle sub="Platform metrics only where attribution is unavailable">Meta Ads Performance</SectionTitle>
+        <Card style={{ marginBottom: 16 }}>
+          <p style={{ margin: '0 0 8px', color: '#1A1A1A', fontSize: 13, fontWeight: 700 }}>
+            Aggregate ad metrics only. No customer data is displayed.
+          </p>
+          <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13 }}>
+            {metrics?.attributionNote ?? 'Meta Ads performance could not be loaded.'}
+          </p>
         </Card>
+        {metrics ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
+              {cards.map(([label, value]) => (
+                <Card key={label}>
+                  <div style={{ color: '#6B6B6B', fontSize: 12, marginBottom: 8 }}>{label}</div>
+                  <div style={{ color: '#1A1A1A', fontSize: 22, fontWeight: 700 }}>{value}</div>
+                </Card>
+              ))}
+            </div>
+            <PageSection>
+              <SectionTitle sub="Plain business read">Simple Interpretation</SectionTitle>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {[ctrLabel(metrics.ctr), cpcLabel(metrics.cpc), 'CAC is unavailable because Meta-to-Shopify attribution is missing.', 'ROAS is unavailable because revenue attribution is missing.'].map((item) => (
+                  <Card key={item}>
+                    <p style={{ margin: 0, color: item.includes('unavailable') || item.includes('high') || item.includes('weak') ? '#B45309' : '#2D6A4F', fontSize: 13, fontWeight: 600 }}>
+                      {item}
+                    </p>
+                  </Card>
+                ))}
+              </div>
+            </PageSection>
+            <PageSection>
+              <SectionTitle sub="Tracking needed before scaling">Attribution Gap</SectionTitle>
+              <Card>
+                <p style={{ margin: '0 0 8px', color: '#1A1A1A', fontSize: 13, fontWeight: 700 }}>
+                  CAC and ROAS are not reliable yet.
+                </p>
+                <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>
+                  Need Meta click/campaign/ad identifiers connected to Shopify orders, UTMs or meta_click_id stored from first visit through checkout, and customer/session/event tracking. Then the dashboard can calculate cost per visitor, quiz, Taste Kit purchase, CAC, ROAS, and campaign-level revenue.
+                </p>
+              </Card>
+            </PageSection>
+            <PageSection>
+              <SectionTitle sub="What to do next">Meta Action Plan</SectionTitle>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {[
+                  'Implement UTM/meta click tracking before increasing spend.',
+                  metrics.ctr !== null && metrics.ctr >= 2 ? 'Landing page/funnel tracking is missing; do not judge ads only by clicks.' : null,
+                  metrics.cpc !== null && metrics.cpc > 1.5 ? 'Test new creatives or targeting.' : null,
+                ].filter(Boolean).map((item) => (
+                  <Card key={item}>
+                    <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 600 }}>{item}</p>
+                  </Card>
+                ))}
+              </div>
+            </PageSection>
+            <PerformanceTable title="Campaign Performance" rows={metrics.campaigns} parentLabel="Parent" />
+            <PerformanceTable title="Ad Set Performance" rows={metrics.adSets} parentLabel="Campaign" />
+            <PerformanceTable title="Ad Performance" rows={metrics.ads} parentLabel="Ad set" />
+          </>
+        ) : null}
       </PageSection>
     </DashboardLayout>
   );

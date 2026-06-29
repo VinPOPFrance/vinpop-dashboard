@@ -362,6 +362,155 @@ export type CustomerLifecycleMetrics = {
   potentialIssues: string[];
 };
 
+export type WineRatingSummary = {
+  wineId: string;
+  wineName: string;
+  totalRatings: number;
+  loveCount: number;
+  likeCount: number;
+  dislikeCount: number;
+  loveRate: number | null;
+  likeRate: number | null;
+  dislikeRate: number | null;
+  positiveRate: number | null;
+  recommendationLabel: string;
+};
+
+export type RatingsIntelligenceMetrics = {
+  totalUsers: number;
+  totalRatings: number;
+  uniqueRatedWines: number;
+  usersWithRatings: number;
+  usersWithThreePlusRatings: number;
+  averageRatingsPerRatedUser: number | null;
+  loveCount: number;
+  likeCount: number;
+  dislikeCount: number;
+  loveRate: number | null;
+  likeRate: number | null;
+  dislikeRate: number | null;
+  positiveRatingRate: number | null;
+  winesWithLove: number;
+  winesWithDislike: number;
+  winesWithHighSatisfaction: number;
+  winesWithHighDisappointment: number;
+  firstRatingDate: string | null;
+  latestRatingDate: string | null;
+  wines: WineRatingSummary[];
+  interpretation: string[];
+  recommendedActions: string[];
+  missingData: string[];
+  wineLevelAnalysisAvailable: boolean;
+  wineLevelUnavailableReason: string | null;
+};
+
+export type PairingSummary = {
+  pairingCategory: string;
+  winesCount: number;
+  ratingsCount: number | null;
+  loveCount: number | null;
+  likeCount: number | null;
+  dislikeCount: number | null;
+  positiveRate: number | null;
+  suggestedAction: string;
+};
+
+export type WinePairingSummary = {
+  wineName: string;
+  vendor: string;
+  pairingTags: string;
+  totalRatings: number;
+  positiveRate: number | null;
+  dislikeRate: number | null;
+  actionLabel: string;
+};
+
+export type FoodPairingIntelligenceMetrics = {
+  totalWines: number;
+  foodPairingRows: number;
+  populatedPairingRows: number;
+  winesWithPairingData: number;
+  redMeatWines: number;
+  whiteMeatWines: number;
+  fishSeafoodWines: number;
+  cheeseWines: number;
+  aperitifWines: number;
+  winesWithMultiplePairings: number;
+  winesWithoutPairing: number;
+  pairingCoverageRate: number | null;
+  pairings: PairingSummary[];
+  wines: WinePairingSummary[];
+  coverageGapReason: string | null;
+  nextDataFixes: string[];
+};
+
+export type MetaPerformanceRow = {
+  name: string;
+  parentName: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  ctr: number | null;
+  cpc: number | null;
+  cpm: number | null;
+  purchases: number | null;
+  purchaseValue: number | null;
+  cpa: number | null;
+  roas: number | null;
+  status: string;
+  performanceLabel: string;
+  recommendedAction: string;
+};
+
+export type MetaAdsPerformanceMetrics = {
+  totalSpend: number;
+  impressions: number;
+  clicks: number;
+  ctr: number | null;
+  cpc: number | null;
+  cpm: number | null;
+  campaignsCount: number;
+  adSetsCount: number;
+  adsCount: number;
+  purchases: number | null;
+  purchaseValue: number | null;
+  cpa: number | null;
+  roas: number | null;
+  attributionAvailable: boolean;
+  attributionNote: string;
+  campaigns: MetaPerformanceRow[];
+  adSets: MetaPerformanceRow[];
+  ads: MetaPerformanceRow[];
+};
+
+export type ActivityTrackingTable = {
+  schemaName: string;
+  tableName: string;
+  columns: string[];
+};
+
+export type CustomerActivityReadinessMetrics = {
+  tablesFound: ActivityTrackingTable[];
+  hasTrackingTables: boolean;
+  readinessMessage: string;
+  requiredFields: string[];
+  recommendedEvents: string[];
+};
+
+export type TodayAction = {
+  priority: 'Critical' | 'High' | 'Medium' | 'Low';
+  businessProblem: string;
+  whyItMatters: string;
+  suggestedAction: string;
+  relatedPage: string;
+  metricEvidence: string;
+};
+
+export type TodayActionPlanMetrics = {
+  topActions: TodayAction[];
+  allActions: TodayAction[];
+};
+
 type DatabaseTableInfoRow = {
   table_schema: string;
   table_name: string;
@@ -693,6 +842,26 @@ export type ProductRepeatSignalsResult =
 
 export type CustomerLifecycleResult =
   | { ok: true; metrics: CustomerLifecycleMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type RatingsIntelligenceResult =
+  | { ok: true; metrics: RatingsIntelligenceMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type FoodPairingIntelligenceResult =
+  | { ok: true; metrics: FoodPairingIntelligenceMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type MetaAdsPerformanceResult =
+  | { ok: true; metrics: MetaAdsPerformanceMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type CustomerActivityReadinessResult =
+  | { ok: true; metrics: CustomerActivityReadinessMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type TodayActionPlanResult =
+  | { ok: true; metrics: TodayActionPlanMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 declare global {
@@ -2644,6 +2813,634 @@ export async function getCustomerLifecycle(): Promise<CustomerLifecycleResult> {
     console.error('Customer lifecycle failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
+}
+
+export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  try {
+    const pool = getPool(databaseUrl);
+    const summaryResult = await pool.query<Record<string, string | Date | null>>(`
+        WITH user_counts AS (
+          SELECT customer_id, COUNT(*) AS ratings_count
+          FROM public.ratings
+          GROUP BY customer_id
+        )
+        SELECT
+          (SELECT COUNT(*) FROM public.users)::text AS total_users,
+          COUNT(*)::text AS total_ratings,
+          0::text AS unique_rated_wines,
+          COUNT(DISTINCT customer_id)::text AS users_with_ratings,
+          (SELECT COUNT(*) FROM user_counts WHERE ratings_count >= 3)::text AS users_with_three_plus_ratings,
+          COUNT(*) FILTER (WHERE rating >= 1)::text AS love_count,
+          COUNT(*) FILTER (WHERE rating = 0)::text AS like_count,
+          COUNT(*) FILTER (WHERE rating < 0)::text AS dislike_count,
+          0::text AS wines_with_love,
+          0::text AS wines_with_dislike,
+          0::text AS wines_with_high_satisfaction,
+          0::text AS wines_with_high_disappointment,
+          MIN(created_at) AS first_rating_date,
+          MAX(created_at) AS latest_rating_date
+        FROM public.ratings
+      `);
+    const row = summaryResult.rows[0];
+    const totalRatings = numberFromPg(row?.total_ratings as string | null);
+    const loveCount = numberFromPg(row?.love_count as string | null);
+    const likeCount = numberFromPg(row?.like_count as string | null);
+    const dislikeCount = numberFromPg(row?.dislike_count as string | null);
+    const totalUsers = numberFromPg(row?.total_users as string | null);
+    const usersWithRatings = numberFromPg(row?.users_with_ratings as string | null);
+    const usersWithThreePlusRatings = numberFromPg(row?.users_with_three_plus_ratings as string | null);
+    const wines: WineRatingSummary[] = [];
+    const positiveRatingRate = rate(loveCount + likeCount, totalRatings);
+    const recommendedActions: string[] = [];
+
+    if (totalUsers > 0 && usersWithRatings / totalUsers < 0.5) {
+      recommendedActions.push('Improve post-delivery rating emails.');
+    }
+
+    if (totalRatings > 0) {
+      recommendedActions.push('Add a safe wine_id to ratings so Smart Box recommendations can be measured by wine.');
+    }
+
+    if ((positiveRatingRate ?? 0) >= 95 && totalRatings > 0) {
+      recommendedActions.push('Check whether Dislike is being correctly captured.');
+    }
+
+    if (usersWithThreePlusRatings > 0) {
+      recommendedActions.push('Create a Smart Box Ready segment for users with 3+ ratings.');
+    }
+
+    return {
+      ok: true,
+      metrics: {
+        totalUsers,
+        totalRatings,
+        uniqueRatedWines: numberFromPg(row?.unique_rated_wines as string | null),
+        usersWithRatings,
+        usersWithThreePlusRatings,
+        averageRatingsPerRatedUser: ratio(totalRatings, usersWithRatings),
+        loveCount,
+        likeCount,
+        dislikeCount,
+        loveRate: rate(loveCount, totalRatings),
+        likeRate: rate(likeCount, totalRatings),
+        dislikeRate: rate(dislikeCount, totalRatings),
+        positiveRatingRate,
+        winesWithLove: numberFromPg(row?.wines_with_love as string | null),
+        winesWithDislike: numberFromPg(row?.wines_with_dislike as string | null),
+        winesWithHighSatisfaction: numberFromPg(row?.wines_with_high_satisfaction as string | null),
+        winesWithHighDisappointment: numberFromPg(row?.wines_with_high_disappointment as string | null),
+        firstRatingDate: dateFromPg((row?.first_rating_date as Date | string | null) ?? null),
+        latestRatingDate: dateFromPg((row?.latest_rating_date as Date | string | null) ?? null),
+        wines,
+        interpretation: [
+          'Wine-level ratings are unavailable because public.ratings does not expose a safe wine_id column.',
+          'Overall Love/Like/Dislike distribution is available and can still guide rating engagement work.',
+          'Add a safe wine identifier to ratings before promoting or suppressing specific wines from this page.',
+        ],
+        recommendedActions,
+        missingData: [
+          'Need a safe wine_id or product/wine identifier in public.ratings.',
+          'Need rating timestamp, already available as created_at.',
+          'Need rating value mapped to Love / Like / Dislike, currently inferred from numeric rating values.',
+        ],
+        wineLevelAnalysisAvailable: false,
+        wineLevelUnavailableReason:
+          'public.ratings does not expose a safe wine_id column, so wine-level aggregation cannot be trusted yet.',
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Ratings intelligence failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getFoodPairingIntelligence(): Promise<FoodPairingIntelligenceResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  try {
+    const pool = getPool(databaseUrl);
+    const [summaryResult, pairingResult, wineResult] = await Promise.all([
+      pool.query<Record<string, string | null>>(`
+        WITH wine_pairings AS (
+          SELECT
+            wines.id::text AS wine_id,
+            BOOL_OR(COALESCE(food_pairing.red_meat, false)) AS red_meat,
+            BOOL_OR(COALESCE(food_pairing.white_meat, false)) AS white_meat,
+            BOOL_OR(COALESCE(food_pairing.fish_seafood, false)) AS fish_seafood,
+            BOOL_OR(COALESCE(food_pairing.cheese, false)) AS cheese,
+            BOOL_OR(COALESCE(food_pairing.aperitif, false)) AS aperitif
+          FROM public.wines
+          LEFT JOIN public.food_pairing ON food_pairing.wine_id::text = wines.id::text
+            OR food_pairing.wine_id::text = wines.wine_id::text
+          GROUP BY wines.id
+        )
+        SELECT
+          (SELECT COUNT(*) FROM public.food_pairing)::text AS food_pairing_rows,
+          (
+            SELECT COUNT(*)
+            FROM public.food_pairing
+            WHERE COALESCE(red_meat, false)
+               OR COALESCE(white_meat, false)
+               OR COALESCE(fish_seafood, false)
+               OR COALESCE(cheese, false)
+               OR COALESCE(aperitif, false)
+          )::text AS populated_pairing_rows,
+          COUNT(*)::text AS total_wines,
+          COUNT(*) FILTER (WHERE red_meat OR white_meat OR fish_seafood OR cheese OR aperitif)::text AS wines_with_pairing_data,
+          COUNT(*) FILTER (WHERE red_meat)::text AS red_meat_wines,
+          COUNT(*) FILTER (WHERE white_meat)::text AS white_meat_wines,
+          COUNT(*) FILTER (WHERE fish_seafood)::text AS fish_seafood_wines,
+          COUNT(*) FILTER (WHERE cheese)::text AS cheese_wines,
+          COUNT(*) FILTER (WHERE aperitif)::text AS aperitif_wines,
+          COUNT(*) FILTER (WHERE ((red_meat::int + white_meat::int + fish_seafood::int + cheese::int + aperitif::int) > 1))::text AS wines_with_multiple_pairings,
+          COUNT(*) FILTER (WHERE NOT (red_meat OR white_meat OR fish_seafood OR cheese OR aperitif))::text AS wines_without_pairing
+        FROM wine_pairings
+      `),
+      pool.query<Record<string, string | null>>(`
+        WITH pairings AS (
+          SELECT 'Red meat' AS category, wine_id FROM public.food_pairing WHERE red_meat
+          UNION ALL SELECT 'White meat', wine_id FROM public.food_pairing WHERE white_meat
+          UNION ALL SELECT 'Fish/seafood', wine_id FROM public.food_pairing WHERE fish_seafood
+          UNION ALL SELECT 'Cheese', wine_id FROM public.food_pairing WHERE cheese
+          UNION ALL SELECT 'Aperitif', wine_id FROM public.food_pairing WHERE aperitif
+        )
+        SELECT
+          category,
+          COUNT(DISTINCT wine_id)::text AS wines_count,
+          NULL::text AS ratings_count,
+          NULL::text AS love_count,
+          NULL::text AS like_count,
+          NULL::text AS dislike_count
+        FROM pairings
+        GROUP BY category
+        ORDER BY wines_count DESC
+      `),
+      pool.query<Record<string, string | null>>(`
+        WITH wine_pairings AS (
+          SELECT
+            wines.id::text AS wine_id,
+            wines.name AS wine_name,
+            COALESCE(wines.wine->>'vendor', wines.wine->>'producer', 'Unknown vendor') AS vendor,
+            CONCAT_WS(', ',
+              CASE WHEN BOOL_OR(COALESCE(food_pairing.red_meat, false)) THEN 'red meat' END,
+              CASE WHEN BOOL_OR(COALESCE(food_pairing.white_meat, false)) THEN 'white meat' END,
+              CASE WHEN BOOL_OR(COALESCE(food_pairing.fish_seafood, false)) THEN 'fish/seafood' END,
+              CASE WHEN BOOL_OR(COALESCE(food_pairing.cheese, false)) THEN 'cheese' END,
+              CASE WHEN BOOL_OR(COALESCE(food_pairing.aperitif, false)) THEN 'aperitif' END
+            ) AS pairing_tags
+          FROM public.wines
+          LEFT JOIN public.food_pairing ON food_pairing.wine_id::text = wines.id::text
+            OR food_pairing.wine_id::text = wines.wine_id::text
+          GROUP BY wines.id, wines.name, wines.wine
+        )
+        SELECT
+          wine_name,
+          vendor,
+          NULLIF(pairing_tags, '') AS pairing_tags,
+          0::text AS total_ratings,
+          0::text AS love_count,
+          0::text AS like_count,
+          0::text AS dislike_count
+        FROM wine_pairings
+        GROUP BY wine_name, vendor, pairing_tags
+        ORDER BY wine_name
+        LIMIT 100
+      `),
+    ]);
+    const summary = summaryResult.rows[0];
+    const totalWines = numberFromPg(summary?.total_wines);
+    const winesWithPairingData = numberFromPg(summary?.wines_with_pairing_data);
+    const foodPairingRows = numberFromPg(summary?.food_pairing_rows);
+    const populatedPairingRows = numberFromPg(summary?.populated_pairing_rows);
+    const coverageGapReason =
+      foodPairingRows === 0
+        ? 'public.food_pairing table is empty.'
+        : populatedPairingRows === 0
+          ? 'public.food_pairing exists, but pairing booleans are not populated.'
+          : winesWithPairingData === 0
+            ? 'Food pairing rows exist, but the join to public.wines is not matching.'
+            : null;
+    const pairings = pairingResult.rows.map((row) => {
+      const ratingsCount = row.ratings_count === null ? null : numberFromPg(row.ratings_count);
+      const loveCount = row.love_count === null ? null : numberFromPg(row.love_count);
+      const likeCount = row.like_count === null ? null : numberFromPg(row.like_count);
+      const dislikeCount = row.dislike_count === null ? null : numberFromPg(row.dislike_count);
+      const positiveRate = ratingsCount === null || loveCount === null || likeCount === null ? null : rate(loveCount + likeCount, ratingsCount);
+      return {
+        pairingCategory: row.category || 'Unknown pairing',
+        winesCount: numberFromPg(row.wines_count),
+        ratingsCount,
+        loveCount,
+        likeCount,
+        dislikeCount,
+        positiveRate,
+        suggestedAction:
+          ratingsCount === null ? 'Use in product page messaging' : ratingsCount < 5 ? 'Needs more ratings' : (rate(dislikeCount ?? 0, ratingsCount) ?? 0) >= 30 ? 'Monitor dislikes' : 'Use in product page messaging',
+      };
+    });
+
+    return {
+      ok: true,
+      metrics: {
+        totalWines,
+        foodPairingRows,
+        populatedPairingRows,
+        winesWithPairingData,
+        redMeatWines: numberFromPg(summary?.red_meat_wines),
+        whiteMeatWines: numberFromPg(summary?.white_meat_wines),
+        fishSeafoodWines: numberFromPg(summary?.fish_seafood_wines),
+        cheeseWines: numberFromPg(summary?.cheese_wines),
+        aperitifWines: numberFromPg(summary?.aperitif_wines),
+        winesWithMultiplePairings: numberFromPg(summary?.wines_with_multiple_pairings),
+        winesWithoutPairing: numberFromPg(summary?.wines_without_pairing),
+        pairingCoverageRate: rate(winesWithPairingData, totalWines),
+        pairings,
+        wines: wineResult.rows.map((row) => {
+          const totalRatings = numberFromPg(row.total_ratings);
+          const loveCount = numberFromPg(row.love_count);
+          const likeCount = numberFromPg(row.like_count);
+          const dislikeCount = numberFromPg(row.dislike_count);
+          const positiveRate = rate(loveCount + likeCount, totalRatings);
+          const dislikeRate = rate(dislikeCount, totalRatings);
+          return {
+            wineName: row.wine_name || 'Unknown wine',
+            vendor: row.vendor || 'Unknown vendor',
+            pairingTags: row.pairing_tags || 'No pairing tags',
+            totalRatings,
+            positiveRate,
+            dislikeRate,
+            actionLabel: totalRatings < 3 ? 'Needs more ratings' : (dislikeRate ?? 0) >= 30 ? 'Monitor dislikes' : 'Use in product page messaging',
+          };
+        }),
+        coverageGapReason,
+        nextDataFixes: [
+          'Ensure every wine has at least one pairing.',
+          'Connect pairing tags to product recommendation logic.',
+          'Use pairing labels on product cards and Smart Box explanations.',
+        ],
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Food pairing intelligence failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+function metaPerformanceLabel(spend: number, clicks: number, ctrValue: number | null, cpcValue: number | null): string {
+  if (spend <= 0 || clicks <= 0 || ctrValue === null || cpcValue === null) return 'Unclear';
+  if (ctrValue >= 2 && cpcValue <= 0.5) return 'Winner';
+  if (ctrValue >= 1 && cpcValue <= 1.5) return 'Watch';
+  return 'Weak';
+}
+
+function metaRecommendedAction(label: string): string {
+  if (label === 'Winner') return 'Consider increasing budget carefully.';
+  if (label === 'Watch') return 'Keep running and compare conversion data.';
+  if (label === 'Weak') return 'Review creative, targeting or landing page.';
+  return 'Add UTM/meta click tracking before scaling.';
+}
+
+export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  try {
+    const pool = getPool(databaseUrl);
+    const [summaryResult, campaignsResult, adSetsResult, adsResult] = await Promise.all([
+      pool.query<Record<string, string | null>>(`
+        SELECT
+          COALESCE(SUM(spend), 0)::text AS total_spend,
+          COALESCE(SUM(impressions), 0)::text AS impressions,
+          COALESCE(SUM(clicks), 0)::text AS clicks,
+          COUNT(DISTINCT campaign_id)::text AS campaigns_count,
+          COUNT(DISTINCT adset_id)::text AS ad_sets_count,
+          COUNT(DISTINCT ad_id)::text AS ads_count
+        FROM public.ads_insights
+      `),
+      pool.query<Record<string, string | null>>(`
+        SELECT
+          COALESCE(campaign_name, 'Unknown campaign') AS name,
+          COALESCE(SUM(spend), 0)::text AS spend,
+          COALESCE(SUM(impressions), 0)::text AS impressions,
+          COALESCE(SUM(clicks), 0)::text AS clicks,
+          COALESCE(MAX(campaigns.effective_status), MAX(campaigns.status), 'Unknown') AS status
+        FROM public.ads_insights
+        LEFT JOIN public.campaigns ON campaigns.id = ads_insights.campaign_id
+        GROUP BY campaign_name
+        ORDER BY SUM(spend) DESC NULLS LAST
+        LIMIT 50
+      `),
+      pool.query<Record<string, string | null>>(`
+        SELECT
+          COALESCE(adset_name, 'Unknown ad set') AS name,
+          COALESCE(campaign_name, 'Unknown campaign') AS parent_name,
+          COALESCE(SUM(spend), 0)::text AS spend,
+          COALESCE(SUM(impressions), 0)::text AS impressions,
+          COALESCE(SUM(clicks), 0)::text AS clicks,
+          COALESCE(MAX(ad_sets.effective_status), 'Unknown') AS status
+        FROM public.ads_insights
+        LEFT JOIN public.ad_sets ON ad_sets.id = ads_insights.adset_id
+        GROUP BY adset_name, campaign_name
+        ORDER BY SUM(spend) DESC NULLS LAST
+        LIMIT 50
+      `),
+      pool.query<Record<string, string | null>>(`
+        SELECT
+          COALESCE(ad_name, 'Unknown ad') AS name,
+          COALESCE(adset_name, 'Unknown ad set') AS parent_name,
+          COALESCE(campaign_name, 'Unknown campaign') AS campaign_name,
+          COALESCE(SUM(spend), 0)::text AS spend,
+          COALESCE(SUM(impressions), 0)::text AS impressions,
+          COALESCE(SUM(clicks), 0)::text AS clicks,
+          COALESCE(MAX(ads.effective_status), MAX(ads.status), 'Unknown') AS status
+        FROM public.ads_insights
+        LEFT JOIN public.ads ON ads.id = ads_insights.ad_id
+        GROUP BY ad_name, adset_name, campaign_name
+        ORDER BY SUM(spend) DESC NULLS LAST
+        LIMIT 50
+      `),
+    ]);
+    const toRow = (row: Record<string, string | null>): MetaPerformanceRow => {
+      const spend = numberFromPg(row.spend);
+      const impressions = numberFromPg(row.impressions);
+      const clicks = numberFromPg(row.clicks);
+      const ctrValue = rate(clicks, impressions);
+      const cpcValue = ratio(spend, clicks);
+      const cpmValue = impressions === 0 ? null : (spend / impressions) * 1000;
+      const performanceLabel = metaPerformanceLabel(spend, clicks, ctrValue, cpcValue);
+      return {
+        name: row.name || 'Unknown',
+        parentName: row.parent_name || row.campaign_name || '',
+        spend,
+        impressions,
+        clicks,
+        ctr: ctrValue,
+        cpc: cpcValue,
+        cpm: cpmValue,
+        purchases: null,
+        purchaseValue: null,
+        cpa: null,
+        roas: null,
+        status: row.status || 'Unknown',
+        performanceLabel,
+        recommendedAction: metaRecommendedAction(performanceLabel),
+      };
+    };
+    const summary = summaryResult.rows[0];
+    const totalSpend = numberFromPg(summary?.total_spend);
+    const impressions = numberFromPg(summary?.impressions);
+    const clicks = numberFromPg(summary?.clicks);
+
+    return {
+      ok: true,
+      metrics: {
+        totalSpend,
+        impressions,
+        clicks,
+        ctr: rate(clicks, impressions),
+        cpc: ratio(totalSpend, clicks),
+        cpm: impressions === 0 ? null : (totalSpend / impressions) * 1000,
+        campaignsCount: numberFromPg(summary?.campaigns_count),
+        adSetsCount: numberFromPg(summary?.ad_sets_count),
+        adsCount: numberFromPg(summary?.ads_count),
+        purchases: null,
+        purchaseValue: null,
+        cpa: null,
+        roas: null,
+        attributionAvailable: false,
+        attributionNote: 'Meta platform spend/click metrics are available, but reliable Shopify order attribution is unavailable until UTM/meta click tracking is joined to orders.',
+        campaigns: campaignsResult.rows.map(toRow),
+        adSets: adSetsResult.rows.map(toRow),
+        ads: adsResult.rows.map(toRow),
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Meta ads performance failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getCustomerActivityReadiness(): Promise<CustomerActivityReadinessResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  try {
+    const result = await getPool(databaseUrl).query<Record<string, string>>(`
+      SELECT table_schema, table_name, column_name
+      FROM information_schema.columns
+      WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+        AND (
+          table_name ILIKE '%visitor%' OR table_name ILIKE '%session%' OR table_name ILIKE '%event%'
+          OR table_name ILIKE '%activity%' OR table_name ILIKE '%pageview%' OR table_name ILIKE '%page_view%'
+          OR table_name ILIKE '%login%' OR table_name ILIKE '%analytics%'
+        )
+      ORDER BY table_schema, table_name, ordinal_position
+      LIMIT 500
+    `);
+    const grouped = new Map<string, ActivityTrackingTable>();
+    for (const row of result.rows) {
+      const key = `${row.table_schema}.${row.table_name}`;
+      const current = grouped.get(key) ?? {
+        schemaName: row.table_schema,
+        tableName: row.table_name,
+        columns: [],
+      };
+      current.columns.push(row.column_name);
+      grouped.set(key, current);
+    }
+    const tablesFound = Array.from(grouped.values());
+
+    return {
+      ok: true,
+      metrics: {
+        tablesFound,
+        hasTrackingTables: tablesFound.length > 0,
+        readinessMessage:
+          tablesFound.length > 0
+            ? 'Potential tracking tables exist. Review metadata before calculating visit/session metrics.'
+            : 'Current database does not yet contain visitor/session/event tracking needed to calculate last visit or sessions before purchase.',
+        requiredFields: [
+          'visitor_id',
+          'session_id',
+          'customer_id if known',
+          'first_seen_at',
+          'last_seen_at',
+          'page_count',
+          'landing_page',
+          'utm_source',
+          'utm_medium',
+          'utm_campaign',
+          'meta_click_id',
+          'event_name',
+          'event_time',
+          'funnel_stage',
+          'order_id after purchase if matchable',
+        ],
+        recommendedEvents: [
+          'site_viewed',
+          'landing_page_viewed',
+          'quiz_started',
+          'quiz_completed',
+          'email_submitted',
+          'taste_kit_viewed',
+          'taste_kit_added_to_cart',
+          'checkout_started',
+          'purchase_completed',
+          'wine_rated_love',
+          'wine_rated_like',
+          'wine_rated_dislike',
+          'smart_box_viewed',
+          'smart_box_customized',
+          'smart_box_purchased',
+          'subscription_viewed',
+          'subscription_started',
+        ],
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Customer activity readiness failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getTodayActionPlan(): Promise<TodayActionPlanResult> {
+  const [repeatResult, startupResult, ratingsResult, ratingsIntelligenceResult, foodResult, stockResult, funnelResult, metaResult, activityResult] =
+    await Promise.all([
+      getRepeatCustomerMetrics(),
+      getStartupPackRetention(),
+      getRatingsConversion(),
+      getRatingsIntelligence(),
+      getFoodPairingIntelligence(),
+      getStockMovementSummary(),
+      getShopifyFunnelBasic(),
+      getMetaAdsPerformance(),
+      getCustomerActivityReadiness(),
+    ]);
+
+  const firstFailure = [repeatResult, startupResult, ratingsResult, ratingsIntelligenceResult, foodResult, stockResult, funnelResult, metaResult, activityResult].find(
+    (result) => !result.ok,
+  );
+  if (firstFailure && !firstFailure.ok) return firstFailure;
+
+  const repeat = repeatResult.ok ? repeatResult.metrics : null;
+  const startup = startupResult.ok ? startupResult.metrics : null;
+  const ratings = ratingsResult.ok ? ratingsResult.metrics : null;
+  const ratingsIntelligence = ratingsIntelligenceResult.ok ? ratingsIntelligenceResult.metrics : null;
+  const food = foodResult.ok ? foodResult.metrics : null;
+  const stock = stockResult.ok ? stockResult.metrics : null;
+  const funnel = funnelResult.ok ? funnelResult.metrics : null;
+  const meta = metaResult.ok ? metaResult.metrics : null;
+  const activity = activityResult.ok ? activityResult.metrics : null;
+  const actions: TodayAction[] = [];
+
+  if ((repeat?.reorderRate ?? 100) < 20) {
+    actions.push({
+      priority: 'Critical',
+      businessProblem: 'First-time customers are not reordering.',
+      whyItMatters: 'Revenue depends too much on acquisition if later orders do not appear.',
+      suggestedAction: 'Create a follow-up campaign for first-time customers and Startup Pack buyers.',
+      relatedPage: '/repeat-customers',
+      metricEvidence: `Reorder rate: ${repeat?.reorderRate?.toFixed(1) ?? '0'}%`,
+    });
+  }
+
+  if ((startup?.startupPackReorderRate ?? 100) < 20) {
+    actions.push({
+      priority: 'High',
+      businessProblem: 'Startup Pack customers are not converting to later orders.',
+      whyItMatters: 'Startup Pack stock cost only pays back if customers continue into Smart Box or repeat orders.',
+      suggestedAction: 'Send Smart Box offer to Startup Pack customers after ratings are completed.',
+      relatedPage: '/startup-pack-retention',
+      metricEvidence: `Startup Pack reorder rate: ${startup?.startupPackReorderRate?.toFixed(1) ?? '0'}%`,
+    });
+  }
+
+  if (ratings && ratings.totalUsers > 0 && ratings.usersWithRatings / ratings.totalUsers < 0.5) {
+    actions.push({
+      priority: 'High',
+      businessProblem: 'Ratings engagement is too low.',
+      whyItMatters: 'Ratings power Smart Wine Box recommendations and segmentation.',
+      suggestedAction: 'Improve post-delivery rating emails.',
+      relatedPage: '/ratings-conversion',
+      metricEvidence: `${ratings.usersWithRatings} of ${ratings.totalUsers} users have rated.`,
+    });
+  }
+
+  if (ratingsIntelligence && !ratingsIntelligence.wineLevelAnalysisAvailable) {
+    actions.push({
+      priority: 'High',
+      businessProblem: 'Wine-level ratings cannot be measured yet.',
+      whyItMatters: 'Smart Box recommendations need wine-level Love/Like/Dislike performance.',
+      suggestedAction: 'Add wine_id to ratings so Smart Box recommendations can be measured by wine.',
+      relatedPage: '/ratings',
+      metricEvidence: ratingsIntelligence.wineLevelUnavailableReason ?? 'Wine-level rating key missing.',
+    });
+  }
+
+  if (funnel && funnel.abandonedCheckoutCount > funnel.orderCount) {
+    actions.push({
+      priority: 'High',
+      businessProblem: 'Abandoned checkouts exceed completed orders.',
+      whyItMatters: 'Checkout friction can waste paid traffic and quiz demand.',
+      suggestedAction: 'Investigate abandoned checkout emails and payment friction.',
+      relatedPage: '/acquisition-economics-basic',
+      metricEvidence: `${funnel.abandonedCheckoutCount} abandoned checkouts vs ${funnel.orderCount} orders.`,
+    });
+  }
+
+  if ((stock?.freeQuantityPercentage ?? 0) > 20) {
+    actions.push({
+      priority: 'Medium',
+      businessProblem: 'Free stock movement is material.',
+      whyItMatters: 'Discounted pack bottles move inventory before repeat revenue is proven.',
+      suggestedAction: 'Monitor acquisition stock cost and make sure Startup Pack leads convert.',
+      relatedPage: '/stock-movement-summary',
+      metricEvidence: `Free quantity share: ${stock?.freeQuantityPercentage?.toFixed(1) ?? '0'}%`,
+    });
+  }
+
+  if (food && food.pairingCoverageRate === 0) {
+    actions.push({
+      priority: 'Medium',
+      businessProblem: 'Food pairing coverage is missing.',
+      whyItMatters: 'Pairing tags can improve product positioning and Smart Box explanations.',
+      suggestedAction: 'Populate food pairing tags for wines so Smart Box explanations are stronger.',
+      relatedPage: '/food-pairing-intelligence',
+      metricEvidence: food.coverageGapReason ?? 'Pairing coverage is 0%.',
+    });
+  }
+
+  if (meta && meta.totalSpend > 0 && !meta.attributionAvailable) {
+    actions.push({
+      priority: 'Medium',
+      businessProblem: 'Meta spend is not reliably attributed to Shopify orders.',
+      whyItMatters: 'CAC and ROAS cannot be trusted without click/order attribution.',
+      suggestedAction: 'Set up UTM/meta click tracking and Shopify order attribution.',
+      relatedPage: '/meta',
+      metricEvidence: `Meta spend detected: ${meta.totalSpend.toFixed(2)}.`,
+    });
+  }
+
+  if (activity && !activity.hasTrackingTables) {
+    actions.push({
+      priority: 'Medium',
+      businessProblem: 'Customer activity tracking is missing.',
+      whyItMatters: 'Sales prediction needs sessions, events, and visit recency before purchase.',
+      suggestedAction: 'Implement visitor/session/event tracking before trying to predict sales.',
+      relatedPage: '/customer-activity-readiness',
+      metricEvidence: 'No visitor/session/event tables found.',
+    });
+  }
+
+  return { ok: true, metrics: { topActions: actions.slice(0, 5), allActions: actions } };
 }
 
 export async function getAcquisitionEconomicsBasic(): Promise<AcquisitionEconomicsBasicResult> {

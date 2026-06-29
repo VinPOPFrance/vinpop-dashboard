@@ -2,7 +2,7 @@ import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { TopBar } from '@/components/TopBar';
-import { getBusinessOverview } from '@/lib/db';
+import { getBusinessOverview, getTodayActionPlan } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
@@ -31,8 +31,12 @@ function formatPercent(value: number | null): string {
 
 export default async function BusinessOverviewPage() {
   await connection();
-  const result = await getBusinessOverview();
+  const [result, actionPlanResult] = await Promise.all([
+    getBusinessOverview(),
+    getTodayActionPlan(),
+  ]);
   const metrics = result.ok ? result.metrics : null;
+  const actionPlan = actionPlanResult.ok ? actionPlanResult.metrics : null;
   const message = result.ok
     ? 'High-level Shopify business overview loaded from aggregate queries.'
     : result.reason === 'missing-url'
@@ -90,6 +94,13 @@ export default async function BusinessOverviewPage() {
     { href: '/product-repeat-signals', title: 'Product Repeat Signals', subtitle: 'Products connected to later orders' },
     { href: '/customer-lifecycle', title: 'Customer Lifecycle', subtitle: 'Acquisition to repeat purchase health' },
   ];
+  const intelligenceLinkCards = [
+    { href: '/ratings-intelligence', title: 'Ratings Intelligence', subtitle: 'Wine-level satisfaction signals' },
+    { href: '/food-pairing-intelligence', title: 'Food Pairing Intelligence', subtitle: 'Pairing coverage and positioning' },
+    { href: '/meta', title: 'Meta Ads Performance', subtitle: 'Spend, clicks, and attribution readiness' },
+    { href: '/customer-activity-readiness', title: 'Customer Activity Readiness', subtitle: 'Session tracking gap check' },
+    { href: '/today-action-plan', title: 'Today Action Plan', subtitle: 'Prioritized next actions' },
+  ];
 
   return (
     <DashboardLayout>
@@ -111,6 +122,36 @@ export default async function BusinessOverviewPage() {
 
         {metrics ? (
           <>
+            {actionPlan ? (
+              <PageSection>
+                <SectionTitle sub="Top 3 generated actions">What needs attention today</SectionTitle>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                    gap: 12,
+                  }}
+                >
+                  {actionPlan.topActions.slice(0, 3).map((action) => (
+                    <Card key={`${action.priority}.${action.businessProblem}`}>
+                      <div style={{ color: '#B45309', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                        {action.priority}
+                      </div>
+                      <div style={{ color: '#1A1A1A', fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
+                        {action.businessProblem}
+                      </div>
+                      <p style={{ color: '#6B6B6B', fontSize: 12, lineHeight: 1.5, margin: '0 0 8px' }}>
+                        {action.suggestedAction}
+                      </p>
+                      <a href={action.relatedPage} style={{ color: '#722F37', fontSize: 12, textDecoration: 'none', fontWeight: 600 }}>
+                        Open related page
+                      </a>
+                    </Card>
+                  ))}
+                </div>
+              </PageSection>
+            ) : null}
+
             <div
               style={{
                 display: 'grid',
@@ -208,6 +249,30 @@ export default async function BusinessOverviewPage() {
                 }}
               >
                 {retentionLinkCards.map((link) => (
+                  <a key={link.href} href={link.href} style={{ textDecoration: 'none' }}>
+                    <Card>
+                      <div style={{ color: '#722F37', fontSize: 14, fontWeight: 700 }}>
+                        {link.title}
+                      </div>
+                      <p style={{ color: '#6B6B6B', fontSize: 12, lineHeight: 1.5, margin: '6px 0 0' }}>
+                        {link.subtitle}
+                      </p>
+                    </Card>
+                  </a>
+                ))}
+              </div>
+            </PageSection>
+
+            <PageSection>
+              <SectionTitle sub="New intelligence modules">Decision System Links</SectionTitle>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                  gap: 12,
+                }}
+              >
+                {intelligenceLinkCards.map((link) => (
                   <a key={link.href} href={link.href} style={{ textDecoration: 'none' }}>
                     <Card>
                       <div style={{ color: '#722F37', fontSize: 14, fontWeight: 700 }}>

@@ -5,8 +5,11 @@ import { usePathname } from 'next/navigation';
 
 const navItems = [
   { href: '/business-overview', label: 'Business Overview', icon: '◆' },
+  { href: '/today-action-plan', label: 'Today Action Plan', icon: '!' },
   { href: '/', label: 'Overview', icon: '▦' },
   { href: '/funnel', label: 'Funnel', icon: '▽' },
+  { href: '/ratings-intelligence', label: 'Ratings Intelligence', icon: '♡' },
+  { href: '/food-pairing-intelligence', label: 'Food Pairing', icon: '◧' },
   { href: '/shopify-products-summary', label: 'Shopify Products', icon: '▣' },
   { href: '/shopify-funnel-basic', label: 'Shopify Funnel', icon: '◇' },
   { href: '/startup-pack-analysis', label: 'Startup Packs', icon: '◐' },
@@ -18,6 +21,7 @@ const navItems = [
   { href: '/product-repeat-signals', label: 'Product Repeat Signals', icon: '▧' },
   { href: '/customer-lifecycle', label: 'Customer Lifecycle', icon: '◍' },
   { href: '/meta', label: 'Meta Ads', icon: '◈' },
+  { href: '/customer-activity-readiness', label: 'Activity Readiness', icon: '◫' },
   { href: '/ratings', label: 'Ratings', icon: '★' },
   { href: '/actions', label: 'Actions', icon: '◉' },
   { href: '/todo', label: 'To-do List', icon: '☑' },
