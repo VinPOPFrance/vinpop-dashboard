@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import { AUTH_COOKIE_NAME } from '@/lib/dashboard-auth';
 
 export async function POST(request: NextRequest) {
-  const response = NextResponse.redirect(new URL('/login', request.url));
+  const response = NextResponse.redirect(new URL('/login', request.url), 303);
 
   response.cookies.set({
     name: AUTH_COOKIE_NAME,

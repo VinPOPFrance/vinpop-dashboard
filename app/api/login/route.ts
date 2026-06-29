@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
 
   const expectedToken = await getExpectedAuthToken();
   if (!expectedToken) {
-    return NextResponse.redirect(new URL('/login?error=config', request.url));
+    return NextResponse.redirect(new URL('/login?error=config', request.url), 303);
   }
 
   const isPasswordValid = await isValidPassword(password);
@@ -34,10 +34,10 @@ export async function POST(request: NextRequest) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('error', 'invalid');
     loginUrl.searchParams.set('next', nextPath);
-    return NextResponse.redirect(loginUrl);
+    return NextResponse.redirect(loginUrl, 303);
   }
 
-  const response = NextResponse.redirect(new URL(nextPath, request.url));
+  const response = NextResponse.redirect(new URL(nextPath, request.url), 303);
   response.cookies.set({
     name: AUTH_COOKIE_NAME,
     value: expectedToken,
