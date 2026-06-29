@@ -34,6 +34,10 @@ export type DatabaseTableCount = SelectedDatabaseTable & {
   rowCount: number | null;
 };
 
+export type ShopifyMetadataSearchTable = SelectedDatabaseTable & {
+  columns: DatabaseColumnInfo[];
+};
+
 type DatabaseTableInfoRow = {
   table_schema: string;
   table_name: string;
@@ -72,6 +76,10 @@ export type DatabaseTableSchemasResult =
 
 export type DatabaseTableCountsResult =
   | { ok: true; tables: DatabaseTableCount[] }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type ShopifyMetadataSearchResult =
+  | { ok: true; tables: ShopifyMetadataSearchTable[] }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 declare global {
@@ -276,6 +284,79 @@ export async function getDatabaseTableCounts(
       typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
 
     console.error('Database table counts failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function searchShopifyTableMetadata(): Promise<ShopifyMetadataSearchResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  try {
+    const pool = getPool(databaseUrl);
+    const matchedTablesResult = await pool.query<DatabaseTableInfoRow>(`
+      SELECT table_schema, table_name, table_type
+      FROM information_schema.tables
+      WHERE table_schema = 'shopify'
+        AND (
+          table_name ILIKE '%order%'
+          OR table_name ILIKE '%line%'
+          OR table_name ILIKE '%item%'
+          OR table_name ILIKE '%product%'
+          OR table_name ILIKE '%variant%'
+        )
+      ORDER BY table_name
+      LIMIT 100
+    `);
+
+    if (matchedTablesResult.rows.length === 0) {
+      return { ok: true, tables: [] };
+    }
+
+    const tableKeys = matchedTablesResult.rows.map((row) => `${row.table_schema}.${row.table_name}`);
+    const columnsResult = await pool.query<DatabaseColumnInfoRow>(
+      `
+        SELECT table_schema, table_name, column_name, data_type, is_nullable, ordinal_position
+        FROM information_schema.columns
+        WHERE table_schema || '.' || table_name = ANY($1::text[])
+        ORDER BY table_schema, table_name, ordinal_position
+      `,
+      [tableKeys],
+    );
+
+    const columnsByTable = new Map<string, DatabaseColumnInfo[]>();
+    for (const row of columnsResult.rows) {
+      const tableKey = `${row.table_schema}.${row.table_name}`;
+      const columns = columnsByTable.get(tableKey) ?? [];
+      columns.push({
+        columnName: row.column_name,
+        dataType: row.data_type,
+        isNullable: row.is_nullable,
+        ordinalPosition: row.ordinal_position,
+      });
+      columnsByTable.set(tableKey, columns);
+    }
+
+    return {
+      ok: true,
+      tables: matchedTablesResult.rows.map((row) => {
+        const tableKey = `${row.table_schema}.${row.table_name}`;
+
+        return {
+          schemaName: row.table_schema,
+          tableName: row.table_name,
+          columns: columnsByTable.get(tableKey) ?? [],
+        };
+      }),
+    };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Shopify metadata search failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }
