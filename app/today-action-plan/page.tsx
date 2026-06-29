@@ -1,6 +1,7 @@
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
+import { MetricCard } from '@/components/MetricCard';
 import { TopBar } from '@/components/TopBar';
 import { getTodayActionPlan, type TodayAction } from '@/lib/db';
 
@@ -26,6 +27,14 @@ export default async function TodayActionPlanPage() {
   await connection();
   const result = await getTodayActionPlan();
   const metrics = result.ok ? result.metrics : null;
+  const priorityCounts = metrics
+    ? [
+        { label: 'Critical', value: metrics.allActions.filter((action) => action.priority === 'Critical').length },
+        { label: 'High', value: metrics.allActions.filter((action) => action.priority === 'High').length },
+        { label: 'Medium', value: metrics.allActions.filter((action) => action.priority === 'Medium').length },
+        { label: 'Low', value: metrics.allActions.filter((action) => action.priority === 'Low').length },
+      ]
+    : [];
 
   return (
     <DashboardLayout>
@@ -39,6 +48,16 @@ export default async function TodayActionPlanPage() {
         </Card>
         {metrics ? (
           <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
+              {priorityCounts.map((item) => (
+                <MetricCard
+                  key={item.label}
+                  label={`${item.label} actions`}
+                  value={item.value.toString()}
+                  tone={item.label === 'Critical' || item.label === 'High' ? 'warning' : 'default'}
+                />
+              ))}
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
               {metrics.topActions.map((action) => <ActionCard key={`${action.priority}.${action.businessProblem}`} action={action} />)}
             </div>

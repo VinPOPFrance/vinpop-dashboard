@@ -12,6 +12,7 @@ type MetaRow = MetaPerformanceRow & Record<string, unknown>;
 const columns: SortableColumn<MetaRow>[] = [
   { key: 'name', label: 'Name', type: 'text', width: 220 },
   { key: 'parentName', label: 'Parent', type: 'text', width: 180 },
+  { key: 'campaignName', label: 'Campaign', type: 'text', width: 180 },
   { key: 'firstDate', label: 'First date', type: 'date' },
   { key: 'latestDate', label: 'Latest date', type: 'date' },
   { key: 'spend', label: 'Spend', type: 'money' },
@@ -37,12 +38,30 @@ function filteredByDate(rows: MetaPerformanceRow[], from: string, to: string) {
   });
 }
 
-function MetaTable({ title, rows }: { title: string; rows: MetaPerformanceRow[] }) {
+function MetaTable({
+  title,
+  rows,
+  onRowClick,
+  selectedRowKey,
+}: {
+  title: string;
+  rows: MetaPerformanceRow[];
+  onRowClick?: (row: MetaRow) => void;
+  selectedRowKey?: string;
+}) {
   return (
     <PageSection>
       <SectionTitle>{title}</SectionTitle>
       <Card style={{ padding: 0, overflow: 'hidden' }}>
-        <SortableDataTable columns={columns} rows={rows as MetaRow[]} initialSortKey="spend" searchPlaceholder={`Search ${title.toLowerCase()}...`} />
+        <SortableDataTable
+          columns={columns}
+          rows={rows as MetaRow[]}
+          initialSortKey="spend"
+          searchPlaceholder={`Search ${title.toLowerCase()}...`}
+          getRowKey={(row) => `${row.name}.${row.parentName}.${row.campaignName}`}
+          selectedRowKey={selectedRowKey}
+          onRowClick={onRowClick}
+        />
       </Card>
     </PageSection>
   );
@@ -62,10 +81,23 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
     () =>
       filteredByDate(metrics.ads, from, to)
         .filter((row) => !adSetFilter || row.parentName === adSetFilter)
-        .filter((row) => !campaignFilter || row.name === campaignFilter || row.parentName === adSetFilter || true),
+        .filter((row) => !campaignFilter || row.campaignName === campaignFilter),
     [adSetFilter, campaignFilter, from, metrics.ads, to],
   );
   const chartData = campaigns.slice(0, 8).map((row) => ({ label: row.name, value: row.spend, color: '#722F37' }));
+  const clickData = campaigns.slice(0, 8).map((row) => ({ label: row.name, value: row.clicks, color: '#2D6A4F' }));
+  const ctrData = [...campaigns]
+    .sort((a, b) => (b.ctr ?? 0) - (a.ctr ?? 0))
+    .slice(0, 8)
+    .map((row) => ({ label: row.name, value: row.ctr ?? 0, color: '#A67C00' }));
+  const topSpend = [...campaigns].sort((a, b) => b.spend - a.spend)[0];
+  const topCtr = [...campaigns].filter((row) => row.clicks > 0).sort((a, b) => (b.ctr ?? 0) - (a.ctr ?? 0))[0];
+  const bestCpc = [...campaigns].filter((row) => row.clicks > 0 && row.cpc !== null).sort((a, b) => (a.cpc ?? 0) - (b.cpc ?? 0))[0];
+  const weakest = [...campaigns].filter((row) => row.spend > 0).sort((a, b) => {
+    const aScore = (a.ctr ?? 0) - (a.cpc ?? 0);
+    const bScore = (b.ctr ?? 0) - (b.cpc ?? 0);
+    return aScore - bScore;
+  })[0];
 
   return (
     <>
@@ -89,22 +121,38 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
       </Card>
 
       <PageSection>
-        <SectionTitle sub="Click a campaign bar to filter ad sets">Spend by Campaign</SectionTitle>
-        <Card>
-          <BarChart
-            data={chartData}
-            valueFormatter={formatEuro}
-            onBarClick={(label) => {
-              setCampaignFilter(label);
-              setAdSetFilter('');
-            }}
-          />
+        <SectionTitle sub="Click a campaign bar to filter ad sets and ads">Campaign Visuals</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+          <Card>
+            <SectionTitle>Spend</SectionTitle>
+            <BarChart data={chartData} valueFormatter={formatEuro} onBarClick={(label) => { setCampaignFilter(label); setAdSetFilter(''); }} />
+          </Card>
+          <Card>
+            <SectionTitle>Clicks</SectionTitle>
+            <BarChart data={clickData} onBarClick={(label) => { setCampaignFilter(label); setAdSetFilter(''); }} />
+          </Card>
+          <Card>
+            <SectionTitle>CTR</SectionTitle>
+            <BarChart data={ctrData} valueFormatter={(value) => formatPercent(value)} onBarClick={(label) => { setCampaignFilter(label); setAdSetFilter(''); }} />
+          </Card>
+        </div>
+        <Card style={{ marginTop: 12 }}>
           {campaignFilter ? (
             <p style={{ margin: '12px 0 0', color: '#722F37', fontSize: 13, fontWeight: 700 }}>
               Filtering ad sets by campaign: {campaignFilter}
             </p>
           ) : null}
         </Card>
+      </PageSection>
+
+      <PageSection>
+        <SectionTitle sub="Plain-language campaign diagnostics">Best / Worst Performers</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          <Card><p style={{ margin: 0, color: '#1A1A1A', fontSize: 13, fontWeight: 700 }}>Top spend: {topSpend?.name ?? 'Unavailable'} ({formatEuro(topSpend?.spend ?? null)})</p></Card>
+          <Card><p style={{ margin: 0, color: '#2D6A4F', fontSize: 13, fontWeight: 700 }}>Top CTR: {topCtr?.name ?? 'Unavailable'} ({formatPercent(topCtr?.ctr ?? null)})</p></Card>
+          <Card><p style={{ margin: 0, color: '#2D6A4F', fontSize: 13, fontWeight: 700 }}>Best CPC: {bestCpc?.name ?? 'Unavailable'} ({formatEuro(bestCpc?.cpc ?? null)})</p></Card>
+          <Card><p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700 }}>Needs review: {weakest?.name ?? 'Unavailable'}</p></Card>
+        </div>
       </PageSection>
 
       <PageSection>
@@ -117,15 +165,21 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
         </div>
       </PageSection>
 
-      <MetaTable title="Campaign Performance" rows={campaigns} />
-      <PageSection>
-        <Card style={{ marginBottom: 12 }}>
-          <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13 }}>
-            Click an ad set name in the table below mentally for now; campaign bar filtering is active. Detailed ad-set click filtering can be extended once campaign IDs are included in the aggregate rows.
-          </p>
-        </Card>
-      </PageSection>
-      <MetaTable title="Ad Set Performance" rows={adSets} />
+      <MetaTable
+        title="Campaign Performance"
+        rows={campaigns}
+        selectedRowKey={campaignFilter ? `${campaignFilter}..${campaignFilter}` : undefined}
+        onRowClick={(row) => {
+          setCampaignFilter(String(row.name));
+          setAdSetFilter('');
+        }}
+      />
+      <MetaTable
+        title="Ad Set Performance"
+        rows={adSets}
+        selectedRowKey={adSetFilter ? `${adSetFilter}.${campaignFilter}.${campaignFilter}` : undefined}
+        onRowClick={(row) => setAdSetFilter(String(row.name))}
+      />
       <MetaTable title="Ad Performance" rows={ads} />
     </>
   );

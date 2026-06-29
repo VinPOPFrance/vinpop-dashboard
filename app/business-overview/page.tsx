@@ -1,5 +1,7 @@
 import { connection } from 'next/server';
+import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
+import { DonutChart } from '@/components/DonutChart';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { MetricCard } from '@/components/MetricCard';
 import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
@@ -161,6 +163,38 @@ export default async function BusinessOverviewPage() {
             </div>
 
             <PageSection>
+              <SectionTitle sub="Visual read before the detailed cards">30-second Business Pulse</SectionTitle>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginBottom: 16 }}>
+                <Card>
+                  <SectionTitle>Top Products by Net Revenue</SectionTitle>
+                  <BarChart
+                    data={metrics.topProducts.slice(0, 5).map((product) => ({
+                      label: product.productName,
+                      value: product.netRevenue,
+                      color: '#722F37',
+                    }))}
+                  />
+                </Card>
+                <Card>
+                  <SectionTitle>Repeat vs One-time</SectionTitle>
+                  <DonutChart
+                    data={[
+                      { label: 'Repeat customers', value: metrics.repeatCustomers, color: '#2D6A4F' },
+                      { label: 'One-time customers', value: metrics.oneTimeCustomers, color: '#B45309' },
+                    ]}
+                  />
+                </Card>
+                <Card>
+                  <SectionTitle>Paid vs Free Product Movement</SectionTitle>
+                  <DonutChart
+                    data={[
+                      { label: 'Paid quantity', value: metrics.paidQuantityEstimate, color: '#2D6A4F' },
+                      { label: 'Free quantity', value: metrics.freeQuantityEstimate, color: '#B45309' },
+                    ]}
+                  />
+                </Card>
+              </div>
+
               <SectionTitle sub="Pack economics and inventory movement">
                 Startup Pack & Stock Signals
               </SectionTitle>

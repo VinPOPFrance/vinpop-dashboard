@@ -6,8 +6,9 @@ import { usePathname } from 'next/navigation';
 const navItems = [
   { href: '/business-overview', label: 'Business Overview', icon: '◆' },
   { href: '/today-action-plan', label: 'Today Action Plan', icon: '!' },
-  { href: '/', label: 'Overview', icon: '▦' },
+  { href: '/business-overview', label: 'Overview', icon: '▦' },
   { href: '/funnel', label: 'Funnel', icon: '▽' },
+  { href: '/customers', label: 'Customers', icon: '◪' },
   { href: '/ratings-intelligence', label: 'Ratings Intelligence', icon: '♡' },
   { href: '/food-pairing-intelligence', label: 'Food Pairing', icon: '◧' },
   { href: '/shopify-products-summary', label: 'Shopify Products', icon: '▣' },
@@ -74,7 +75,7 @@ export function Sidebar() {
           const isActive = pathname === item.href;
           return (
             <Link
-              key={item.href}
+              key={`${item.href}.${item.label}`}
               href={item.href}
               style={{
                 display: 'flex',

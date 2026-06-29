@@ -3,11 +3,42 @@ import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { DonutChart } from '@/components/DonutChart';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
+import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
 import { TopBar } from '@/components/TopBar';
 import { getRatingsIntelligence } from '@/lib/db';
 import { formatDate, formatNumber, formatPercent } from '@/lib/format';
 
 export const runtime = 'nodejs';
+
+type IntelligenceWineRow = Record<string, unknown> & {
+  productId: string;
+  wine: string;
+  color: string;
+  ratings: number;
+  love: number;
+  like: number;
+  dislike: number;
+  loveRate: number | null;
+  likeRate: number | null;
+  dislikeRate: number | null;
+  positiveRate: number | null;
+  label: string;
+};
+
+const wineColumns: SortableColumn<IntelligenceWineRow>[] = [
+  { key: 'productId', label: 'Shopify product ID', type: 'text' },
+  { key: 'wine', label: 'Wine', type: 'text', width: 220 },
+  { key: 'color', label: 'Color', type: 'text' },
+  { key: 'ratings', label: 'Ratings', type: 'number' },
+  { key: 'love', label: 'Love', type: 'number' },
+  { key: 'like', label: 'Like', type: 'number' },
+  { key: 'dislike', label: 'Dislike', type: 'number' },
+  { key: 'loveRate', label: 'Love %', type: 'percent' },
+  { key: 'likeRate', label: 'Like %', type: 'percent' },
+  { key: 'dislikeRate', label: 'Dislike %', type: 'percent' },
+  { key: 'positiveRate', label: 'Positive %', type: 'percent' },
+  { key: 'label', label: 'Label', type: 'text' },
+];
 
 export default async function RatingsIntelligencePage() {
   await connection();
@@ -105,32 +136,25 @@ export default async function RatingsIntelligencePage() {
             <PageSection>
               <SectionTitle sub="Top 100 rated wines">Wine Ratings</SectionTitle>
               <Card style={{ padding: 0, overflow: 'hidden' }}>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead><tr style={{ background: '#F5F4F0', color: '#6B6B6B', textAlign: 'left' }}>
-                      {['Wine ID', 'Wine', 'Ratings', 'Love', 'Like', 'Dislike', 'Love %', 'Like %', 'Dislike %', 'Positive %', 'Label'].map((heading) => (
-                        <th key={heading} style={{ padding: '10px 14px', fontWeight: 700 }}>{heading}</th>
-                      ))}
-                    </tr></thead>
-                    <tbody>
-                      {metrics.wines.map((wine) => (
-                        <tr key={wine.wineId} style={{ borderTop: '1px solid #E8E6E1' }}>
-                          <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{wine.wineId}</td>
-                          <td style={{ padding: '10px 14px', color: '#1A1A1A', fontWeight: 600 }}>{wine.wineName}</td>
-                          <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatNumber(wine.totalRatings)}</td>
-                          <td style={{ padding: '10px 14px', color: '#2D6A4F' }}>{formatNumber(wine.loveCount)}</td>
-                          <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatNumber(wine.likeCount)}</td>
-                          <td style={{ padding: '10px 14px', color: '#B45309' }}>{formatNumber(wine.dislikeCount)}</td>
-                          <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatPercent(wine.loveRate)}</td>
-                          <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatPercent(wine.likeRate)}</td>
-                          <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatPercent(wine.dislikeRate)}</td>
-                          <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatPercent(wine.positiveRate)}</td>
-                          <td style={{ padding: '10px 14px', color: wine.recommendationLabel === 'Risk' ? '#B45309' : '#2D6A4F', fontWeight: 600 }}>{wine.recommendationLabel}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <SortableDataTable
+                  columns={wineColumns}
+                  rows={metrics.wines.map((wine) => ({
+                    productId: wine.shopifyProductId,
+                    wine: wine.wineName,
+                    color: wine.color,
+                    ratings: wine.totalRatings,
+                    love: wine.loveCount,
+                    like: wine.likeCount,
+                    dislike: wine.dislikeCount,
+                    loveRate: wine.loveRate,
+                    likeRate: wine.likeRate,
+                    dislikeRate: wine.dislikeRate,
+                    positiveRate: wine.positiveRate,
+                    label: wine.recommendationLabel,
+                  }))}
+                  initialSortKey="ratings"
+                  searchPlaceholder="Search wine, product ID, color..."
+                />
               </Card>
             </PageSection>
           </>

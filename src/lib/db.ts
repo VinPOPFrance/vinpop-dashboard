@@ -364,8 +364,12 @@ export type CustomerLifecycleMetrics = {
 
 export type WineRatingSummary = {
   wineId: string;
+  shopifyProductId: string;
   wineName: string;
+  color: string;
+  pairingTags: string;
   totalRatings: number;
+  uniqueCustomers: number;
   loveCount: number;
   likeCount: number;
   dislikeCount: number;
@@ -373,7 +377,51 @@ export type WineRatingSummary = {
   likeRate: number | null;
   dislikeRate: number | null;
   positiveRate: number | null;
+  averageRatingScore: number | null;
   recommendationLabel: string;
+};
+
+export type RatedWineDetail = {
+  wineName: string;
+  shopifyProductId: string;
+  color: string;
+  ratingLabel: 'Love' | 'Like' | 'Dislike';
+  ratingDate: string | null;
+};
+
+export type CustomerProductSummary = {
+  productName: string;
+  shopifyProductId: string;
+  quantityBought: number;
+  grossRevenue: number;
+  discount: number;
+  netRevenue: number;
+  ratedCount: number;
+  unratedCount: number;
+  ratingStatus: string;
+};
+
+export type CustomerRatingsSummary = {
+  customerId: string;
+  email: string;
+  totalSpent: number;
+  ordersCount: number;
+  bottlesBought: number;
+  bottlesRated: number;
+  ratedPercentage: number | null;
+  unratedBottlesRemaining: number;
+  firstOrderDate: string | null;
+  lastOrderDate: string | null;
+  lastRatingDate: string | null;
+  repeatCustomer: boolean;
+  funnelStage: string;
+  nextAction: string;
+  loveCount: number;
+  likeCount: number;
+  dislikeCount: number;
+  wineColorsRated: string;
+  ratedWines: RatedWineDetail[];
+  purchasedProducts: CustomerProductSummary[];
 };
 
 export type RatingsIntelligenceMetrics = {
@@ -397,6 +445,7 @@ export type RatingsIntelligenceMetrics = {
   firstRatingDate: string | null;
   latestRatingDate: string | null;
   wines: WineRatingSummary[];
+  customers: CustomerRatingsSummary[];
   interpretation: string[];
   recommendedActions: string[];
   missingData: string[];
@@ -447,6 +496,7 @@ export type FoodPairingIntelligenceMetrics = {
 export type MetaPerformanceRow = {
   name: string;
   parentName: string;
+  campaignName: string;
   firstDate: string | null;
   latestDate: string | null;
   spend: number;
@@ -850,6 +900,10 @@ export type CustomerLifecycleResult =
 
 export type RatingsIntelligenceResult =
   | { ok: true; metrics: RatingsIntelligenceMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type CustomerIntelligenceResult =
+  | { ok: true; metrics: { customers: CustomerRatingsSummary[] } }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 export type FoodPairingIntelligenceResult =
@@ -2825,17 +2879,52 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
 
   try {
     const pool = getPool(databaseUrl);
+    const mappedRatingsCte = `
+      WITH wine_pairings AS (
+        SELECT
+          wine_id::text AS wine_id,
+          CONCAT_WS(', ',
+            CASE WHEN BOOL_OR(COALESCE(red_meat, false)) THEN 'red meat' END,
+            CASE WHEN BOOL_OR(COALESCE(white_meat, false)) THEN 'white meat' END,
+            CASE WHEN BOOL_OR(COALESCE(fish_seafood, false)) THEN 'fish/seafood' END,
+            CASE WHEN BOOL_OR(COALESCE(cheese, false)) THEN 'cheese' END,
+            CASE WHEN BOOL_OR(COALESCE(aperitif, false)) THEN 'aperitif' END
+          ) AS pairing_tags
+        FROM public.food_pairing
+        GROUP BY wine_id
+      ),
+      mapped_ratings AS (
+        SELECT
+          ratings.customer_id,
+          users.email,
+          ratings.rating,
+          CASE
+            WHEN ratings.rating = 3 THEN 'Love'
+            WHEN ratings.rating = 2 THEN 'Like'
+            WHEN ratings.rating = 1 THEN 'Dislike'
+            ELSE 'Unknown'
+          END AS rating_label,
+          CASE
+            WHEN ratings.rating = 3 THEN 2
+            WHEN ratings.rating = 2 THEN 1
+            WHEN ratings.rating = 1 THEN 0
+            ELSE NULL
+          END AS rating_score,
+          ratings.created_at,
+          public.mapping.vp_id::text AS shopify_product_id,
+          wines.id::text AS wine_id,
+          COALESCE(wines.name, public.mapping.name, 'Unknown wine') AS wine_name,
+          COALESCE(NULLIF(wines.wine->>'colour', ''), 'Unknown color') AS color,
+          COALESCE(NULLIF(wine_pairings.pairing_tags, ''), 'No pairing tags') AS pairing_tags
+        FROM public.ratings AS ratings
+        LEFT JOIN public.users AS users ON users.id = ratings.customer_id
+        LEFT JOIN public.mapping ON public.mapping.vp_id::text = ratings.id::text
+        LEFT JOIN public.wines AS wines ON wines.id::text = public.mapping.wl_id::text
+        LEFT JOIN wine_pairings ON wine_pairings.wine_id = wines.id::text
+      )
+    `;
     const summaryResult = await pool.query<Record<string, string | Date | null>>(`
-        WITH mapped_ratings AS (
-          SELECT
-            ratings.customer_id,
-            ratings.rating,
-            ratings.created_at,
-            wines.id::text AS wine_id
-          FROM public.ratings
-          LEFT JOIN public.mapping ON public.mapping.vp_id::text = ratings.id::text
-          LEFT JOIN public.wines ON public.wines.id::text = public.mapping.wl_id::text
-        ),
+        ${mappedRatingsCte},
         user_counts AS (
           SELECT customer_id, COUNT(*) AS ratings_count
           FROM mapped_ratings
@@ -2845,9 +2934,9 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
           SELECT
             wine_id,
             COUNT(*) AS total_ratings,
-            COUNT(*) FILTER (WHERE rating >= 1) AS love_count,
-            COUNT(*) FILTER (WHERE rating = 0) AS like_count,
-            COUNT(*) FILTER (WHERE rating < 0) AS dislike_count
+            COUNT(*) FILTER (WHERE rating_label = 'Love') AS love_count,
+            COUNT(*) FILTER (WHERE rating_label = 'Like') AS like_count,
+            COUNT(*) FILTER (WHERE rating_label = 'Dislike') AS dislike_count
           FROM mapped_ratings
           WHERE wine_id IS NOT NULL
           GROUP BY wine_id
@@ -2858,9 +2947,9 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
           COUNT(DISTINCT wine_id)::text AS unique_rated_wines,
           COUNT(DISTINCT customer_id)::text AS users_with_ratings,
           (SELECT COUNT(*) FROM user_counts WHERE ratings_count >= 3)::text AS users_with_three_plus_ratings,
-          COUNT(*) FILTER (WHERE rating >= 1)::text AS love_count,
-          COUNT(*) FILTER (WHERE rating = 0)::text AS like_count,
-          COUNT(*) FILTER (WHERE rating < 0)::text AS dislike_count,
+          COUNT(*) FILTER (WHERE rating_label = 'Love')::text AS love_count,
+          COUNT(*) FILTER (WHERE rating_label = 'Like')::text AS like_count,
+          COUNT(*) FILTER (WHERE rating_label = 'Dislike')::text AS dislike_count,
           (SELECT COUNT(*) FROM wine_rollups WHERE love_count > 0)::text AS wines_with_love,
           (SELECT COUNT(*) FROM wine_rollups WHERE dislike_count > 0)::text AS wines_with_dislike,
           (SELECT COUNT(*) FROM wine_rollups WHERE ((love_count + like_count)::numeric / NULLIF(total_ratings, 0)) >= 0.8)::text AS wines_with_high_satisfaction,
@@ -2870,26 +2959,157 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         FROM mapped_ratings
       `);
     const wineResult = await pool.query<Record<string, string | null>>(`
-      WITH mapped_ratings AS (
-        SELECT
-          wines.id::text AS wine_id,
-          COALESCE(wines.name, public.mapping.name, 'Unknown wine') AS wine_name,
-          ratings.rating
-        FROM public.ratings AS ratings
-        JOIN public.mapping ON public.mapping.vp_id::text = ratings.id::text
-        JOIN public.wines AS wines ON wines.id::text = public.mapping.wl_id::text
-      )
+      ${mappedRatingsCte}
       SELECT
+        COALESCE(shopify_product_id, 'Unmapped') AS shopify_product_id,
         wine_id,
         wine_name,
+        color,
+        pairing_tags,
         COUNT(*)::text AS total_ratings,
-        COUNT(*) FILTER (WHERE rating >= 1)::text AS love_count,
-        COUNT(*) FILTER (WHERE rating = 0)::text AS like_count,
-        COUNT(*) FILTER (WHERE rating < 0)::text AS dislike_count
+        COUNT(DISTINCT customer_id)::text AS unique_customers,
+        COUNT(*) FILTER (WHERE rating_label = 'Love')::text AS love_count,
+        COUNT(*) FILTER (WHERE rating_label = 'Like')::text AS like_count,
+        COUNT(*) FILTER (WHERE rating_label = 'Dislike')::text AS dislike_count,
+        AVG(rating_score)::text AS average_rating_score
       FROM mapped_ratings
-      GROUP BY wine_id, wine_name
+      WHERE wine_id IS NOT NULL
+      GROUP BY shopify_product_id, wine_id, wine_name, color, pairing_tags
       ORDER BY COUNT(*) DESC, wine_name
       LIMIT 100
+    `);
+    const customerResult = await pool.query<Record<string, string | Date | null>>(`
+      ${mappedRatingsCte},
+      rating_rollups AS (
+        SELECT
+          customer_id,
+          COUNT(*)::text AS total_ratings,
+          COUNT(*) FILTER (WHERE rating_label = 'Love')::text AS love_count,
+          COUNT(*) FILTER (WHERE rating_label = 'Like')::text AS like_count,
+          COUNT(*) FILTER (WHERE rating_label = 'Dislike')::text AS dislike_count,
+          COUNT(DISTINCT wine_id)::text AS bottles_rated,
+          MAX(created_at) AS last_rating_date,
+          STRING_AGG(DISTINCT color, ', ' ORDER BY color) AS wine_colors_rated
+        FROM mapped_ratings
+        GROUP BY customer_id
+      ),
+      order_rollups AS (
+        SELECT
+          lower(email) AS email,
+          COUNT(DISTINCT id)::text AS orders_count,
+          COALESCE(SUM(total_price), 0)::text AS total_spent,
+          MIN(created_at) AS first_order_date,
+          MAX(created_at) AS last_order_date
+        FROM shopify.orders
+        WHERE email IS NOT NULL
+        GROUP BY lower(email)
+      ),
+      bottle_rollups AS (
+        SELECT
+          lower(orders.email) AS email,
+          COALESCE(SUM(
+            CASE
+              WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
+              ELSE 0
+            END
+          ), 0)::text AS bottles_bought
+        FROM shopify.orders AS orders
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE
+            WHEN line_items IS NULL THEN '[]'::jsonb
+            WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN line_items::jsonb
+            ELSE '[]'::jsonb
+          END
+        ) AS item
+        WHERE orders.email IS NOT NULL
+        GROUP BY lower(orders.email)
+      )
+      SELECT
+        users.id AS customer_id,
+        users.email,
+        COALESCE(order_rollups.total_spent, '0') AS total_spent,
+        COALESCE(order_rollups.orders_count, '0') AS orders_count,
+        COALESCE(bottle_rollups.bottles_bought, '0') AS bottles_bought,
+        COALESCE(rating_rollups.bottles_rated, '0') AS bottles_rated,
+        COALESCE(rating_rollups.total_ratings, '0') AS total_ratings,
+        COALESCE(rating_rollups.love_count, '0') AS love_count,
+        COALESCE(rating_rollups.like_count, '0') AS like_count,
+        COALESCE(rating_rollups.dislike_count, '0') AS dislike_count,
+        order_rollups.first_order_date,
+        order_rollups.last_order_date,
+        rating_rollups.last_rating_date,
+        COALESCE(rating_rollups.wine_colors_rated, 'None') AS wine_colors_rated
+      FROM public.users AS users
+      LEFT JOIN order_rollups ON order_rollups.email = lower(users.email)
+      LEFT JOIN bottle_rollups ON bottle_rollups.email = lower(users.email)
+      LEFT JOIN rating_rollups ON rating_rollups.customer_id = users.id
+      WHERE users.email IS NOT NULL
+        AND (
+          COALESCE(order_rollups.orders_count, '0') <> '0'
+          OR COALESCE(rating_rollups.total_ratings, '0') <> '0'
+        )
+      ORDER BY COALESCE(order_rollups.total_spent, '0')::numeric DESC, users.email
+      LIMIT 200
+    `);
+    const customerProductResult = await pool.query<Record<string, string | null>>(`
+      WITH order_items AS (
+        SELECT
+          users.id AS customer_id,
+          COALESCE(NULLIF(item->>'product_id', ''), 'Unmapped') AS shopify_product_id,
+          COALESCE(NULLIF(item->>'title', ''), NULLIF(item->>'name', ''), 'Unknown product') AS product_name,
+          CASE WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric ELSE 0 END AS quantity_value,
+          CASE WHEN item->>'price' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'price')::numeric ELSE 0 END AS price_value,
+          CASE
+            WHEN item->>'total_discount' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'total_discount')::numeric
+            ELSE 0
+          END AS discount_value
+        FROM shopify.orders AS orders
+        JOIN public.users AS users ON lower(users.email) = lower(orders.email)
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE
+            WHEN line_items IS NULL THEN '[]'::jsonb
+            WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN line_items::jsonb
+            ELSE '[]'::jsonb
+          END
+        ) AS item
+      ),
+      rated_products AS (
+        SELECT
+          ratings.customer_id,
+          public.mapping.vp_id::text AS shopify_product_id,
+          COUNT(*) AS rated_count
+        FROM public.ratings AS ratings
+        JOIN public.mapping ON public.mapping.vp_id::text = ratings.id::text
+        GROUP BY ratings.customer_id, public.mapping.vp_id
+      )
+      SELECT
+        order_items.customer_id,
+        order_items.shopify_product_id,
+        order_items.product_name,
+        COALESCE(SUM(quantity_value), 0)::text AS quantity_bought,
+        COALESCE(SUM(quantity_value * price_value), 0)::text AS gross_revenue,
+        COALESCE(SUM(discount_value), 0)::text AS discount,
+        COALESCE(SUM(GREATEST(quantity_value * price_value - discount_value, 0)), 0)::text AS net_revenue,
+        COALESCE(MAX(rated_products.rated_count), 0)::text AS rated_count
+      FROM order_items
+      LEFT JOIN rated_products ON rated_products.customer_id = order_items.customer_id
+        AND rated_products.shopify_product_id = order_items.shopify_product_id
+      GROUP BY order_items.customer_id, order_items.shopify_product_id, order_items.product_name
+      ORDER BY order_items.customer_id, SUM(quantity_value) DESC
+    `);
+    const customerRatedWineResult = await pool.query<Record<string, string | Date | null>>(`
+      ${mappedRatingsCte}
+      SELECT
+        customer_id,
+        wine_name,
+        COALESCE(shopify_product_id, 'Unmapped') AS shopify_product_id,
+        color,
+        rating_label,
+        created_at AS rating_date
+      FROM mapped_ratings
+      WHERE customer_id IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 1000
     `);
     const row = summaryResult.rows[0];
     const totalRatings = numberFromPg(row?.total_ratings as string | null);
@@ -2909,8 +3129,12 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
 
       return {
         wineId: wineRow.wine_id || 'Unknown',
+        shopifyProductId: wineRow.shopify_product_id || 'Unmapped',
         wineName: wineRow.wine_name || 'Unknown wine',
+        color: wineRow.color || 'Unknown color',
+        pairingTags: wineRow.pairing_tags || 'No pairing tags',
         totalRatings: total,
+        uniqueCustomers: numberFromPg(wineRow.unique_customers),
         loveCount: love,
         likeCount: like,
         dislikeCount: dislike,
@@ -2918,8 +3142,97 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         likeRate: rate(like, total),
         dislikeRate,
         positiveRate: positive,
+        averageRatingScore: wineRow.average_rating_score === null ? null : numberFromPg(wineRow.average_rating_score),
         recommendationLabel:
           total < 3 ? 'Needs more ratings' : (dislikeRate ?? 0) >= 30 ? 'Risk' : (positive ?? 0) >= 80 ? 'Promote' : 'Watch',
+      };
+    });
+    const productsByCustomer = new Map<string, CustomerProductSummary[]>();
+    for (const productRow of customerProductResult.rows) {
+      const customerId = productRow.customer_id || '';
+      const quantityBought = numberFromPg(productRow.quantity_bought);
+      const ratedCount = numberFromPg(productRow.rated_count);
+      const unratedCount = Math.max(quantityBought - ratedCount, 0);
+      const product: CustomerProductSummary = {
+        productName: productRow.product_name || 'Unknown product',
+        shopifyProductId: productRow.shopify_product_id || 'Unmapped',
+        quantityBought,
+        grossRevenue: numberFromPg(productRow.gross_revenue),
+        discount: numberFromPg(productRow.discount),
+        netRevenue: numberFromPg(productRow.net_revenue),
+        ratedCount,
+        unratedCount,
+        ratingStatus: ratedCount === 0 ? 'Not rated' : unratedCount > 0 ? 'Partially rated' : 'Rated',
+      };
+      productsByCustomer.set(customerId, [...(productsByCustomer.get(customerId) ?? []), product]);
+    }
+    const ratedWinesByCustomer = new Map<string, RatedWineDetail[]>();
+    for (const ratedWineRow of customerRatedWineResult.rows) {
+      const customerId = ratedWineRow.customer_id as string;
+      const detail: RatedWineDetail = {
+        wineName: (ratedWineRow.wine_name as string | null) || 'Unknown wine',
+        shopifyProductId: (ratedWineRow.shopify_product_id as string | null) || 'Unmapped',
+        color: (ratedWineRow.color as string | null) || 'Unknown color',
+        ratingLabel:
+          ratedWineRow.rating_label === 'Like'
+            ? 'Like'
+            : ratedWineRow.rating_label === 'Dislike'
+              ? 'Dislike'
+              : 'Love',
+        ratingDate: dateFromPg((ratedWineRow.rating_date as Date | string | null) ?? null),
+      };
+      ratedWinesByCustomer.set(customerId, [...(ratedWinesByCustomer.get(customerId) ?? []), detail]);
+    }
+    const customers: CustomerRatingsSummary[] = customerResult.rows.map((customerRow) => {
+      const customerId = (customerRow.customer_id as string | null) || '';
+      const bottlesBought = numberFromPg(customerRow.bottles_bought as string | null);
+      const bottlesRated = numberFromPg(customerRow.bottles_rated as string | null);
+      const unrated = Math.max(bottlesBought - bottlesRated, 0);
+      const ordersCount = numberFromPg(customerRow.orders_count as string | null);
+      const ratedPercentage = rate(bottlesRated, bottlesBought);
+      const repeatCustomer = ordersCount >= 2;
+      const funnelStage =
+        ordersCount === 0
+          ? 'Rated lead'
+          : repeatCustomer
+            ? 'Repeat buyer'
+            : bottlesRated >= 3
+              ? 'Smart Box ready'
+              : bottlesRated > 0
+                ? 'Needs more ratings'
+                : 'Needs first rating';
+      const nextAction =
+        ordersCount === 0
+          ? 'Invite to first purchase.'
+          : repeatCustomer
+            ? 'Offer subscription or Smart Box.'
+            : bottlesRated >= 3
+              ? 'Send Smart Box follow-up.'
+              : unrated > 0
+                ? 'Ask customer to rate remaining bottles.'
+                : 'Send repeat-order offer.';
+
+      return {
+        customerId,
+        email: (customerRow.email as string | null) || 'Unknown email',
+        totalSpent: numberFromPg(customerRow.total_spent as string | null),
+        ordersCount,
+        bottlesBought,
+        bottlesRated,
+        ratedPercentage,
+        unratedBottlesRemaining: unrated,
+        firstOrderDate: dateFromPg((customerRow.first_order_date as Date | string | null) ?? null),
+        lastOrderDate: dateFromPg((customerRow.last_order_date as Date | string | null) ?? null),
+        lastRatingDate: dateFromPg((customerRow.last_rating_date as Date | string | null) ?? null),
+        repeatCustomer,
+        funnelStage,
+        nextAction,
+        loveCount: numberFromPg(customerRow.love_count as string | null),
+        likeCount: numberFromPg(customerRow.like_count as string | null),
+        dislikeCount: numberFromPg(customerRow.dislike_count as string | null),
+        wineColorsRated: (customerRow.wine_colors_rated as string | null) || 'None',
+        ratedWines: ratedWinesByCustomer.get(customerId) ?? [],
+        purchasedProducts: productsByCustomer.get(customerId) ?? [],
       };
     });
     const positiveRatingRate = rate(loveCount + likeCount, totalRatings);
@@ -2964,6 +3277,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         firstRatingDate: dateFromPg((row?.first_rating_date as Date | string | null) ?? null),
         latestRatingDate: dateFromPg((row?.latest_rating_date as Date | string | null) ?? null),
         wines,
+        customers,
         interpretation: [
           'Wine-level ratings are available through public.mapping from VinPop product IDs to wine IDs.',
           'Love/Like/Dislike distribution can guide Smart Box product ranking and product page confidence.',
@@ -2987,6 +3301,16 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
     console.error('Ratings intelligence failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
+}
+
+export async function getCustomerIntelligence(): Promise<CustomerIntelligenceResult> {
+  const result = await getRatingsIntelligence();
+
+  if (!result.ok) {
+    return result;
+  }
+
+  return { ok: true, metrics: { customers: result.metrics.customers } };
 }
 
 export async function getFoodPairingIntelligence(): Promise<FoodPairingIntelligenceResult> {
@@ -3256,6 +3580,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       return {
         name: row.name || 'Unknown',
         parentName: row.parent_name || row.campaign_name || '',
+        campaignName: row.campaign_name || row.parent_name || row.name || 'Unknown',
         firstDate: row.first_date || null,
         latestDate: row.latest_date || null,
         spend,

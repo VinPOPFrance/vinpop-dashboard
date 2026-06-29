@@ -21,11 +21,12 @@ function rawComparable(value: unknown, type: SortableColumn<Record<string, unkno
 }
 
 function displayValue(value: unknown, type: SortableColumn<Record<string, unknown>>['type']) {
+  if (value === null || value === undefined || value === '') return type === 'text' || !type ? '-' : 'Unavailable';
   if (type === 'money') return formatEuro(typeof value === 'number' ? value : Number(value));
   if (type === 'percent') return formatPercent(typeof value === 'number' ? value : Number(value));
   if (type === 'number') return formatNumber(typeof value === 'number' ? value : Number(value), 2);
   if (type === 'date') return formatDate(value ? String(value) : null);
-  return value === null || value === undefined || value === '' ? '-' : String(value);
+  return String(value);
 }
 
 export function SortableDataTable<T extends Record<string, unknown>>({

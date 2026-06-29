@@ -2,11 +2,54 @@ import { connection } from 'next/server';
 import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
+import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
 import { TopBar } from '@/components/TopBar';
 import { getFoodPairingIntelligence } from '@/lib/db';
 import { formatNumber, formatPercent } from '@/lib/format';
 
 export const runtime = 'nodejs';
+
+type PairingRow = Record<string, unknown> & {
+  pairing: string;
+  wines: number;
+  ratings: number | null;
+  love: number | null;
+  like: number | null;
+  dislike: number | null;
+  positiveRate: number | null;
+  action: string;
+};
+
+type WinePairingRow = Record<string, unknown> & {
+  wine: string;
+  vendor: string;
+  pairings: string;
+  ratings: number;
+  positiveRate: number | null;
+  dislikeRate: number | null;
+  action: string;
+};
+
+const pairingColumns: SortableColumn<PairingRow>[] = [
+  { key: 'pairing', label: 'Pairing', type: 'text' },
+  { key: 'wines', label: 'Wines', type: 'number' },
+  { key: 'ratings', label: 'Ratings', type: 'number' },
+  { key: 'love', label: 'Love', type: 'number' },
+  { key: 'like', label: 'Like', type: 'number' },
+  { key: 'dislike', label: 'Dislike', type: 'number' },
+  { key: 'positiveRate', label: 'Positive %', type: 'percent' },
+  { key: 'action', label: 'Suggested action', type: 'text' },
+];
+
+const winePairingColumns: SortableColumn<WinePairingRow>[] = [
+  { key: 'wine', label: 'Wine', type: 'text', width: 220 },
+  { key: 'vendor', label: 'Vendor', type: 'text' },
+  { key: 'pairings', label: 'Pairings', type: 'text' },
+  { key: 'ratings', label: 'Ratings', type: 'number' },
+  { key: 'positiveRate', label: 'Positive %', type: 'percent' },
+  { key: 'dislikeRate', label: 'Dislike %', type: 'percent' },
+  { key: 'action', label: 'Action', type: 'text' },
+];
 
 export default async function FoodPairingIntelligencePage() {
   await connection();
@@ -88,50 +131,39 @@ export default async function FoodPairingIntelligencePage() {
             <PageSection>
               <SectionTitle sub="Pairing categories">Pairing Performance</SectionTitle>
               <Card style={{ padding: 0, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead><tr style={{ background: '#F5F4F0', color: '#6B6B6B', textAlign: 'left' }}>
-                    {['Pairing', 'Wines', 'Ratings', 'Love', 'Like', 'Dislike', 'Positive %', 'Suggested action'].map((heading) => (
-                      <th key={heading} style={{ padding: '10px 14px', fontWeight: 700 }}>{heading}</th>
-                    ))}
-                  </tr></thead>
-                  <tbody>{metrics.pairings.map((pairing) => (
-                    <tr key={pairing.pairingCategory} style={{ borderTop: '1px solid #E8E6E1' }}>
-                      <td style={{ padding: '10px 14px', color: '#1A1A1A', fontWeight: 600 }}>{pairing.pairingCategory}</td>
-                      <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatNumber(pairing.winesCount)}</td>
-                      <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatNumber(pairing.ratingsCount)}</td>
-                      <td style={{ padding: '10px 14px', color: '#2D6A4F' }}>{formatNumber(pairing.loveCount)}</td>
-                      <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatNumber(pairing.likeCount)}</td>
-                      <td style={{ padding: '10px 14px', color: '#B45309' }}>{formatNumber(pairing.dislikeCount)}</td>
-                      <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatPercent(pairing.positiveRate)}</td>
-                      <td style={{ padding: '10px 14px', color: '#2D6A4F', fontWeight: 600 }}>{pairing.suggestedAction}</td>
-                    </tr>
-                  ))}</tbody>
-                </table>
+                <SortableDataTable
+                  columns={pairingColumns}
+                  rows={metrics.pairings.map((pairing) => ({
+                    pairing: pairing.pairingCategory,
+                    wines: pairing.winesCount,
+                    ratings: pairing.ratingsCount,
+                    love: pairing.loveCount,
+                    like: pairing.likeCount,
+                    dislike: pairing.dislikeCount,
+                    positiveRate: pairing.positiveRate,
+                    action: pairing.suggestedAction,
+                  }))}
+                  initialSortKey="wines"
+                />
               </Card>
             </PageSection>
             <PageSection>
               <SectionTitle sub="Wine-level pairing tags">Wine Pairing Table</SectionTitle>
               <Card style={{ padding: 0, overflow: 'hidden' }}>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead><tr style={{ background: '#F5F4F0', color: '#6B6B6B', textAlign: 'left' }}>
-                      {['Wine', 'Vendor', 'Pairings', 'Ratings', 'Positive %', 'Dislike %', 'Action'].map((heading) => (
-                        <th key={heading} style={{ padding: '10px 14px', fontWeight: 700 }}>{heading}</th>
-                      ))}
-                    </tr></thead>
-                    <tbody>{metrics.wines.map((wine) => (
-                      <tr key={`${wine.wineName}.${wine.vendor}`} style={{ borderTop: '1px solid #E8E6E1' }}>
-                        <td style={{ padding: '10px 14px', color: '#1A1A1A', fontWeight: 600 }}>{wine.wineName}</td>
-                        <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{wine.vendor}</td>
-                        <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{wine.pairingTags}</td>
-                        <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatNumber(wine.totalRatings)}</td>
-                        <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>{formatPercent(wine.positiveRate)}</td>
-                        <td style={{ padding: '10px 14px', color: '#B45309' }}>{formatPercent(wine.dislikeRate)}</td>
-                        <td style={{ padding: '10px 14px', color: '#2D6A4F', fontWeight: 600 }}>{wine.actionLabel}</td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                </div>
+                <SortableDataTable
+                  columns={winePairingColumns}
+                  rows={metrics.wines.map((wine) => ({
+                    wine: wine.wineName,
+                    vendor: wine.vendor,
+                    pairings: wine.pairingTags,
+                    ratings: wine.totalRatings,
+                    positiveRate: wine.positiveRate,
+                    dislikeRate: wine.dislikeRate,
+                    action: wine.actionLabel,
+                  }))}
+                  initialSortKey="wine"
+                  searchPlaceholder="Search wine, vendor, pairing..."
+                />
               </Card>
             </PageSection>
           </>
