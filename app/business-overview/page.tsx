@@ -1,0 +1,156 @@
+import { connection } from 'next/server';
+import { DashboardLayout } from '@/components/DashboardLayout';
+import { Card, PageSection, SectionTitle } from '@/components/Layout';
+import { TopBar } from '@/components/TopBar';
+import { getBusinessOverview } from '@/lib/db';
+
+export const runtime = 'nodejs';
+
+function formatNumber(value: number | null): string {
+  if (value === null) {
+    return 'Unavailable';
+  }
+
+  return value.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+function formatMoney(value: number): string {
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+export default async function BusinessOverviewPage() {
+  await connection();
+  const result = await getBusinessOverview();
+  const metrics = result.ok ? result.metrics : null;
+  const message = result.ok
+    ? 'High-level Shopify business overview loaded from aggregate queries.'
+    : result.reason === 'missing-url'
+      ? 'DATABASE_URL is not configured on the server. Add it to .env.local locally and to Vercel environment variables in production.'
+      : 'Could not load the business overview. Check DATABASE_URL, database availability, SSL settings, and network access.';
+  const cards = metrics
+    ? [
+        { label: 'Total revenue', value: formatMoney(metrics.totalRevenue) },
+        { label: 'Total orders', value: formatNumber(metrics.totalOrders) },
+        { label: 'Average order value', value: formatMoney(metrics.averageOrderValue) },
+        { label: 'Paid orders', value: formatNumber(metrics.paidOrders) },
+        { label: 'Cancelled orders', value: formatNumber(metrics.cancelledOrders) },
+        { label: 'Abandoned checkouts', value: formatNumber(metrics.abandonedCheckoutCount) },
+        { label: 'Total quantity sold', value: formatNumber(metrics.totalQuantitySold) },
+        { label: 'Total line items', value: formatNumber(metrics.totalLineItems) },
+      ]
+    : [];
+
+  return (
+    <DashboardLayout>
+      <TopBar
+        title="Business Overview"
+        subtitle="High-level Shopify revenue, order, and product signals"
+      />
+
+      <PageSection>
+        <SectionTitle sub="Aggregate business snapshot">Shopify Overview</SectionTitle>
+        <Card style={{ marginBottom: 16 }}>
+          <p style={{ margin: '0 0 8px', color: '#1A1A1A', fontSize: 13, fontWeight: 700 }}>
+            Aggregate metrics only. No individual orders or customer data are displayed.
+          </p>
+          <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>
+            {message}
+          </p>
+        </Card>
+
+        {metrics ? (
+          <>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))',
+                gap: 12,
+              }}
+            >
+              {cards.map((card) => (
+                <Card key={card.label}>
+                  <div style={{ color: '#6B6B6B', fontSize: 12, marginBottom: 8 }}>
+                    {card.label}
+                  </div>
+                  <div style={{ color: '#1A1A1A', fontSize: 22, fontWeight: 700 }}>
+                    {card.value}
+                  </div>
+                </Card>
+              ))}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginTop: 28 }}>
+              <div>
+                <SectionTitle sub="Top 5 products by revenue">Top Products</SectionTitle>
+                <Card style={{ padding: 0, overflow: 'hidden' }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ background: '#F5F4F0', color: '#6B6B6B', textAlign: 'left' }}>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Product</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>SKU</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, textAlign: 'right' }}>
+                            Revenue
+                          </th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, textAlign: 'right' }}>
+                            Qty
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {metrics.topProducts.map((product) => (
+                          <tr
+                            key={`${product.productId}.${product.variantId}.${product.sku}`}
+                            style={{ borderTop: '1px solid #E8E6E1' }}
+                          >
+                            <td style={{ padding: '10px 14px', color: '#1A1A1A', fontWeight: 600 }}>
+                              {product.productName}
+                            </td>
+                            <td style={{ padding: '10px 14px', color: '#6B6B6B' }}>
+                              {product.sku}
+                            </td>
+                            <td style={{ padding: '10px 14px', color: '#1A1A1A', textAlign: 'right' }}>
+                              {formatMoney(product.totalRevenue)}
+                            </td>
+                            <td style={{ padding: '10px 14px', color: '#6B6B6B', textAlign: 'right' }}>
+                              {formatNumber(product.totalQuantitySold)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </div>
+
+              <div>
+                <SectionTitle sub="Simple rule checks">Potential Issues</SectionTitle>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {metrics.potentialIssues.map((issue) => (
+                    <Card key={issue}>
+                      <p
+                        style={{
+                          color:
+                            issue === 'No major Shopify issue detected.' ? '#2D6A4F' : '#B45309',
+                          fontSize: 13,
+                          fontWeight: 600,
+                          lineHeight: 1.5,
+                          margin: 0,
+                        }}
+                      >
+                        {issue}
+                      </p>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : null}
+      </PageSection>
+    </DashboardLayout>
+  );
+}

@@ -4,8 +4,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const navItems = [
+  { href: '/business-overview', label: 'Business Overview', icon: '◆' },
   { href: '/', label: 'Overview', icon: '▦' },
   { href: '/funnel', label: 'Funnel', icon: '▽' },
+  { href: '/shopify-products-summary', label: 'Shopify Products', icon: '▣' },
+  { href: '/shopify-funnel-basic', label: 'Shopify Funnel', icon: '◇' },
   { href: '/meta', label: 'Meta Ads', icon: '◈' },
   { href: '/ratings', label: 'Ratings', icon: '★' },
   { href: '/actions', label: 'Actions', icon: '◉' },

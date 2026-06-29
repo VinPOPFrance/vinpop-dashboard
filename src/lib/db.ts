@@ -79,6 +79,46 @@ export type ShopifyOrdersAggregateMetrics = {
   lineItemsCountWorked: boolean;
 };
 
+export type ShopifyProductSummary = {
+  productId: string;
+  variantId: string;
+  productName: string;
+  sku: string;
+  vendor: string;
+  totalQuantitySold: number;
+  totalRevenue: number;
+  orderCount: number;
+  averageItemPrice: number;
+};
+
+export type ShopifyFunnelBasicMetrics = {
+  abandonedCheckoutCount: number;
+  orderCount: number;
+  paidOrderCount: number;
+  cancelledOrderCount: number;
+  fulfilledOrderCount: number;
+  unfulfilledOrderCount: number;
+  abandonmentToOrderRatio: number | null;
+  paidOrderRate: number | null;
+  cancelledOrderRate: number | null;
+  fulfilledOrderRate: number | null;
+  totalRevenue: number;
+  averageOrderValue: number;
+};
+
+export type BusinessOverviewMetrics = {
+  totalRevenue: number;
+  totalOrders: number;
+  averageOrderValue: number;
+  paidOrders: number;
+  cancelledOrders: number;
+  abandonedCheckoutCount: number;
+  topProducts: ShopifyProductSummary[];
+  totalQuantitySold: number;
+  totalLineItems: number | null;
+  potentialIssues: string[];
+};
+
 type DatabaseTableInfoRow = {
   table_schema: string;
   table_name: string;
@@ -128,6 +168,33 @@ type ShopifyOrdersLineItemsAggregateRow = {
   average_line_items_per_order: string | null;
 };
 
+type ShopifyProductSummaryRow = {
+  product_id: string | null;
+  variant_id: string | null;
+  product_name: string | null;
+  sku: string | null;
+  vendor: string | null;
+  total_quantity_sold: string | null;
+  total_revenue: string | null;
+  order_count: string;
+  average_item_price: string | null;
+};
+
+type ShopifyProductSummaryTotalRow = {
+  total_quantity_sold: string | null;
+};
+
+type ShopifyFunnelBasicRow = {
+  abandoned_checkout_count: string;
+  order_count: string;
+  paid_order_count: string;
+  cancelled_order_count: string;
+  fulfilled_order_count: string;
+  unfulfilled_order_count: string;
+  total_revenue: string | null;
+  average_order_value: string | null;
+};
+
 export type DatabaseNowResult =
   | { ok: true; now: string }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
@@ -154,6 +221,18 @@ export type ShopifyLineItemsSampleResult =
 
 export type ShopifyOrdersSummaryResult =
   | { ok: true; metrics: ShopifyOrdersAggregateMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type ShopifyProductsSummaryResult =
+  | { ok: true; products: ShopifyProductSummary[]; totalQuantitySold: number }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type ShopifyFunnelBasicResult =
+  | { ok: true; metrics: ShopifyFunnelBasicMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type BusinessOverviewResult =
+  | { ok: true; metrics: BusinessOverviewMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 declare global {
@@ -256,6 +335,36 @@ function dateFromPg(value: Date | string | null): string | null {
   }
 
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function rate(numerator: number, denominator: number): number | null {
+  if (denominator === 0) {
+    return null;
+  }
+
+  return (numerator / denominator) * 100;
+}
+
+function ratio(numerator: number, denominator: number): number | null {
+  if (denominator === 0) {
+    return null;
+  }
+
+  return numerator / denominator;
+}
+
+function mapProductSummaryRow(row: ShopifyProductSummaryRow): ShopifyProductSummary {
+  return {
+    productId: row.product_id || 'Unknown product ID',
+    variantId: row.variant_id || 'Unknown variant ID',
+    productName: row.product_name || 'Unknown product',
+    sku: row.sku || 'No SKU',
+    vendor: row.vendor || 'Unknown vendor',
+    totalQuantitySold: numberFromPg(row.total_quantity_sold),
+    totalRevenue: numberFromPg(row.total_revenue),
+    orderCount: numberFromPg(row.order_count),
+    averageItemPrice: numberFromPg(row.average_item_price),
+  };
 }
 
 export async function getDatabaseNow(): Promise<DatabaseNowResult> {
@@ -696,4 +805,222 @@ export async function getShopifyOrdersSummary(): Promise<ShopifyOrdersSummaryRes
     console.error('Shopify orders summary failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
+}
+
+export async function getShopifyProductsSummary(): Promise<ShopifyProductsSummaryResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  try {
+    const pool = getPool(databaseUrl);
+    const productsResult = await pool.query<ShopifyProductSummaryRow>(`
+      WITH order_items AS (
+        SELECT
+          id AS order_id,
+          item,
+          CASE
+            WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
+            ELSE 0
+          END AS quantity_value,
+          CASE
+            WHEN item->>'price' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'price')::numeric
+            ELSE 0
+          END AS price_value
+        FROM shopify.orders
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE
+            WHEN line_items IS NULL THEN '[]'::jsonb
+            WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN line_items::jsonb
+            ELSE '[]'::jsonb
+          END
+        ) AS item
+      )
+      SELECT
+        NULLIF(item->>'product_id', '') AS product_id,
+        NULLIF(item->>'variant_id', '') AS variant_id,
+        COALESCE(NULLIF(item->>'title', ''), NULLIF(item->>'name', ''), 'Unknown product') AS product_name,
+        COALESCE(NULLIF(item->>'sku', ''), 'No SKU') AS sku,
+        COALESCE(NULLIF(item->>'vendor', ''), 'Unknown vendor') AS vendor,
+        COALESCE(SUM(quantity_value), 0)::text AS total_quantity_sold,
+        COALESCE(SUM(quantity_value * price_value), 0)::text AS total_revenue,
+        COUNT(DISTINCT order_id)::text AS order_count,
+        COALESCE(AVG(NULLIF(price_value, 0)), 0)::text AS average_item_price
+      FROM order_items
+      GROUP BY product_id, variant_id, product_name, sku, vendor
+      ORDER BY SUM(quantity_value * price_value) DESC
+      LIMIT 50
+    `);
+    const totalResult = await pool.query<ShopifyProductSummaryTotalRow>(`
+      WITH order_items AS (
+        SELECT
+          CASE
+            WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
+            ELSE 0
+          END AS quantity_value
+        FROM shopify.orders
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE
+            WHEN line_items IS NULL THEN '[]'::jsonb
+            WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN line_items::jsonb
+            ELSE '[]'::jsonb
+          END
+        ) AS item
+      )
+      SELECT COALESCE(SUM(quantity_value), 0)::text AS total_quantity_sold
+      FROM order_items
+    `);
+
+    return {
+      ok: true,
+      products: productsResult.rows.map(mapProductSummaryRow),
+      totalQuantitySold: numberFromPg(totalResult.rows[0]?.total_quantity_sold),
+    };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Shopify products summary failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getShopifyFunnelBasic(): Promise<ShopifyFunnelBasicResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  try {
+    const result = await getPool(databaseUrl).query<ShopifyFunnelBasicRow>(`
+      WITH orders_summary AS (
+        SELECT
+          COUNT(*)::text AS order_count,
+          COUNT(*) FILTER (WHERE lower(coalesce(financial_status::text, '')) = 'paid')::text AS paid_order_count,
+          COUNT(*) FILTER (WHERE cancelled_at IS NOT NULL)::text AS cancelled_order_count,
+          COUNT(*) FILTER (WHERE lower(coalesce(fulfillment_status::text, '')) = 'fulfilled')::text AS fulfilled_order_count,
+          COUNT(*) FILTER (
+            WHERE fulfillment_status IS NULL OR lower(coalesce(fulfillment_status::text, '')) <> 'fulfilled'
+          )::text AS unfulfilled_order_count,
+          COALESCE(
+            SUM(
+              CASE
+                WHEN total_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN total_price::text::numeric
+                ELSE NULL
+              END
+            ),
+            0
+          )::text AS total_revenue,
+          COALESCE(
+            AVG(
+              CASE
+                WHEN total_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN total_price::text::numeric
+                ELSE NULL
+              END
+            ),
+            0
+          )::text AS average_order_value
+        FROM shopify.orders
+      ),
+      abandoned_summary AS (
+        SELECT COUNT(*)::text AS abandoned_checkout_count
+        FROM shopify.abandoned_checkouts
+      )
+      SELECT
+        abandoned_summary.abandoned_checkout_count,
+        orders_summary.order_count,
+        orders_summary.paid_order_count,
+        orders_summary.cancelled_order_count,
+        orders_summary.fulfilled_order_count,
+        orders_summary.unfulfilled_order_count,
+        orders_summary.total_revenue,
+        orders_summary.average_order_value
+      FROM orders_summary
+      CROSS JOIN abandoned_summary
+    `);
+    const row = result.rows[0];
+    const abandonedCheckoutCount = numberFromPg(row?.abandoned_checkout_count);
+    const orderCount = numberFromPg(row?.order_count);
+    const paidOrderCount = numberFromPg(row?.paid_order_count);
+    const cancelledOrderCount = numberFromPg(row?.cancelled_order_count);
+    const fulfilledOrderCount = numberFromPg(row?.fulfilled_order_count);
+
+    return {
+      ok: true,
+      metrics: {
+        abandonedCheckoutCount,
+        orderCount,
+        paidOrderCount,
+        cancelledOrderCount,
+        fulfilledOrderCount,
+        unfulfilledOrderCount: numberFromPg(row?.unfulfilled_order_count),
+        abandonmentToOrderRatio: ratio(abandonedCheckoutCount, orderCount),
+        paidOrderRate: rate(paidOrderCount, orderCount),
+        cancelledOrderRate: rate(cancelledOrderCount, orderCount),
+        fulfilledOrderRate: rate(fulfilledOrderCount, orderCount),
+        totalRevenue: numberFromPg(row?.total_revenue),
+        averageOrderValue: numberFromPg(row?.average_order_value),
+      },
+    };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Shopify funnel basic failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getBusinessOverview(): Promise<BusinessOverviewResult> {
+  const [ordersResult, productsResult, funnelResult] = await Promise.all([
+    getShopifyOrdersSummary(),
+    getShopifyProductsSummary(),
+    getShopifyFunnelBasic(),
+  ]);
+
+  if (!ordersResult.ok) {
+    return ordersResult;
+  }
+
+  if (!productsResult.ok) {
+    return productsResult;
+  }
+
+  if (!funnelResult.ok) {
+    return funnelResult;
+  }
+
+  const potentialIssues: string[] = [];
+
+  if ((funnelResult.metrics.cancelledOrderRate ?? 0) > 10) {
+    potentialIssues.push('Cancelled orders may be high.');
+  }
+
+  if (funnelResult.metrics.abandonedCheckoutCount > funnelResult.metrics.orderCount) {
+    potentialIssues.push('Abandoned checkouts exceed completed orders.');
+  }
+
+  if ((funnelResult.metrics.paidOrderRate ?? 100) < 90) {
+    potentialIssues.push('Paid order rate may need attention.');
+  }
+
+  return {
+    ok: true,
+    metrics: {
+      totalRevenue: ordersResult.metrics.totalRevenue,
+      totalOrders: ordersResult.metrics.totalOrders,
+      averageOrderValue: ordersResult.metrics.averageOrderValue,
+      paidOrders: ordersResult.metrics.paidOrders,
+      cancelledOrders: ordersResult.metrics.cancelledOrders,
+      abandonedCheckoutCount: funnelResult.metrics.abandonedCheckoutCount,
+      topProducts: productsResult.products.slice(0, 5),
+      totalQuantitySold: productsResult.totalQuantitySold,
+      totalLineItems: ordersResult.metrics.totalLineItemsCount,
+      potentialIssues:
+        potentialIssues.length > 0 ? potentialIssues : ['No major Shopify issue detected.'],
+    },
+  };
 }
