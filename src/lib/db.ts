@@ -86,9 +86,15 @@ export type ShopifyProductSummary = {
   sku: string;
   vendor: string;
   totalQuantitySold: number;
-  totalRevenue: number;
+  grossRevenue: number;
+  totalDiscount: number;
+  netRevenue: number;
+  averageDiscountPerUnit: number;
+  discountRatePercentage: number;
+  freeQuantityEstimate: number;
+  paidQuantityEstimate: number;
   orderCount: number;
-  averageItemPrice: number;
+  averageNetItemPrice: number;
 };
 
 export type ShopifyFunnelBasicMetrics = {
@@ -115,6 +121,8 @@ export type BusinessOverviewMetrics = {
   abandonedCheckoutCount: number;
   topProducts: ShopifyProductSummary[];
   totalQuantitySold: number;
+  totalProductDiscounts: number;
+  freeQuantityEstimate: number;
   totalLineItems: number | null;
   potentialIssues: string[];
 };
@@ -175,13 +183,25 @@ type ShopifyProductSummaryRow = {
   sku: string | null;
   vendor: string | null;
   total_quantity_sold: string | null;
-  total_revenue: string | null;
+  gross_revenue: string | null;
+  total_discount: string | null;
+  net_revenue: string | null;
+  average_discount_per_unit: string | null;
+  discount_rate_percentage: string | null;
+  free_quantity_estimate: string | null;
+  paid_quantity_estimate: string | null;
   order_count: string;
-  average_item_price: string | null;
+  average_net_item_price: string | null;
 };
 
 type ShopifyProductSummaryTotalRow = {
   total_quantity_sold: string | null;
+  total_product_discounts: string | null;
+  free_quantity_estimate: string | null;
+};
+
+type ShopifyLineItemFieldRow = {
+  field_name: string;
 };
 
 type ShopifyFunnelBasicRow = {
@@ -224,7 +244,14 @@ export type ShopifyOrdersSummaryResult =
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 export type ShopifyProductsSummaryResult =
-  | { ok: true; products: ShopifyProductSummary[]; totalQuantitySold: number }
+  | {
+      ok: true;
+      products: ShopifyProductSummary[];
+      totalQuantitySold: number;
+      totalProductDiscounts: number;
+      freeQuantityEstimate: number;
+      discountFieldsDetected: string[];
+    }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 export type ShopifyFunnelBasicResult =
@@ -361,9 +388,15 @@ function mapProductSummaryRow(row: ShopifyProductSummaryRow): ShopifyProductSumm
     sku: row.sku || 'No SKU',
     vendor: row.vendor || 'Unknown vendor',
     totalQuantitySold: numberFromPg(row.total_quantity_sold),
-    totalRevenue: numberFromPg(row.total_revenue),
+    grossRevenue: numberFromPg(row.gross_revenue),
+    totalDiscount: numberFromPg(row.total_discount),
+    netRevenue: numberFromPg(row.net_revenue),
+    averageDiscountPerUnit: numberFromPg(row.average_discount_per_unit),
+    discountRatePercentage: numberFromPg(row.discount_rate_percentage),
+    freeQuantityEstimate: numberFromPg(row.free_quantity_estimate),
+    paidQuantityEstimate: numberFromPg(row.paid_quantity_estimate),
     orderCount: numberFromPg(row.order_count),
-    averageItemPrice: numberFromPg(row.average_item_price),
+    averageNetItemPrice: numberFromPg(row.average_net_item_price),
   };
 }
 
@@ -828,7 +861,103 @@ export async function getShopifyProductsSummary(): Promise<ShopifyProductsSummar
           CASE
             WHEN item->>'price' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'price')::numeric
             ELSE 0
-          END AS price_value
+          END AS price_value,
+          CASE
+            WHEN item->>'total_discount' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'total_discount')::numeric
+            WHEN jsonb_typeof(item->'discount_allocations') = 'array' THEN COALESCE(
+              (
+                SELECT SUM(
+                  CASE
+                    WHEN allocation->>'amount' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (allocation->>'amount')::numeric
+                    ELSE 0
+                  END
+                )
+                FROM jsonb_array_elements(item->'discount_allocations') AS allocation
+              ),
+              0
+            )
+            ELSE 0
+          END AS discount_value
+        FROM shopify.orders
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE
+            WHEN line_items IS NULL THEN '[]'::jsonb
+            WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN line_items::jsonb
+            ELSE '[]'::jsonb
+          END
+        ) AS item
+      ),
+      enriched_items AS (
+        SELECT
+          order_id,
+          item,
+          quantity_value,
+          price_value,
+          discount_value,
+          quantity_value * price_value AS gross_value,
+          GREATEST(quantity_value * price_value - discount_value, 0) AS net_value,
+          CASE
+            WHEN quantity_value * price_value > 0
+              AND discount_value / NULLIF(quantity_value * price_value, 0) >= 0.999
+            THEN quantity_value
+            ELSE 0
+          END AS free_quantity,
+          CASE
+            WHEN quantity_value * price_value > 0
+              AND discount_value / NULLIF(quantity_value * price_value, 0) >= 0.999
+            THEN 0
+            ELSE quantity_value
+          END AS paid_quantity
+        FROM order_items
+      )
+      SELECT
+        NULLIF(item->>'product_id', '') AS product_id,
+        NULLIF(item->>'variant_id', '') AS variant_id,
+        COALESCE(NULLIF(item->>'title', ''), NULLIF(item->>'name', ''), 'Unknown product') AS product_name,
+        COALESCE(NULLIF(item->>'sku', ''), 'No SKU') AS sku,
+        COALESCE(NULLIF(item->>'vendor', ''), 'Unknown vendor') AS vendor,
+        COALESCE(SUM(quantity_value), 0)::text AS total_quantity_sold,
+        COALESCE(SUM(gross_value), 0)::text AS gross_revenue,
+        COALESCE(SUM(discount_value), 0)::text AS total_discount,
+        COALESCE(SUM(net_value), 0)::text AS net_revenue,
+        COALESCE(SUM(discount_value) / NULLIF(SUM(quantity_value), 0), 0)::text AS average_discount_per_unit,
+        COALESCE((SUM(discount_value) / NULLIF(SUM(gross_value), 0)) * 100, 0)::text AS discount_rate_percentage,
+        COALESCE(SUM(free_quantity), 0)::text AS free_quantity_estimate,
+        COALESCE(SUM(paid_quantity), 0)::text AS paid_quantity_estimate,
+        COUNT(DISTINCT order_id)::text AS order_count,
+        COALESCE(SUM(net_value) / NULLIF(SUM(quantity_value), 0), 0)::text AS average_net_item_price
+      FROM enriched_items
+      GROUP BY product_id, variant_id, product_name, sku, vendor
+      ORDER BY SUM(net_value) DESC
+      LIMIT 50
+    `);
+    const totalResult = await pool.query<ShopifyProductSummaryTotalRow>(`
+      WITH order_items AS (
+        SELECT
+          CASE
+            WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
+            ELSE 0
+          END AS quantity_value,
+          CASE
+            WHEN item->>'price' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'price')::numeric
+            ELSE 0
+          END AS price_value,
+          CASE
+            WHEN item->>'total_discount' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'total_discount')::numeric
+            WHEN jsonb_typeof(item->'discount_allocations') = 'array' THEN COALESCE(
+              (
+                SELECT SUM(
+                  CASE
+                    WHEN allocation->>'amount' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (allocation->>'amount')::numeric
+                    ELSE 0
+                  END
+                )
+                FROM jsonb_array_elements(item->'discount_allocations') AS allocation
+              ),
+              0
+            )
+            ELSE 0
+          END AS discount_value
         FROM shopify.orders
         CROSS JOIN LATERAL jsonb_array_elements(
           CASE
@@ -839,44 +968,60 @@ export async function getShopifyProductsSummary(): Promise<ShopifyProductsSummar
         ) AS item
       )
       SELECT
-        NULLIF(item->>'product_id', '') AS product_id,
-        NULLIF(item->>'variant_id', '') AS variant_id,
-        COALESCE(NULLIF(item->>'title', ''), NULLIF(item->>'name', ''), 'Unknown product') AS product_name,
-        COALESCE(NULLIF(item->>'sku', ''), 'No SKU') AS sku,
-        COALESCE(NULLIF(item->>'vendor', ''), 'Unknown vendor') AS vendor,
         COALESCE(SUM(quantity_value), 0)::text AS total_quantity_sold,
-        COALESCE(SUM(quantity_value * price_value), 0)::text AS total_revenue,
-        COUNT(DISTINCT order_id)::text AS order_count,
-        COALESCE(AVG(NULLIF(price_value, 0)), 0)::text AS average_item_price
-      FROM order_items
-      GROUP BY product_id, variant_id, product_name, sku, vendor
-      ORDER BY SUM(quantity_value * price_value) DESC
-      LIMIT 50
-    `);
-    const totalResult = await pool.query<ShopifyProductSummaryTotalRow>(`
-      WITH order_items AS (
-        SELECT
-          CASE
-            WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
-            ELSE 0
-          END AS quantity_value
-        FROM shopify.orders
-        CROSS JOIN LATERAL jsonb_array_elements(
-          CASE
-            WHEN line_items IS NULL THEN '[]'::jsonb
-            WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN line_items::jsonb
-            ELSE '[]'::jsonb
-          END
-        ) AS item
-      )
-      SELECT COALESCE(SUM(quantity_value), 0)::text AS total_quantity_sold
+        COALESCE(SUM(discount_value), 0)::text AS total_product_discounts,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN quantity_value * price_value > 0
+                AND discount_value / NULLIF(quantity_value * price_value, 0) >= 0.999
+              THEN quantity_value
+              ELSE 0
+            END
+          ),
+          0
+        )::text AS free_quantity_estimate
       FROM order_items
     `);
+    const detectedFieldsResult = await pool.query<ShopifyLineItemFieldRow>(`
+      SELECT DISTINCT field_name
+      FROM shopify.orders
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE
+          WHEN line_items IS NULL THEN '[]'::jsonb
+          WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN line_items::jsonb
+          ELSE '[]'::jsonb
+        END
+      ) AS item
+      CROSS JOIN LATERAL jsonb_object_keys(item) AS keys(field_name)
+      WHERE field_name = ANY($1::text[])
+      ORDER BY field_name
+    `, [
+      [
+        'total_discount',
+        'discount_allocations',
+        'discounted_price',
+        'discounted_total',
+        'price',
+        'quantity',
+        'gift_card',
+        'product_id',
+        'variant_id',
+        'title',
+        'name',
+        'sku',
+        'vendor',
+      ],
+    ]);
+    const totalSummary = totalResult.rows[0];
 
     return {
       ok: true,
       products: productsResult.rows.map(mapProductSummaryRow),
-      totalQuantitySold: numberFromPg(totalResult.rows[0]?.total_quantity_sold),
+      totalQuantitySold: numberFromPg(totalSummary?.total_quantity_sold),
+      totalProductDiscounts: numberFromPg(totalSummary?.total_product_discounts),
+      freeQuantityEstimate: numberFromPg(totalSummary?.free_quantity_estimate),
+      discountFieldsDetected: detectedFieldsResult.rows.map((row) => row.field_name),
     };
   } catch (error) {
     const errorCode =
@@ -1007,6 +1152,12 @@ export async function getBusinessOverview(): Promise<BusinessOverviewResult> {
     potentialIssues.push('Paid order rate may need attention.');
   }
 
+  if (productsResult.freeQuantityEstimate > 0) {
+    potentialIssues.push(
+      'Some products were included for free via discounts. Stock movement may exceed paid product sales.',
+    );
+  }
+
   return {
     ok: true,
     metrics: {
@@ -1018,6 +1169,8 @@ export async function getBusinessOverview(): Promise<BusinessOverviewResult> {
       abandonedCheckoutCount: funnelResult.metrics.abandonedCheckoutCount,
       topProducts: productsResult.products.slice(0, 5),
       totalQuantitySold: productsResult.totalQuantitySold,
+      totalProductDiscounts: productsResult.totalProductDiscounts,
+      freeQuantityEstimate: productsResult.freeQuantityEstimate,
       totalLineItems: ordersResult.metrics.totalLineItemsCount,
       potentialIssues:
         potentialIssues.length > 0 ? potentialIssues : ['No major Shopify issue detected.'],

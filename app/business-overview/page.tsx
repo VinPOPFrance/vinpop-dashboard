@@ -38,6 +38,7 @@ export default async function BusinessOverviewPage() {
         { label: 'Paid orders', value: formatNumber(metrics.paidOrders) },
         { label: 'Cancelled orders', value: formatNumber(metrics.cancelledOrders) },
         { label: 'Abandoned checkouts', value: formatNumber(metrics.abandonedCheckoutCount) },
+        { label: 'Product discounts', value: formatMoney(metrics.totalProductDiscounts) },
         { label: 'Total quantity sold', value: formatNumber(metrics.totalQuantitySold) },
         { label: 'Total line items', value: formatNumber(metrics.totalLineItems) },
       ]
@@ -84,7 +85,7 @@ export default async function BusinessOverviewPage() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginTop: 28 }}>
               <div>
-                <SectionTitle sub="Top 5 products by revenue">Top Products</SectionTitle>
+                <SectionTitle sub="Top 5 products by net revenue">Top Products</SectionTitle>
                 <Card style={{ padding: 0, overflow: 'hidden' }}>
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -93,7 +94,10 @@ export default async function BusinessOverviewPage() {
                           <th style={{ padding: '10px 14px', fontWeight: 700 }}>Product</th>
                           <th style={{ padding: '10px 14px', fontWeight: 700 }}>SKU</th>
                           <th style={{ padding: '10px 14px', fontWeight: 700, textAlign: 'right' }}>
-                            Revenue
+                            Net revenue
+                          </th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, textAlign: 'right' }}>
+                            Discount
                           </th>
                           <th style={{ padding: '10px 14px', fontWeight: 700, textAlign: 'right' }}>
                             Qty
@@ -113,7 +117,10 @@ export default async function BusinessOverviewPage() {
                               {product.sku}
                             </td>
                             <td style={{ padding: '10px 14px', color: '#1A1A1A', textAlign: 'right' }}>
-                              {formatMoney(product.totalRevenue)}
+                              {formatMoney(product.netRevenue)}
+                            </td>
+                            <td style={{ padding: '10px 14px', color: '#B45309', textAlign: 'right' }}>
+                              {formatMoney(product.totalDiscount)}
                             </td>
                             <td style={{ padding: '10px 14px', color: '#6B6B6B', textAlign: 'right' }}>
                               {formatNumber(product.totalQuantitySold)}
