@@ -5,8 +5,10 @@ import { DonutChart } from '@/components/DonutChart';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { MetricCard } from '@/components/MetricCard';
 import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
+import { TrendBadge } from '@/components/dashboard/TrendBadge';
 import { TopBar } from '@/components/TopBar';
-import { getBusinessOverview, getCustomerIntelligence, getTodayActionPlan } from '@/lib/db';
+import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
+import { getBusinessOverview, getBusinessOverviewPeriodTrends, getCustomerIntelligence, getTodayActionPlan } from '@/lib/db';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
 
 export const runtime = 'nodejs';
@@ -44,16 +46,23 @@ const chipStyle = {
   textDecoration: 'none',
 };
 
-export default async function BusinessOverviewPage() {
+export default async function BusinessOverviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await connection();
-  const [result, actionPlanResult, customerResult] = await Promise.all([
+  const range = getDateRangeFromSearchParams(await searchParams);
+  const [result, actionPlanResult, customerResult, trendsResult] = await Promise.all([
     getBusinessOverview(),
     getTodayActionPlan(),
     getCustomerIntelligence(),
+    getBusinessOverviewPeriodTrends(range),
   ]);
   const metrics = result.ok ? result.metrics : null;
   const actionPlan = actionPlanResult.ok ? actionPlanResult.metrics : null;
   const customers = customerResult.ok ? customerResult.metrics.customers : [];
+  const trends = trendsResult.ok ? trendsResult.metrics : null;
   const stageCounts = Array.from(
     customers.reduce((map, customer) => {
       map.set(customer.funnelStage, (map.get(customer.funnelStage) ?? 0) + 1);
@@ -142,7 +151,7 @@ export default async function BusinessOverviewPage() {
       />
 
       <PageSection>
-        <SectionTitle sub="Aggregate business snapshot">Shopify Overview</SectionTitle>
+        <SectionTitle sub={`Aggregate business snapshot · ${range.label}`}>Shopify Overview</SectionTitle>
         <Card style={{ marginBottom: 16 }}>
           <p style={{ margin: '0 0 8px', color: '#1A1A1A', fontSize: 13, fontWeight: 700 }}>
             Aggregate metrics only. No individual orders or customer data are displayed.
@@ -154,6 +163,20 @@ export default async function BusinessOverviewPage() {
 
         {metrics ? (
           <>
+            {trends ? (
+              <PageSection>
+                <SectionTitle sub="Current period vs previous same-length period">What Changed?</SectionTitle>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 16 }}>
+                  <MetricCard label="Period revenue" value={formatEuro(trends.revenue.current)} hint={<TrendBadge trend={trends.revenue} />} tone={trends.revenue.status === 'good' ? 'good' : trends.revenue.status === 'warning' ? 'warning' : 'default'} />
+                  <MetricCard label="Period orders" value={formatNumber(trends.orders.current)} hint={<TrendBadge trend={trends.orders} />} tone={trends.orders.status === 'good' ? 'good' : trends.orders.status === 'warning' ? 'warning' : 'default'} />
+                  <MetricCard label="Paid orders" value={formatNumber(trends.paidOrders.current)} hint={<TrendBadge trend={trends.paidOrders} />} tone={trends.paidOrders.status === 'good' ? 'good' : trends.paidOrders.status === 'warning' ? 'warning' : 'default'} />
+                  <MetricCard label="Average order value" value={formatEuro(trends.averageOrderValue.current)} hint={<TrendBadge trend={trends.averageOrderValue} />} tone={trends.averageOrderValue.status === 'good' ? 'good' : trends.averageOrderValue.status === 'warning' ? 'warning' : 'default'} />
+                  <MetricCard label="Meta spend" value={formatEuro(trends.metaSpend.current)} hint={<TrendBadge trend={trends.metaSpend} />} tone="default" />
+                  <MetricCard label="GA4 sessions" value={formatNumber(trends.ga4Sessions.current)} hint={<TrendBadge trend={trends.ga4Sessions} />} tone={trends.ga4Sessions.status === 'good' ? 'good' : trends.ga4Sessions.status === 'warning' ? 'warning' : 'default'} />
+                </div>
+              </PageSection>
+            ) : null}
+
             <PageSection>
               <SectionTitle sub="These link to the full stage-driven funnel page">Customer Stage Filters</SectionTitle>
               <Card style={{ marginBottom: 16 }}>

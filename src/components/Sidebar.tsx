@@ -5,26 +5,14 @@ import { usePathname } from 'next/navigation';
 
 const navItems = [
   { href: '/business-overview', label: 'Business Overview', icon: '◆' },
+  { href: '/acquisition-traffic', label: 'Acquisition & Traffic', icon: '◎' },
   { href: '/sales-funnel', label: 'Sales Funnel', icon: '▽' },
+  { href: '/ratings', label: 'Calibration & Ratings', icon: '★' },
+  { href: '/repeat-customers', label: 'Retention', icon: '↻' },
+  { href: '/shopify-products-summary', label: 'Products & Stock', icon: '▣' },
+  { href: '/meta', label: 'Marketing Performance', icon: '◈' },
   { href: '/today-action-plan', label: 'Today Action Plan', icon: '!' },
   { href: '/customers', label: 'Customers', icon: '◪' },
-  { href: '/ratings-intelligence', label: 'Ratings Intelligence', icon: '♡' },
-  { href: '/food-pairing-intelligence', label: 'Food Pairing', icon: '◧' },
-  { href: '/shopify-products-summary', label: 'Shopify Products', icon: '▣' },
-  { href: '/shopify-funnel-basic', label: 'Shopify Funnel', icon: '◇' },
-  { href: '/startup-pack-analysis', label: 'Startup Packs', icon: '◐' },
-  { href: '/stock-movement-summary', label: 'Stock Movement', icon: '▤' },
-  { href: '/acquisition-economics-basic', label: 'Acquisition Basic', icon: '◎' },
-  { href: '/repeat-customers', label: 'Repeat Customers', icon: '↻' },
-  { href: '/startup-pack-retention', label: 'Startup Pack Retention', icon: '◌' },
-  { href: '/ratings-conversion', label: 'Ratings Conversion', icon: '☆' },
-  { href: '/product-repeat-signals', label: 'Product Repeat Signals', icon: '▧' },
-  { href: '/customer-lifecycle', label: 'Customer Lifecycle', icon: '◍' },
-  { href: '/meta', label: 'Meta Ads', icon: '◈' },
-  { href: '/customer-activity-readiness', label: 'Activity Readiness', icon: '◫' },
-  { href: '/ratings', label: 'Ratings', icon: '★' },
-  { href: '/actions', label: 'Actions', icon: '◉' },
-  { href: '/todo', label: 'To-do List', icon: '☑' },
 ];
 
 export function Sidebar() {

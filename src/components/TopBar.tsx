@@ -1,5 +1,8 @@
 'use client';
 
+import { Suspense } from 'react';
+import { DateRangePicker } from '@/components/dashboard/DateRangePicker';
+
 interface TopBarProps {
   title: string;
   subtitle: string;
@@ -26,17 +29,9 @@ export function TopBar({ title, subtitle }: TopBarProps) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 12, color: '#9B9B9B' }}>{today}</span>
-        <div style={{
-          padding: '6px 12px',
-          background: '#F5F4F0',
-          border: '1px solid #E8E6E1',
-          borderRadius: 6,
-          fontSize: 12,
-          color: '#6B6B6B',
-          cursor: 'pointer',
-        }}>
-          Last 7 days ▾
-        </div>
+        <Suspense fallback={<span style={{ fontSize: 12, color: '#6B6B6B' }}>Last 7 days</span>}>
+          <DateRangePicker />
+        </Suspense>
       </div>
     </div>
   );

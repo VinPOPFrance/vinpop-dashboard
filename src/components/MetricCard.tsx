@@ -8,7 +8,7 @@ export function MetricCard({
 }: {
   label: string;
   value: string;
-  hint?: string;
+  hint?: React.ReactNode;
   tone?: 'default' | 'good' | 'warning';
 }) {
   const color = tone === 'warning' ? '#B45309' : tone === 'good' ? '#2D6A4F' : '#1A1A1A';

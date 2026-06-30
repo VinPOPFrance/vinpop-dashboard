@@ -1,6 +1,8 @@
 import 'server-only';
 
 import { Pool } from 'pg';
+import { dateToGa4, dateToSql, getPreviousDateRange, type DateRange } from '@/lib/analytics/dateRanges';
+import { calculateTrend, type Trend } from '@/lib/analytics/trends';
 import { classifyCustomerStage } from '@/lib/customerStages';
 
 type DatabaseNowRow = {
@@ -550,6 +552,49 @@ export type MetaAdsPerformanceMetrics = {
   ads: MetaPerformanceRow[];
 };
 
+export type AcquisitionTrafficSeriesPoint = {
+  date: string;
+  sessions: number;
+  users: number;
+  conversions: number;
+};
+
+export type AcquisitionTrafficDimensionRow = {
+  name: string;
+  sessions: number;
+  users: number;
+  conversions: number;
+  conversionRate: number | null;
+  trend: Trend;
+};
+
+export type AcquisitionTrafficMetrics = {
+  periodLabel: string;
+  sessions: Trend;
+  users: Trend;
+  conversions: Trend;
+  conversionRate: Trend;
+  revenue: Trend;
+  tablesPresent: string[];
+  tablesWithRows: string[];
+  dataAvailable: boolean;
+  series: AcquisitionTrafficSeriesPoint[];
+  sources: AcquisitionTrafficDimensionRow[];
+  channels: AcquisitionTrafficDimensionRow[];
+  campaigns: AcquisitionTrafficDimensionRow[];
+  devices: AcquisitionTrafficDimensionRow[];
+  insights: string[];
+};
+
+export type BusinessOverviewPeriodTrends = {
+  revenue: Trend;
+  orders: Trend;
+  paidOrders: Trend;
+  averageOrderValue: Trend;
+  metaSpend: Trend;
+  ga4Sessions: Trend;
+};
+
 export type ActivityTrackingTable = {
   schemaName: string;
   tableName: string;
@@ -931,6 +976,14 @@ export type FoodPairingIntelligenceResult =
 
 export type MetaAdsPerformanceResult =
   | { ok: true; metrics: MetaAdsPerformanceMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type AcquisitionTrafficResult =
+  | { ok: true; metrics: AcquisitionTrafficMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type BusinessOverviewPeriodTrendsResult =
+  | { ok: true; metrics: BusinessOverviewPeriodTrends }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 export type CustomerActivityReadinessResult =
@@ -3693,6 +3746,268 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
   }
 }
 
+type Ga4SummaryRow = {
+  sessions: string | null;
+  users: string | null;
+  revenue: string | null;
+};
+
+type Ga4ConversionRow = {
+  conversions: string | null;
+};
+
+type Ga4SeriesRow = {
+  date: string;
+  sessions: string | null;
+  users: string | null;
+  conversions: string | null;
+};
+
+type Ga4DimensionRow = {
+  name: string | null;
+  sessions: string | null;
+  users: string | null;
+  conversions: string | null;
+  previous_sessions: string | null;
+};
+
+function ga4Bounds(range: DateRange) {
+  return {
+    start: dateToGa4(range.start),
+    end: dateToGa4(range.end),
+  };
+}
+
+function mapGa4Dimension(row: Ga4DimensionRow): AcquisitionTrafficDimensionRow {
+  const sessions = numberFromPg(row.sessions);
+  const conversions = numberFromPg(row.conversions);
+
+  return {
+    name: row.name || 'Unknown',
+    sessions,
+    users: numberFromPg(row.users),
+    conversions,
+    conversionRate: rate(conversions, sessions),
+    trend: calculateTrend('sessions', sessions, numberFromPg(row.previous_sessions)),
+  };
+}
+
+export async function getAcquisitionTraffic(range: DateRange): Promise<AcquisitionTrafficResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  const previousRange = getPreviousDateRange(range);
+  const current = ga4Bounds(range);
+  const previous = ga4Bounds(previousRange);
+
+  try {
+    const pool = getPool(databaseUrl);
+    const [
+      tablesResult,
+      currentSummaryResult,
+      previousSummaryResult,
+      currentConversionResult,
+      previousConversionResult,
+      seriesResult,
+      sourcesResult,
+      channelsResult,
+      campaignsResult,
+      devicesResult,
+    ] = await Promise.all([
+      pool.query<{ table_name: string; row_count: string }>(`
+        SELECT table_name, row_count::text
+        FROM (
+          SELECT 'traffic_acquisition_session_source_medium_report' AS table_name, COUNT(*) AS row_count FROM public.traffic_acquisition_session_source_medium_report
+          UNION ALL SELECT 'traffic_acquisition_session_campaign_report', COUNT(*) FROM public.traffic_acquisition_session_campaign_report
+          UNION ALL SELECT 'traffic_acquisition_session_default_channel_grouping_report', COUNT(*) FROM public.traffic_acquisition_session_default_channel_grouping_report
+          UNION ALL SELECT 'devices', COUNT(*) FROM public.devices
+          UNION ALL SELECT 'daily_active_users', COUNT(*) FROM public.daily_active_users
+          UNION ALL SELECT 'conversions_report', COUNT(*) FROM public.conversions_report
+        ) tables
+      `),
+      pool.query<Ga4SummaryRow>(`
+        SELECT
+          COALESCE(SUM(sessions), 0)::text AS sessions,
+          COALESCE(SUM(totalUsers), 0)::text AS users,
+          COALESCE(SUM(totalRevenue), 0)::text AS revenue
+        FROM public.traffic_acquisition_session_source_medium_report
+        WHERE date BETWEEN $1 AND $2
+      `, [current.start, current.end]),
+      pool.query<Ga4SummaryRow>(`
+        SELECT
+          COALESCE(SUM(sessions), 0)::text AS sessions,
+          COALESCE(SUM(totalUsers), 0)::text AS users,
+          COALESCE(SUM(totalRevenue), 0)::text AS revenue
+        FROM public.traffic_acquisition_session_source_medium_report
+        WHERE date BETWEEN $1 AND $2
+      `, [previous.start, previous.end]),
+      pool.query<Ga4ConversionRow>(`
+        SELECT COALESCE(SUM(totalUsers), 0)::text AS conversions
+        FROM public.conversions_report
+        WHERE date BETWEEN $1 AND $2
+      `, [current.start, current.end]),
+      pool.query<Ga4ConversionRow>(`
+        SELECT COALESCE(SUM(totalUsers), 0)::text AS conversions
+        FROM public.conversions_report
+        WHERE date BETWEEN $1 AND $2
+      `, [previous.start, previous.end]),
+      pool.query<Ga4SeriesRow>(`
+        WITH traffic AS (
+          SELECT date, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM(totalUsers), 0) AS users
+          FROM public.traffic_acquisition_session_source_medium_report
+          WHERE date BETWEEN $1 AND $2
+          GROUP BY date
+        ),
+        conversions AS (
+          SELECT date, COALESCE(SUM(totalUsers), 0) AS conversions
+          FROM public.conversions_report
+          WHERE date BETWEEN $1 AND $2
+          GROUP BY date
+        )
+        SELECT
+          COALESCE(traffic.date, conversions.date) AS date,
+          COALESCE(traffic.sessions, 0)::text AS sessions,
+          COALESCE(traffic.users, 0)::text AS users,
+          COALESCE(conversions.conversions, 0)::text AS conversions
+        FROM traffic
+        FULL OUTER JOIN conversions ON conversions.date = traffic.date
+        ORDER BY date
+      `, [current.start, current.end]),
+      pool.query<Ga4DimensionRow>(`
+        WITH current_rows AS (
+          SELECT
+            CONCAT(COALESCE(sessionSource, 'unknown'), ' / ', COALESCE(sessionMedium, 'unknown')) AS name,
+            COALESCE(SUM(sessions), 0) AS sessions,
+            COALESCE(SUM(totalUsers), 0) AS users
+          FROM public.traffic_acquisition_session_source_medium_report
+          WHERE date BETWEEN $1 AND $2
+          GROUP BY name
+        ),
+        previous_rows AS (
+          SELECT
+            CONCAT(COALESCE(sessionSource, 'unknown'), ' / ', COALESCE(sessionMedium, 'unknown')) AS name,
+            COALESCE(SUM(sessions), 0) AS previous_sessions
+          FROM public.traffic_acquisition_session_source_medium_report
+          WHERE date BETWEEN $3 AND $4
+          GROUP BY name
+        )
+        SELECT current_rows.name, current_rows.sessions::text, current_rows.users::text, '0'::text AS conversions, COALESCE(previous_rows.previous_sessions, 0)::text AS previous_sessions
+        FROM current_rows
+        LEFT JOIN previous_rows ON previous_rows.name = current_rows.name
+        ORDER BY current_rows.sessions DESC
+        LIMIT 25
+      `, [current.start, current.end, previous.start, previous.end]),
+      pool.query<Ga4DimensionRow>(`
+        WITH current_rows AS (
+          SELECT COALESCE(sessionDefaultChannelGrouping, 'Unknown') AS name, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM(totalUsers), 0) AS users
+          FROM public.traffic_acquisition_session_default_channel_grouping_report
+          WHERE date BETWEEN $1 AND $2
+          GROUP BY name
+        ),
+        previous_rows AS (
+          SELECT COALESCE(sessionDefaultChannelGrouping, 'Unknown') AS name, COALESCE(SUM(sessions), 0) AS previous_sessions
+          FROM public.traffic_acquisition_session_default_channel_grouping_report
+          WHERE date BETWEEN $3 AND $4
+          GROUP BY name
+        )
+        SELECT current_rows.name, current_rows.sessions::text, current_rows.users::text, '0'::text AS conversions, COALESCE(previous_rows.previous_sessions, 0)::text AS previous_sessions
+        FROM current_rows
+        LEFT JOIN previous_rows ON previous_rows.name = current_rows.name
+        ORDER BY current_rows.sessions DESC
+        LIMIT 20
+      `, [current.start, current.end, previous.start, previous.end]),
+      pool.query<Ga4DimensionRow>(`
+        WITH current_rows AS (
+          SELECT COALESCE(sessionCampaignName, 'Unknown campaign') AS name, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM(totalUsers), 0) AS users
+          FROM public.traffic_acquisition_session_campaign_report
+          WHERE date BETWEEN $1 AND $2
+          GROUP BY name
+        ),
+        previous_rows AS (
+          SELECT COALESCE(sessionCampaignName, 'Unknown campaign') AS name, COALESCE(SUM(sessions), 0) AS previous_sessions
+          FROM public.traffic_acquisition_session_campaign_report
+          WHERE date BETWEEN $3 AND $4
+          GROUP BY name
+        )
+        SELECT current_rows.name, current_rows.sessions::text, current_rows.users::text, '0'::text AS conversions, COALESCE(previous_rows.previous_sessions, 0)::text AS previous_sessions
+        FROM current_rows
+        LEFT JOIN previous_rows ON previous_rows.name = current_rows.name
+        ORDER BY current_rows.sessions DESC
+        LIMIT 20
+      `, [current.start, current.end, previous.start, previous.end]),
+      pool.query<Ga4DimensionRow>(`
+        WITH current_rows AS (
+          SELECT COALESCE(deviceCategory, 'Unknown device') AS name, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM(totalUsers), 0) AS users
+          FROM public.devices
+          WHERE date BETWEEN $1 AND $2
+          GROUP BY name
+        ),
+        previous_rows AS (
+          SELECT COALESCE(deviceCategory, 'Unknown device') AS name, COALESCE(SUM(sessions), 0) AS previous_sessions
+          FROM public.devices
+          WHERE date BETWEEN $3 AND $4
+          GROUP BY name
+        )
+        SELECT current_rows.name, current_rows.sessions::text, current_rows.users::text, '0'::text AS conversions, COALESCE(previous_rows.previous_sessions, 0)::text AS previous_sessions
+        FROM current_rows
+        LEFT JOIN previous_rows ON previous_rows.name = current_rows.name
+        ORDER BY current_rows.sessions DESC
+      `, [current.start, current.end, previous.start, previous.end]),
+    ]);
+
+    const currentSummary = currentSummaryResult.rows[0];
+    const previousSummary = previousSummaryResult.rows[0];
+    const currentConversions = numberFromPg(currentConversionResult.rows[0]?.conversions);
+    const previousConversions = numberFromPg(previousConversionResult.rows[0]?.conversions);
+    const currentSessions = numberFromPg(currentSummary?.sessions);
+    const previousSessions = numberFromPg(previousSummary?.sessions);
+    const currentUsers = numberFromPg(currentSummary?.users);
+    const previousUsers = numberFromPg(previousSummary?.users);
+    const currentRevenue = numberFromPg(currentSummary?.revenue);
+    const previousRevenue = numberFromPg(previousSummary?.revenue);
+    const tablesWithRows = tablesResult.rows.filter((row) => numberFromPg(row.row_count) > 0).map((row) => row.table_name);
+    const dataAvailable = tablesWithRows.length > 0 && (currentSessions > 0 || currentUsers > 0 || currentConversions > 0);
+
+    return {
+      ok: true,
+      metrics: {
+        periodLabel: range.label,
+        sessions: calculateTrend('sessions', currentSessions, previousSessions),
+        users: calculateTrend('users', currentUsers, previousUsers),
+        conversions: calculateTrend('conversions', currentConversions, previousConversions),
+        conversionRate: calculateTrend('conversion_rate', rate(currentConversions, currentSessions) ?? 0, rate(previousConversions, previousSessions) ?? 0),
+        revenue: calculateTrend('revenue', currentRevenue, previousRevenue),
+        tablesPresent: tablesResult.rows.map((row) => row.table_name),
+        tablesWithRows,
+        dataAvailable,
+        series: seriesResult.rows.map((row) => ({
+          date: row.date,
+          sessions: numberFromPg(row.sessions),
+          users: numberFromPg(row.users),
+          conversions: numberFromPg(row.conversions),
+        })),
+        sources: sourcesResult.rows.map(mapGa4Dimension),
+        channels: channelsResult.rows.map(mapGa4Dimension),
+        campaigns: campaignsResult.rows.map(mapGa4Dimension),
+        devices: devicesResult.rows.map(mapGa4Dimension),
+        insights: dataAvailable
+          ? [
+              currentConversions === 0 && currentSessions > 0 ? 'Traffic is visible, but GA4 conversions are not currently recorded for this period.' : 'GA4 traffic and conversion tables are connected.',
+              currentSessions > previousSessions ? 'Sessions increased vs the previous period.' : 'Sessions did not increase vs the previous period.',
+            ]
+          : [
+              'GA4 tables exist in PostgreSQL, but they currently contain no usable rows for dashboard metrics.',
+              'Check the Airbyte GA4 sync, selected property, date range, and report configuration.',
+            ],
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Acquisition traffic failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
 export async function getCustomerActivityReadiness(): Promise<CustomerActivityReadinessResult> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) return { ok: false, reason: 'missing-url' };
@@ -4129,6 +4444,90 @@ export async function getAcquisitionEconomicsBasic(): Promise<AcquisitionEconomi
       typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
 
     console.error('Acquisition economics basic failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+type OverviewPeriodRow = {
+  revenue: string | null;
+  orders: string | null;
+  paid_orders: string | null;
+};
+
+export async function getBusinessOverviewPeriodTrends(range: DateRange): Promise<BusinessOverviewPeriodTrendsResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  const previousRange = getPreviousDateRange(range);
+  const currentStart = dateToSql(range.start);
+  const currentEnd = dateToSql(range.end);
+  const previousStart = dateToSql(previousRange.start);
+  const previousEnd = dateToSql(previousRange.end);
+  const currentGa4 = ga4Bounds(range);
+  const previousGa4 = ga4Bounds(previousRange);
+
+  try {
+    const pool = getPool(databaseUrl);
+    const [currentOrdersResult, previousOrdersResult, currentMetaResult, previousMetaResult, currentGa4Result, previousGa4Result] =
+      await Promise.all([
+        pool.query<OverviewPeriodRow>(`
+          SELECT
+            COALESCE(SUM(total_price), 0)::text AS revenue,
+            COUNT(*)::text AS orders,
+            COUNT(*) FILTER (WHERE lower(coalesce(financial_status, '')) = 'paid')::text AS paid_orders
+          FROM shopify.orders
+          WHERE created_at::date BETWEEN $1::date AND $2::date
+        `, [currentStart, currentEnd]),
+        pool.query<OverviewPeriodRow>(`
+          SELECT
+            COALESCE(SUM(total_price), 0)::text AS revenue,
+            COUNT(*)::text AS orders,
+            COUNT(*) FILTER (WHERE lower(coalesce(financial_status, '')) = 'paid')::text AS paid_orders
+          FROM shopify.orders
+          WHERE created_at::date BETWEEN $1::date AND $2::date
+        `, [previousStart, previousEnd]),
+        pool.query<{ spend: string | null }>(`
+          SELECT COALESCE(SUM(spend), 0)::text AS spend
+          FROM public.ads_insights
+          WHERE date_start BETWEEN $1 AND $2
+        `, [currentStart, currentEnd]),
+        pool.query<{ spend: string | null }>(`
+          SELECT COALESCE(SUM(spend), 0)::text AS spend
+          FROM public.ads_insights
+          WHERE date_start BETWEEN $1 AND $2
+        `, [previousStart, previousEnd]),
+        pool.query<{ sessions: string | null }>(`
+          SELECT COALESCE(SUM(sessions), 0)::text AS sessions
+          FROM public.traffic_acquisition_session_source_medium_report
+          WHERE date BETWEEN $1 AND $2
+        `, [currentGa4.start, currentGa4.end]),
+        pool.query<{ sessions: string | null }>(`
+          SELECT COALESCE(SUM(sessions), 0)::text AS sessions
+          FROM public.traffic_acquisition_session_source_medium_report
+          WHERE date BETWEEN $1 AND $2
+        `, [previousGa4.start, previousGa4.end]),
+      ]);
+    const currentOrders = currentOrdersResult.rows[0];
+    const previousOrders = previousOrdersResult.rows[0];
+    const currentRevenue = numberFromPg(currentOrders?.revenue);
+    const previousRevenue = numberFromPg(previousOrders?.revenue);
+    const currentOrderCount = numberFromPg(currentOrders?.orders);
+    const previousOrderCount = numberFromPg(previousOrders?.orders);
+
+    return {
+      ok: true,
+      metrics: {
+        revenue: calculateTrend('revenue', currentRevenue, previousRevenue),
+        orders: calculateTrend('orders', currentOrderCount, previousOrderCount),
+        paidOrders: calculateTrend('paid_orders', numberFromPg(currentOrders?.paid_orders), numberFromPg(previousOrders?.paid_orders)),
+        averageOrderValue: calculateTrend('average_order_value', ratio(currentRevenue, currentOrderCount) ?? 0, ratio(previousRevenue, previousOrderCount) ?? 0),
+        metaSpend: calculateTrend('meta_spend', numberFromPg(currentMetaResult.rows[0]?.spend), numberFromPg(previousMetaResult.rows[0]?.spend)),
+        ga4Sessions: calculateTrend('sessions', numberFromPg(currentGa4Result.rows[0]?.sessions), numberFromPg(previousGa4Result.rows[0]?.sessions)),
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Business overview period trends failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }
