@@ -9,7 +9,11 @@ function isPublicPath(pathname: string): boolean {
     return true;
   }
 
-  return pathname.startsWith('/api/login') || pathname.startsWith('/api/logout');
+  return (
+    pathname.startsWith('/api/login') ||
+    pathname.startsWith('/api/logout') ||
+    pathname.startsWith('/api/events')
+  );
 }
 
 function isAssetPath(pathname: string): boolean {

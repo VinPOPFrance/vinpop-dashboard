@@ -1174,6 +1174,29 @@ export type TodayActionPlanResult =
   | { ok: true; metrics: TodayActionPlanMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
+export type SiteEventInsertInput = {
+  eventName: string;
+  eventTime: string;
+  visitorId: string | null;
+  sessionId: string | null;
+  customerId: string | null;
+  email: string | null;
+  emailHash: string | null;
+  pageUrl: string | null;
+  referrer: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
+  fbclid: string | null;
+  payload: Record<string, unknown> | null;
+};
+
+export type SiteEventInsertResult =
+  | { ok: true }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' | 'table-missing' };
+
 declare global {
   var vinpopDashboardPgPool: Pool | undefined;
 }
@@ -1599,6 +1622,95 @@ export async function getDatabaseNow(): Promise<DatabaseNowResult> {
       typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
 
     console.error('Database connection test failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function insertSiteEvent(input: SiteEventInsertInput): Promise<SiteEventInsertResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  try {
+    // Documentation-only schema reference. This is intentionally not executed automatically.
+    // CREATE TABLE IF NOT EXISTS public.site_events (
+    //   id bigserial PRIMARY KEY,
+    //   event_name text NOT NULL,
+    //   event_time timestamptz NOT NULL DEFAULT now(),
+    //   visitor_id text,
+    //   session_id text,
+    //   customer_id text,
+    //   email text,
+    //   email_hash text,
+    //   page_url text,
+    //   referrer text,
+    //   utm_source text,
+    //   utm_medium text,
+    //   utm_campaign text,
+    //   utm_content text,
+    //   utm_term text,
+    //   fbclid text,
+    //   payload jsonb,
+    //   created_at timestamptz NOT NULL DEFAULT now()
+    // );
+    await getPool(databaseUrl).query(
+      `
+        INSERT INTO public.site_events (
+          event_name,
+          event_time,
+          visitor_id,
+          session_id,
+          customer_id,
+          email,
+          email_hash,
+          page_url,
+          referrer,
+          utm_source,
+          utm_medium,
+          utm_campaign,
+          utm_content,
+          utm_term,
+          fbclid,
+          payload
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8,
+          $9, $10, $11, $12, $13, $14, $15, $16
+        )
+      `,
+      [
+        input.eventName,
+        input.eventTime,
+        input.visitorId,
+        input.sessionId,
+        input.customerId,
+        input.email,
+        input.emailHash,
+        input.pageUrl,
+        input.referrer,
+        input.utmSource,
+        input.utmMedium,
+        input.utmCampaign,
+        input.utmContent,
+        input.utmTerm,
+        input.fbclid,
+        input.payload,
+      ],
+    );
+
+    return { ok: true };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    if (errorCode === '42P01') {
+      console.error('Site event insert failed: table missing', { code: errorCode });
+      return { ok: false, reason: 'table-missing' };
+    }
+
+    console.error('Site event insert failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }
