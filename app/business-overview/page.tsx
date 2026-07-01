@@ -1,15 +1,11 @@
 import { connection } from 'next/server';
-import { BarChart } from '@/components/BarChart';
 import { BusinessOverviewDailyClient } from '@/components/BusinessOverviewDailyClient';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { DonutChart } from '@/components/DonutChart';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { MetricCard } from '@/components/MetricCard';
-import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
-import { TrendBadge } from '@/components/dashboard/TrendBadge';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
-import { getCachedBusinessOverview, getCachedBusinessOverviewPeriodTrends, getCachedCustomerIntelligence, getCachedMetaAdsPerformance, getCachedSiteBehavior, getCachedTodayActionPlan, rangeCacheArgs } from '@/lib/cachedDb';
+import { getCachedBusinessOverview, getCachedCustomerIntelligence, getCachedMetaAdsPerformance, getCachedSiteBehavior, getCachedTodayActionPlan, rangeCacheArgs } from '@/lib/cachedDb';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
 import { timeAsync } from '@/lib/performance';
 
@@ -19,34 +15,13 @@ function stageSlug(stage: string) {
   return stage.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
-type OverviewProductRow = Record<string, unknown> & {
-  product: string;
-  sku: string;
-  netRevenue: number;
-  discount: number;
-  quantity: number;
-};
+function statusTone(status: string): 'default' | 'good' | 'warning' {
+  return status === 'Good' ? 'good' : status === 'Critical' || status === 'Missing data' ? 'warning' : 'default';
+}
 
-const overviewProductColumns: SortableColumn<OverviewProductRow>[] = [
-  { key: 'product', label: 'Product', type: 'text', width: 220 },
-  { key: 'sku', label: 'SKU', type: 'text' },
-  { key: 'netRevenue', label: 'Net revenue', type: 'money' },
-  { key: 'discount', label: 'Discount', type: 'money' },
-  { key: 'quantity', label: 'Qty', type: 'number' },
-];
-
-const chipStyle = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  border: '1px solid #E8E6E1',
-  borderRadius: 999,
-  padding: '8px 12px',
-  color: '#722F37',
-  background: '#FFFFFF',
-  fontSize: 12,
-  fontWeight: 700,
-  textDecoration: 'none',
-};
+function statusCard(label: string, status: string, value: string, interpretation: string) {
+  return { label, status, value, interpretation };
+}
 
 export default async function BusinessOverviewPage({
   searchParams,
@@ -56,407 +31,158 @@ export default async function BusinessOverviewPage({
   await connection();
   const range = getDateRangeFromSearchParams(await searchParams);
   const rangeArgs = rangeCacheArgs(range);
-  const [result, actionPlanResult, customerResult, trendsResult, siteBehaviorResult, metaResult] = await Promise.all([
+  const [businessResult, actionPlanResult, customerResult, siteBehaviorResult, metaResult] = await Promise.all([
     timeAsync('page:/business-overview getBusinessOverview', () => getCachedBusinessOverview()),
     timeAsync('page:/business-overview getTodayActionPlan', () => getCachedTodayActionPlan()),
     timeAsync('page:/business-overview getCustomerIntelligence', () => getCachedCustomerIntelligence()),
-    timeAsync('page:/business-overview getBusinessOverviewPeriodTrends', () => getCachedBusinessOverviewPeriodTrends(...rangeArgs)),
     timeAsync('page:/business-overview getSiteBehavior', () => getCachedSiteBehavior(...rangeArgs)),
     timeAsync('page:/business-overview getMetaAdsPerformance', () => getCachedMetaAdsPerformance()),
   ]);
-  const metrics = result.ok ? result.metrics : null;
+
+  const business = businessResult.ok ? businessResult.metrics : null;
   const actionPlan = actionPlanResult.ok ? actionPlanResult.metrics : null;
   const customers = customerResult.ok ? customerResult.metrics.customers : [];
-  const trends = trendsResult.ok ? trendsResult.metrics : null;
   const siteBehavior = siteBehaviorResult.ok ? siteBehaviorResult.metrics : null;
   const meta = metaResult.ok ? metaResult.metrics : null;
+  const highPriorityActions = actionPlan?.topActions.filter((action) => action.priority === 'Critical' || action.priority === 'High').length ?? 0;
   const stageCounts = Array.from(
     customers.reduce((map, customer) => {
       map.set(customer.funnelStage, (map.get(customer.funnelStage) ?? 0) + 1);
       return map;
     }, new Map<string, number>()),
-  ).sort((a, b) => b[1] - a[1]);
-  const keyStages = [
-    'Taste Kit Buyer',
-    'Needs to Rate Wines',
-    'Rated At Least 1 Wine',
-    'Ready for Smart Box',
-    'Smart Box Buyer',
-    'Repeat Buyer',
-    'Ready for Subscription',
-  ];
-  const message = result.ok
-    ? 'High-level Shopify business overview loaded from aggregate queries.'
-    : result.reason === 'missing-url'
-      ? 'DATABASE_URL is not configured on the server. Add it to .env.local locally and to Vercel environment variables in production.'
-      : 'Could not load the business overview. Check DATABASE_URL, database availability, SSL settings, and network access.';
-  const cards = metrics
+  );
+  const stageLabels = ['Quiz Completed', 'Needs to Rate Wines', 'Rated At Least 1 Wine', 'Ready for Smart Box', 'Repeat Buyer', 'Subscriber'];
+
+  const trafficSessions = siteBehavior?.series.reduce((sum, row) => sum + (row.sessions ?? 0), 0) ?? 0;
+  const ratingsCount = siteBehavior?.totalRatings ?? 0;
+  const cards = business
     ? [
-        { label: 'Total revenue', value: formatEuro(metrics.totalRevenue) },
-        { label: 'Total orders', value: formatNumber(metrics.totalOrders) },
-        { label: 'Average order value', value: formatEuro(metrics.averageOrderValue) },
-        { label: 'Paid orders', value: formatNumber(metrics.paidOrders) },
-        { label: 'Cancelled orders', value: formatNumber(metrics.cancelledOrders) },
-        { label: 'Abandoned checkouts', value: formatNumber(metrics.abandonedCheckoutCount) },
-        { label: 'Product discounts', value: formatEuro(metrics.totalProductDiscounts) },
-        { label: 'Total quantity sold', value: formatNumber(metrics.totalQuantitySold) },
-        { label: 'Total line items', value: formatNumber(metrics.totalLineItems) },
+        statusCard(
+          'Traffic',
+          siteBehavior?.hasGa4Rows ? (trafficSessions > 0 ? 'Good' : 'Watch') : 'Missing data',
+          siteBehavior?.hasGa4Rows ? `${formatNumber(trafficSessions)} sessions` : 'No GA4 rows',
+          siteBehavior?.hasGa4Rows ? 'GA4 traffic is available for this period.' : 'GA4 data needs attention.',
+        ),
+        statusCard(
+          'Sales',
+          business.totalOrders > 0 ? 'Good' : 'Critical',
+          `${formatNumber(business.totalOrders)} orders · ${formatEuro(business.totalRevenue)}`,
+          `${formatNumber(business.abandonedCheckoutCount)} abandoned checkouts to watch.`,
+        ),
+        statusCard(
+          'Ratings',
+          ratingsCount > 0 ? 'Good' : 'Watch',
+          `${formatNumber(ratingsCount)} ratings`,
+          `${formatNumber(business.usersWithRatings)} customers rated · ${formatNumber(business.ratingsPerUser, 1)} ratings/customer.`,
+        ),
+        statusCard(
+          'Repeat Orders',
+          (business.reorderRate ?? 0) >= 20 ? 'Good' : 'Watch',
+          `${formatNumber(business.repeatCustomers)} repeat customers`,
+          `Reorder rate is ${formatPercent(business.reorderRate)}.`,
+        ),
+        statusCard(
+          'Action Needed',
+          highPriorityActions > 0 ? 'Critical' : 'Good',
+          `${formatNumber(highPriorityActions)} high priority`,
+          highPriorityActions > 0 ? 'Open today action plan first.' : 'No urgent action flagged.',
+        ),
       ]
     : [];
-  const startupCards = metrics
-    ? [
-        { label: 'Startup Pack orders', value: formatNumber(metrics.startupPackOrders) },
-        { label: 'Free bottle quantity', value: formatNumber(metrics.freeQuantityEstimate) },
-        {
-          label: 'Avg free bottles/pack',
-          value: formatNumber(metrics.averageFreeBottlesPerStartupPackOrder),
-        },
-        { label: 'Product discounts', value: formatEuro(metrics.totalProductDiscounts) },
-        { label: 'Total quantity moved', value: formatNumber(metrics.totalQuantitySold) },
-        { label: 'Paid quantity', value: formatNumber(metrics.paidQuantityEstimate) },
-        { label: 'Free quantity', value: formatNumber(metrics.freeQuantityEstimate) },
-        { label: 'Free quantity %', value: formatPercent(metrics.freeQuantityPercentage) },
-      ]
-    : [];
-  const retentionCards = metrics
-    ? [
-        { label: 'Repeat customers', value: formatNumber(metrics.repeatCustomers) },
-        { label: 'Reorder rate', value: formatPercent(metrics.reorderRate) },
-        { label: 'One-time customers', value: formatNumber(metrics.oneTimeCustomers) },
-        { label: 'Later-order revenue', value: formatEuro(metrics.laterOrderRevenue) },
-        { label: 'Repeat revenue share', value: formatPercent(metrics.repeatRevenueShare) },
-        { label: 'Startup Pack reorder rate', value: formatPercent(metrics.startupPackReorderRate) },
-        { label: 'Users with ratings', value: formatNumber(metrics.usersWithRatings) },
-        { label: 'Ratings per user', value: formatNumber(metrics.ratingsPerUser) },
-      ]
-    : [];
-  const linkCards = [
-    { href: '/startup-pack-analysis', title: 'Startup Packs', subtitle: 'Pack economics and free bottle stock impact' },
-    { href: '/stock-movement-summary', title: 'Stock Movement', subtitle: 'Paid vs free product movement' },
-    { href: '/acquisition-economics-basic', title: 'Acquisition Basic', subtitle: 'Rough acquisition economics' },
-  ];
-  const retentionLinkCards = [
-    { href: '/repeat-customers', title: 'Repeat Customers', subtitle: 'Reorder rate and repeat revenue' },
-    { href: '/startup-pack-retention', title: 'Startup Pack Retention', subtitle: 'Pack customers and later orders' },
-    { href: '/ratings-conversion', title: 'Ratings Conversion', subtitle: 'Ratings activity and matching status' },
-    { href: '/product-repeat-signals', title: 'Product Repeat Signals', subtitle: 'Products connected to later orders' },
-    { href: '/customer-lifecycle', title: 'Customer Lifecycle', subtitle: 'Acquisition to repeat purchase health' },
-  ];
-  const intelligenceLinkCards = [
-    { href: '/ratings-intelligence', title: 'Ratings Intelligence', subtitle: 'Wine-level satisfaction signals' },
-    { href: '/food-pairing-intelligence', title: 'Food Pairing Intelligence', subtitle: 'Pairing coverage and positioning' },
-    { href: '/meta', title: 'Meta Ads Performance', subtitle: 'Spend, clicks, and attribution readiness' },
-    { href: '/site-behavior', title: 'Site Behavior', subtitle: 'Daily orders, checkout, quiz, rating, and session readiness' },
-    { href: '/geo-insights', title: 'Geo Insights', subtitle: 'Buyer city/periphery targeting signals' },
-    { href: '/tracking-readiness', title: 'Tracking Readiness', subtitle: 'GA4/session/event/attribution diagnostic' },
-    { href: '/attribution-readiness', title: 'Attribution Readiness', subtitle: 'UTM, session, and order join blockers for CAC/ROAS' },
-    { href: '/customer-activity-readiness', title: 'Customer Activity Readiness', subtitle: 'Session tracking gap check' },
-    { href: '/today-action-plan', title: 'Today Action Plan', subtitle: 'Prioritized next actions' },
-  ];
 
   return (
     <DashboardLayout>
-      <TopBar
-        title="Business Overview"
-        subtitle="High-level Shopify revenue, order, and product signals"
-      />
+      <TopBar title="Business Overview" subtitle="The 10-second VinPop business check" />
 
       <PageSection>
-        <SectionTitle sub={`Aggregate business snapshot · ${range.label}`}>Shopify Overview</SectionTitle>
+        <SectionTitle sub={`Simple executive view · ${range.label}`}>Are we moving in the right direction?</SectionTitle>
         <Card style={{ marginBottom: 16 }}>
-          <p style={{ margin: '0 0 8px', color: '#1A1A1A', fontSize: 13, fontWeight: 700 }}>
-            Aggregate metrics only. No individual orders or customer data are displayed.
-          </p>
           <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>
-            {message}
+            Business metrics only. No individual orders, phone numbers, addresses, or raw payloads are displayed here.
           </p>
         </Card>
 
-        {metrics ? (
+        {business ? (
           <>
-            {trends ? (
-              <PageSection>
-                <SectionTitle sub="Current period vs previous same-length period">What Changed?</SectionTitle>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 16 }}>
-                  <MetricCard label="Period revenue" value={formatEuro(trends.revenue.current)} hint={<TrendBadge trend={trends.revenue} />} tone={trends.revenue.status === 'good' ? 'good' : trends.revenue.status === 'warning' ? 'warning' : 'default'} />
-                  <MetricCard label="Period orders" value={formatNumber(trends.orders.current)} hint={<TrendBadge trend={trends.orders} />} tone={trends.orders.status === 'good' ? 'good' : trends.orders.status === 'warning' ? 'warning' : 'default'} />
-                  <MetricCard label="Paid orders" value={formatNumber(trends.paidOrders.current)} hint={<TrendBadge trend={trends.paidOrders} />} tone={trends.paidOrders.status === 'good' ? 'good' : trends.paidOrders.status === 'warning' ? 'warning' : 'default'} />
-                  <MetricCard label="Average order value" value={formatEuro(trends.averageOrderValue.current)} hint={<TrendBadge trend={trends.averageOrderValue} />} tone={trends.averageOrderValue.status === 'good' ? 'good' : trends.averageOrderValue.status === 'warning' ? 'warning' : 'default'} />
-                  <MetricCard label="Meta spend" value={formatEuro(trends.metaSpend.current)} hint={<TrendBadge trend={trends.metaSpend} />} tone="default" />
-                  <MetricCard label="GA4 sessions" value={formatNumber(trends.ga4Sessions.current)} hint={<TrendBadge trend={trends.ga4Sessions} />} tone={trends.ga4Sessions.status === 'good' ? 'good' : trends.ga4Sessions.status === 'warning' ? 'warning' : 'default'} />
-                </div>
-              </PageSection>
-            ) : null}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 20 }}>
+              {cards.map((card) => (
+                <MetricCard
+                  key={card.label}
+                  label={`${card.label}: ${card.status}`}
+                  value={card.value}
+                  hint={card.interpretation}
+                  tone={statusTone(card.status)}
+                />
+              ))}
+            </div>
 
             {siteBehavior ? (
               <PageSection>
-                <SectionTitle sub="Daily movement from available aggregate tables. Click any point for date detail.">Direction Charts</SectionTitle>
+                <SectionTitle sub="Click a point to inspect that day">Daily Direction</SectionTitle>
                 <BusinessOverviewDailyClient siteSeries={siteBehavior.series} metaDaily={meta?.daily ?? []} hasGa4Rows={siteBehavior.hasGa4Rows} />
               </PageSection>
             ) : null}
 
-            <PageSection>
-              <SectionTitle sub="These link to the full stage-driven funnel page">Customer Stage Filters</SectionTitle>
-              <Card style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <a href="/sales-funnel" style={chipStyle}>All</a>
-                  {keyStages.map((stage) => (
-                    <a key={stage} href={`/sales-funnel?stage=${stageSlug(stage)}`} style={chipStyle}>
-                      {stage}
-                    </a>
-                  ))}
-                </div>
-              </Card>
-            </PageSection>
-
-            <PageSection>
-              <SectionTitle sub="Stage counts and missing-data blockers">Sales Funnel Snapshot</SectionTitle>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) minmax(260px, 1fr)', gap: 16, marginBottom: 16 }}>
-                <Card>
-                  <BarChart
-                    data={stageCounts.slice(0, 8).map(([label, value]) => ({
-                      label,
-                      value,
-                      color: label.includes('Ready') || label.includes('Repeat') ? '#2D6A4F' : label.includes('Needs') ? '#B45309' : '#722F37',
-                    }))}
-                  />
-                  <a href="/sales-funnel" style={{ color: '#722F37', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>Open Sales Funnel</a>
-                </Card>
-                <Card>
-                  <div style={{ color: '#1A1A1A', fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Data Quality</div>
-                  {[
-                    'Visitor/session tracking is missing, so early funnel stages are unavailable.',
-                    'Meta attribution to Shopify orders is missing, so CAC/ROAS remain unavailable.',
-                    'Ratings-to-wine mapping uses public.mapping and is available for most ratings.',
-                    'Shopify product IDs map through public.mapping.vp_id for most line items.',
-                  ].map((item) => (
-                    <p key={item} style={{ margin: '0 0 8px', color: item.includes('missing') ? '#B45309' : '#2D6A4F', fontSize: 13, fontWeight: 600 }}>
-                      {item}
-                    </p>
-                  ))}
-                </Card>
-              </div>
-            </PageSection>
-
             {actionPlan ? (
               <PageSection>
-                <SectionTitle sub="Top 3 generated actions">What needs attention today</SectionTitle>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-                    gap: 12,
-                  }}
-                >
+                <SectionTitle sub="Top 3 actions only">What should I do today?</SectionTitle>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
                   {actionPlan.topActions.slice(0, 3).map((action) => (
                     <Card key={`${action.priority}.${action.businessProblem}`}>
-                      <div style={{ color: '#B45309', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                      <div style={{ color: action.priority === 'Critical' || action.priority === 'High' ? '#B45309' : '#2D6A4F', fontSize: 12, fontWeight: 800 }}>
                         {action.priority}
                       </div>
-                      <div style={{ color: '#1A1A1A', fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
+                      <div style={{ color: '#1A1A1A', fontSize: 14, fontWeight: 800, marginTop: 6 }}>
                         {action.businessProblem}
                       </div>
-                      <p style={{ color: '#6B6B6B', fontSize: 12, lineHeight: 1.5, margin: '0 0 8px' }}>
+                      <p style={{ margin: '8px 0 10px', color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>
                         {action.suggestedAction}
                       </p>
-                      <a href={action.relatedPage} style={{ color: '#722F37', fontSize: 12, textDecoration: 'none', fontWeight: 600 }}>
-                        Open related page
-                      </a>
+                      <a href={action.relatedPage} style={{ color: '#722F37', fontSize: 12, fontWeight: 800, textDecoration: 'none' }}>Open page</a>
                     </Card>
                   ))}
                 </div>
               </PageSection>
             ) : null}
 
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))',
-                gap: 12,
-              }}
-            >
-              {cards.map((card) => (
-                <MetricCard key={card.label} label={card.label} value={card.value} />
-              ))}
-            </div>
-
             <PageSection>
-              <SectionTitle sub="Visual read before the detailed cards">30-second Business Pulse</SectionTitle>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginBottom: 16 }}>
-                <Card>
-                  <SectionTitle>Top Products by Net Revenue</SectionTitle>
-                  <BarChart
-                    data={metrics.topProducts.slice(0, 5).map((product) => ({
-                      label: product.productName,
-                      value: product.netRevenue,
-                      color: '#722F37',
-                    }))}
-                  />
-                </Card>
-                <Card>
-                  <SectionTitle>Repeat vs One-time</SectionTitle>
-                  <DonutChart
-                    data={[
-                      { label: 'Repeat customers', value: metrics.repeatCustomers, color: '#2D6A4F' },
-                      { label: 'One-time customers', value: metrics.oneTimeCustomers, color: '#B45309' },
-                    ]}
-                  />
-                </Card>
-                <Card>
-                  <SectionTitle>Paid vs Free Product Movement</SectionTitle>
-                  <DonutChart
-                    data={[
-                      { label: 'Paid quantity', value: metrics.paidQuantityEstimate, color: '#2D6A4F' },
-                      { label: 'Free quantity', value: metrics.freeQuantityEstimate, color: '#B45309' },
-                    ]}
-                  />
-                </Card>
-              </div>
-
-              <SectionTitle sub="Pack economics and inventory movement">
-                Startup Pack & Stock Signals
-              </SectionTitle>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))',
-                  gap: 12,
-                }}
-              >
-                {startupCards.map((card) => (
-                  <MetricCard key={card.label} label={card.label} value={card.value} />
-                ))}
-              </div>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-                  gap: 12,
-                  marginTop: 16,
-                }}
-              >
-                {linkCards.map((link) => (
-                  <a key={link.href} href={link.href} style={{ textDecoration: 'none' }}>
-                    <Card>
-                      <div style={{ color: '#722F37', fontSize: 14, fontWeight: 700 }}>
-                        {link.title}
-                      </div>
-                      <p style={{ color: '#6B6B6B', fontSize: 12, lineHeight: 1.5, margin: '6px 0 0' }}>
-                        {link.subtitle}
-                      </p>
-                    </Card>
-                  </a>
-                ))}
+              <SectionTitle sub="Click a stage to open the focused funnel page">Funnel Snapshot</SectionTitle>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                {stageLabels.map((stage) => {
+                  const count = stageCounts.find(([label]) => label === stage)?.[1] ?? 0;
+                  return (
+                    <a key={stage} href={`/sales-funnel?stage=${stageSlug(stage)}`} style={{ textDecoration: 'none' }}>
+                      <Card>
+                        <div style={{ color: '#722F37', fontSize: 20, fontWeight: 900 }}>{formatNumber(count)}</div>
+                        <div style={{ color: '#1A1A1A', fontSize: 13, fontWeight: 800, marginTop: 4 }}>{stage}</div>
+                      </Card>
+                    </a>
+                  );
+                })}
               </div>
             </PageSection>
 
             <PageSection>
-              <SectionTitle sub="Repeat purchase and engagement">
-                Retention & Lifecycle Signals
-              </SectionTitle>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))',
-                  gap: 12,
-                }}
-              >
-                {retentionCards.map((card) => (
-                  <MetricCard key={card.label} label={card.label} value={card.value} />
-                ))}
-              </div>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-                  gap: 12,
-                  marginTop: 16,
-                }}
-              >
-                {retentionLinkCards.map((link) => (
-                  <a key={link.href} href={link.href} style={{ textDecoration: 'none' }}>
-                    <Card>
-                      <div style={{ color: '#722F37', fontSize: 14, fontWeight: 700 }}>
-                        {link.title}
-                      </div>
-                      <p style={{ color: '#6B6B6B', fontSize: 12, lineHeight: 1.5, margin: '6px 0 0' }}>
-                        {link.subtitle}
-                      </p>
-                    </Card>
-                  </a>
-                ))}
-              </div>
-            </PageSection>
-
-            <PageSection>
-              <SectionTitle sub="New intelligence modules">Decision System Links</SectionTitle>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-                  gap: 12,
-                }}
-              >
-                {intelligenceLinkCards.map((link) => (
-                  <a key={link.href} href={link.href} style={{ textDecoration: 'none' }}>
-                    <Card>
-                      <div style={{ color: '#722F37', fontSize: 14, fontWeight: 700 }}>
-                        {link.title}
-                      </div>
-                      <p style={{ color: '#6B6B6B', fontSize: 12, lineHeight: 1.5, margin: '6px 0 0' }}>
-                        {link.subtitle}
-                      </p>
-                    </Card>
-                  </a>
-                ))}
-              </div>
-            </PageSection>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginTop: 28 }}>
-              <div>
-                <SectionTitle sub="Top 5 products by net revenue">Top Products</SectionTitle>
-                <Card style={{ padding: 0, overflow: 'hidden' }}>
-                  <SortableDataTable
-                    columns={overviewProductColumns}
-                    rows={metrics.topProducts.map((product) => ({
-                      product: product.productName,
-                      sku: product.sku,
-                      netRevenue: product.netRevenue,
-                      discount: product.totalDiscount,
-                      quantity: product.totalQuantitySold,
-                    }))}
-                    initialSortKey="netRevenue"
-                    enableSearch={false}
-                  />
-                </Card>
-              </div>
-
-              <div>
-                <SectionTitle sub="Simple rule checks">Potential Issues</SectionTitle>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {metrics.potentialIssues.map((issue) => (
-                    <Card key={issue}>
-                      <p
-                        style={{
-                          color:
-                            issue === 'No major Shopify issue detected.' ? '#2D6A4F' : '#B45309',
-                          fontSize: 13,
-                          fontWeight: 600,
-                          lineHeight: 1.5,
-                          margin: 0,
-                        }}
-                      >
-                        {issue}
-                      </p>
-                    </Card>
-                  ))}
+              <SectionTitle sub="Technical checks live in Data Quality">Data Quality</SectionTitle>
+              <Card>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+                  <MetricCard label="GA4 status" value={siteBehavior?.hasGa4Rows ? 'Connected' : 'Missing data'} tone={siteBehavior?.hasGa4Rows ? 'good' : 'warning'} />
+                  <MetricCard label="Meta attribution" value="True CAC/ROAS unavailable" tone="warning" />
+                  <MetricCard label="Tracking status" value={siteBehavior?.hasSessionData ? 'Sessions visible' : 'Needs review'} tone={siteBehavior?.hasSessionData ? 'good' : 'warning'} />
                 </div>
-              </div>
-            </div>
+                <p style={{ margin: '14px 0 0', color: '#6B6B6B', fontSize: 13 }}>
+                  Need diagnostics? Open <a href="/data-quality" style={{ color: '#722F37', fontWeight: 800 }}>Data Quality</a>.
+                </p>
+              </Card>
+            </PageSection>
           </>
-        ) : null}
+        ) : (
+          <Card>
+            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700 }}>
+              Could not load the business overview. Check the server database connection.
+            </p>
+          </Card>
+        )}
       </PageSection>
     </DashboardLayout>
   );

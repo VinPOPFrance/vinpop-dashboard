@@ -6,18 +6,20 @@ import { usePathname } from 'next/navigation';
 const navItems = [
   { href: '/business-overview', label: 'Business Overview', icon: '◆' },
   { href: '/acquisition-traffic', label: 'Acquisition & Traffic', icon: '◎' },
-  { href: '/site-behavior', label: 'Site Behavior', icon: '⌁' },
+  { href: '/meta', label: 'Meta Ads', icon: '◈' },
   { href: '/sales-funnel', label: 'Sales Funnel', icon: '▽' },
-  { href: '/ratings', label: 'Calibration & Ratings', icon: '★' },
-  { href: '/repeat-customers', label: 'Retention', icon: '↻' },
-  { href: '/shopify-products-summary', label: 'Products & Stock', icon: '▣' },
-  { href: '/meta', label: 'Marketing Performance', icon: '◈' },
-  { href: '/geo-insights', label: 'Geo Insights', icon: '⌖' },
-  { href: '/today-action-plan', label: 'Today Action Plan', icon: '!' },
   { href: '/customers', label: 'Customers', icon: '◪' },
+  { href: '/ratings', label: 'Ratings', icon: '★' },
+  { href: '/shopify-products-summary', label: 'Products & Stock', icon: '▣' },
+  { href: '/today-action-plan', label: 'Today Action Plan', icon: '!' },
+];
+
+const dataQualityItems = [
+  { href: '/data-quality', label: 'Data Quality', icon: '?' },
   { href: '/tracking-readiness', label: 'Tracking Readiness', icon: '?' },
   { href: '/attribution-readiness', label: 'Attribution Readiness', icon: '↔' },
   { href: '/performance-diagnostics', label: 'Performance', icon: '◷' },
+  { href: '/customer-activity-readiness', label: 'Customer Activity', icon: '⌁' },
 ];
 
 export function Sidebar() {
@@ -86,6 +88,36 @@ export function Sidebar() {
               }}
             >
               <span style={{ fontSize: 13, opacity: 0.8 }}>{item.icon}</span>
+              {item.label}
+            </Link>
+          );
+        })}
+
+        <div style={{ fontSize: 10, fontWeight: 600, color: '#C0C0C0', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '14px 10px 8px' }}>
+          Data Quality
+        </div>
+        {dataQualityItems.map((item) => {
+          const isActive = pathname === item.href;
+          return (
+            <Link
+              key={`${item.href}.${item.label}`}
+              href={item.href}
+              prefetch={false}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '7px 10px',
+                borderRadius: 7,
+                textDecoration: 'none',
+                color: isActive ? '#722F37' : '#9B9B9B',
+                background: isActive ? '#F8F0F1' : 'transparent',
+                fontWeight: isActive ? 600 : 400,
+                fontSize: 12.5,
+                marginBottom: 1,
+              }}
+            >
+              <span style={{ fontSize: 12, opacity: 0.7 }}>{item.icon}</span>
               {item.label}
             </Link>
           );

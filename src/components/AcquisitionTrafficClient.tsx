@@ -28,7 +28,11 @@ function toRows(rows: AcquisitionTrafficDimensionRow[]): TrafficRow[] {
 export function AcquisitionTrafficClient({ metrics }: { metrics: AcquisitionTrafficMetrics }) {
   const sessionsSeries = metrics.series.map((point) => ({ label: point.date, value: point.sessions }));
   const usersSeries = metrics.series.map((point) => ({ label: point.date, value: point.users }));
+  const engagedSeries = metrics.series.map((point) => ({ label: point.date, value: point.engagedSessions }));
+  const eventsSeries = metrics.series.map((point) => ({ label: point.date, value: point.eventCount }));
+  const pageViewsSeries = metrics.series.map((point) => ({ label: point.date, value: point.pageViews }));
   const conversionsSeries = metrics.series.map((point) => ({ label: point.date, value: point.conversions }));
+  const locationRows = [...metrics.cities.slice(0, 8), ...metrics.regions.slice(0, 6), ...metrics.countries.slice(0, 6)].slice(0, 20);
 
   return (
     <>
@@ -44,15 +48,27 @@ export function AcquisitionTrafficClient({ metrics }: { metrics: AcquisitionTraf
       ) : null}
 
       <PageSection>
-        <SectionTitle sub="Sessions, users, and conversions by day">Traffic Trend</SectionTitle>
+        <SectionTitle sub="Daily GA4 direction">Traffic Trend</SectionTitle>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
           <Card>
             <SectionTitle>Sessions</SectionTitle>
             <LineChart data={sessionsSeries} color="#722F37" />
           </Card>
           <Card>
-            <SectionTitle>Users</SectionTitle>
+            <SectionTitle>Users + Engaged Sessions</SectionTitle>
             <LineChart data={usersSeries} color="#2D6A4F" />
+          </Card>
+          <Card>
+            <SectionTitle>Engaged Sessions</SectionTitle>
+            <LineChart data={engagedSeries} color="#2D6A4F" />
+          </Card>
+          <Card>
+            <SectionTitle>Events</SectionTitle>
+            <LineChart data={eventsSeries} color="#A67C00" />
+          </Card>
+          <Card>
+            <SectionTitle>Page Views</SectionTitle>
+            <LineChart data={pageViewsSeries} color="#6B6B6B" />
           </Card>
           <Card>
             <SectionTitle>Conversions</SectionTitle>
@@ -80,17 +96,27 @@ export function AcquisitionTrafficClient({ metrics }: { metrics: AcquisitionTraf
       </PageSection>
 
       <PageSection>
-        <SectionTitle sub="Sortable traffic quality diagnostics">Source / Medium Quality</SectionTitle>
-        <Card style={{ padding: 0, overflow: 'hidden' }}>
-          <SortableDataTable columns={columns} rows={toRows(metrics.sources)} initialSortKey="sessions" searchPlaceholder="Search source, medium..." />
-        </Card>
-      </PageSection>
-
-      <PageSection>
-        <SectionTitle sub="Campaign naming from GA4">Campaign Quality</SectionTitle>
-        <Card style={{ padding: 0, overflow: 'hidden' }}>
-          <SortableDataTable columns={columns} rows={toRows(metrics.campaigns)} initialSortKey="sessions" searchPlaceholder="Search campaign..." />
-        </Card>
+        <SectionTitle sub="Compact sortable tables">Traffic Details</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+          <Card style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}>
+              <SectionTitle>Source / Medium</SectionTitle>
+            </div>
+            <SortableDataTable columns={columns} rows={toRows(metrics.sources).slice(0, 20)} initialSortKey="sessions" searchPlaceholder="Search source, medium..." maxHeight={420} />
+          </Card>
+          <Card style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}>
+              <SectionTitle>Campaigns</SectionTitle>
+            </div>
+            <SortableDataTable columns={columns} rows={toRows(metrics.campaigns).slice(0, 20)} initialSortKey="sessions" searchPlaceholder="Search campaign..." maxHeight={420} />
+          </Card>
+          <Card style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}>
+              <SectionTitle>Device / Geo</SectionTitle>
+            </div>
+            <SortableDataTable columns={columns} rows={toRows([...metrics.devices, ...locationRows]).slice(0, 24)} initialSortKey="sessions" searchPlaceholder="Search device or place..." maxHeight={420} />
+          </Card>
+        </div>
       </PageSection>
 
       <PageSection>

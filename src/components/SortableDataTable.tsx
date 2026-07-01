@@ -39,6 +39,7 @@ export function SortableDataTable<T extends Record<string, unknown>>({
   onRowClick,
   initialSortKey,
   initialSortDirection = 'desc',
+  maxHeight,
 }: {
   columns: SortableColumn<T>[];
   rows: T[];
@@ -49,6 +50,7 @@ export function SortableDataTable<T extends Record<string, unknown>>({
   onRowClick?: (row: T) => void;
   initialSortKey?: keyof T & string;
   initialSortDirection?: SortDirection;
+  maxHeight?: number;
 }) {
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<string>(initialSortKey ?? columns[0]?.key ?? '');
@@ -91,7 +93,7 @@ export function SortableDataTable<T extends Record<string, unknown>>({
           />
         </div>
       ) : null}
-      <div style={{ overflowX: 'auto' }}>
+      <div style={{ overflowX: 'auto', overflowY: maxHeight ? 'auto' : undefined, maxHeight }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ background: '#F5F4F0', color: '#6B6B6B', textAlign: 'left' }}>
@@ -115,6 +117,10 @@ export function SortableDataTable<T extends Record<string, unknown>>({
                       cursor: 'pointer',
                       whiteSpace: 'nowrap',
                       minWidth: column.width,
+                      position: maxHeight ? 'sticky' : undefined,
+                      top: maxHeight ? 0 : undefined,
+                      background: '#F5F4F0',
+                      zIndex: maxHeight ? 1 : undefined,
                     }}
                   >
                     {column.label} {isSorted ? (sortDirection === 'asc' ? '↑' : '↓') : ''}

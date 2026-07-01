@@ -97,32 +97,24 @@ export function BusinessOverviewDailyClient({ siteSeries, metaDaily, hasGa4Rows 
       </Card>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 16 }}>
-        <Card>
-          <SectionTitle>Daily Orders</SectionTitle>
-          <LineChart data={siteSeries.map((row) => ({ label: row.date, value: row.orders }))} color="#722F37" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
-        </Card>
-        <Card>
-          <SectionTitle>Daily Abandoned Checkouts</SectionTitle>
-          <LineChart data={siteSeries.map((row) => ({ label: row.date, value: row.abandonedCheckouts }))} color="#B45309" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
-        </Card>
-        <Card>
-          <SectionTitle>Daily Ratings</SectionTitle>
-          <LineChart data={siteSeries.map((row) => ({ label: row.date, value: row.ratings }))} color="#A67C00" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
-        </Card>
-        <Card>
-          <SectionTitle>Meta Spend</SectionTitle>
-          <LineChart data={metaSeries.map((row) => ({ label: row.date, value: row.spend }))} color="#6B6B6B" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
-        </Card>
-        <Card>
-          <SectionTitle>Meta Clicks</SectionTitle>
-          <LineChart data={metaSeries.map((row) => ({ label: row.date, value: row.clicks }))} color="#2D6A4F" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
-        </Card>
         {hasGa4Rows ? (
           <Card>
-            <SectionTitle>GA4 Sessions</SectionTitle>
+            <SectionTitle>Sessions by Day</SectionTitle>
             <LineChart data={siteSeries.map((row) => ({ label: row.date, value: row.sessions ?? 0 }))} color="#2D6A4F" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
           </Card>
         ) : null}
+        <Card>
+          <SectionTitle>Orders by Day</SectionTitle>
+          <LineChart data={siteSeries.map((row) => ({ label: row.date, value: row.orders }))} color="#722F37" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
+        </Card>
+        <Card>
+          <SectionTitle>Ratings by Day</SectionTitle>
+          <LineChart data={siteSeries.map((row) => ({ label: row.date, value: row.ratings }))} color="#A67C00" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
+        </Card>
+        <Card>
+          <SectionTitle>Meta Spend / Clicks by Day</SectionTitle>
+          <LineChart data={metaSeries.map((row) => ({ label: row.date, value: row.spend }))} color="#6B6B6B" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
+        </Card>
       </div>
     </>
   );

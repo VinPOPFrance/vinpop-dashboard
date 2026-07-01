@@ -668,6 +668,9 @@ export type AcquisitionTrafficSeriesPoint = {
   date: string;
   sessions: number;
   users: number;
+  engagedSessions: number;
+  eventCount: number;
+  pageViews: number;
   conversions: number;
 };
 
@@ -684,6 +687,11 @@ export type AcquisitionTrafficMetrics = {
   periodLabel: string;
   sessions: Trend;
   users: Trend;
+  engagedSessions: Trend;
+  engagementRate: Trend;
+  eventsPerSession: Trend;
+  pageViews: Trend;
+  averageEngagementDuration: Trend;
   conversions: Trend;
   conversionRate: Trend;
   revenue: Trend;
@@ -695,6 +703,9 @@ export type AcquisitionTrafficMetrics = {
   channels: AcquisitionTrafficDimensionRow[];
   campaigns: AcquisitionTrafficDimensionRow[];
   devices: AcquisitionTrafficDimensionRow[];
+  cities: AcquisitionTrafficDimensionRow[];
+  regions: AcquisitionTrafficDimensionRow[];
+  countries: AcquisitionTrafficDimensionRow[];
   insights: string[];
 };
 
@@ -4059,6 +4070,10 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
 type Ga4SummaryRow = {
   sessions: string | null;
   users: string | null;
+  engaged_sessions: string | null;
+  event_count: string | null;
+  page_views: string | null;
+  engagement_duration: string | null;
   revenue: string | null;
 };
 
@@ -4070,6 +4085,9 @@ type Ga4SeriesRow = {
   date: string;
   sessions: string | null;
   users: string | null;
+  engaged_sessions: string | null;
+  event_count: string | null;
+  page_views: string | null;
   conversions: string | null;
 };
 
@@ -4123,6 +4141,9 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
       channelsResult,
       campaignsResult,
       devicesResult,
+      citiesResult,
+      regionsResult,
+      countriesResult,
     ] = await Promise.all([
       pool.query<{ table_name: string; row_count: string }>(`
         SELECT table_name, row_count::text
@@ -4130,15 +4151,25 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
           SELECT 'traffic_acquisition_session_source_medium_report' AS table_name, COUNT(*) AS row_count FROM public.traffic_acquisition_session_source_medium_report
           UNION ALL SELECT 'traffic_acquisition_session_campaign_report', COUNT(*) FROM public.traffic_acquisition_session_campaign_report
           UNION ALL SELECT 'traffic_acquisition_session_default_channel_grouping_report', COUNT(*) FROM public.traffic_acquisition_session_default_channel_grouping_report
+          UNION ALL SELECT 'traffic_acquisition_session_medium_report', COUNT(*) FROM public.traffic_acquisition_session_medium_report
+          UNION ALL SELECT 'traffic_acquisition_session_source_platform_report', COUNT(*) FROM public.traffic_acquisition_session_source_platform_report
+          UNION ALL SELECT 'traffic_acquisition_session_source_report', COUNT(*) FROM public.traffic_acquisition_session_source_report
           UNION ALL SELECT 'devices', COUNT(*) FROM public.devices
           UNION ALL SELECT 'daily_active_users', COUNT(*) FROM public.daily_active_users
           UNION ALL SELECT 'conversions_report', COUNT(*) FROM public.conversions_report
+          UNION ALL SELECT 'demographic_city_report', COUNT(*) FROM public.demographic_city_report
+          UNION ALL SELECT 'demographic_region_report', COUNT(*) FROM public.demographic_region_report
+          UNION ALL SELECT 'demographic_country_report', COUNT(*) FROM public.demographic_country_report
         ) tables
       `),
       pool.query<Ga4SummaryRow>(`
         SELECT
           COALESCE(SUM(sessions), 0)::text AS sessions,
           COALESCE(SUM("totalUsers"), 0)::text AS users,
+          COALESCE(SUM("engagedSessions"), 0)::text AS engaged_sessions,
+          COALESCE(SUM("eventCount"), 0)::text AS event_count,
+          (SELECT COALESCE(SUM("screenPageViews"), 0)::text FROM public.devices WHERE date BETWEEN $1 AND $2) AS page_views,
+          COALESCE(SUM("userEngagementDuration"), 0)::text AS engagement_duration,
           COALESCE(SUM("totalRevenue"), 0)::text AS revenue
         FROM public.traffic_acquisition_session_source_medium_report
         WHERE date BETWEEN $1 AND $2
@@ -4147,6 +4178,10 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
         SELECT
           COALESCE(SUM(sessions), 0)::text AS sessions,
           COALESCE(SUM("totalUsers"), 0)::text AS users,
+          COALESCE(SUM("engagedSessions"), 0)::text AS engaged_sessions,
+          COALESCE(SUM("eventCount"), 0)::text AS event_count,
+          (SELECT COALESCE(SUM("screenPageViews"), 0)::text FROM public.devices WHERE date BETWEEN $1 AND $2) AS page_views,
+          COALESCE(SUM("userEngagementDuration"), 0)::text AS engagement_duration,
           COALESCE(SUM("totalRevenue"), 0)::text AS revenue
         FROM public.traffic_acquisition_session_source_medium_report
         WHERE date BETWEEN $1 AND $2
@@ -4163,8 +4198,19 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
       `, [previous.start, previous.end]),
       pool.query<Ga4SeriesRow>(`
         WITH traffic AS (
-          SELECT date, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM("totalUsers"), 0) AS users
+          SELECT
+            date,
+            COALESCE(SUM(sessions), 0) AS sessions,
+            COALESCE(SUM("totalUsers"), 0) AS users,
+            COALESCE(SUM("engagedSessions"), 0) AS engaged_sessions,
+            COALESCE(SUM("eventCount"), 0) AS event_count
           FROM public.traffic_acquisition_session_source_medium_report
+          WHERE date BETWEEN $1 AND $2
+          GROUP BY date
+        ),
+        devices AS (
+          SELECT date, COALESCE(SUM("screenPageViews"), 0) AS page_views
+          FROM public.devices
           WHERE date BETWEEN $1 AND $2
           GROUP BY date
         ),
@@ -4178,9 +4224,13 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
           COALESCE(traffic.date, conversions.date) AS date,
           COALESCE(traffic.sessions, 0)::text AS sessions,
           COALESCE(traffic.users, 0)::text AS users,
+          COALESCE(traffic.engaged_sessions, 0)::text AS engaged_sessions,
+          COALESCE(traffic.event_count, 0)::text AS event_count,
+          COALESCE(devices.page_views, 0)::text AS page_views,
           COALESCE(conversions.conversions, 0)::text AS conversions
         FROM traffic
         FULL OUTER JOIN conversions ON conversions.date = traffic.date
+        LEFT JOIN devices ON devices.date = COALESCE(traffic.date, conversions.date)
         ORDER BY date
       `, [current.start, current.end]),
       pool.query<Ga4DimensionRow>(`
@@ -4263,6 +4313,63 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
         LEFT JOIN previous_rows ON previous_rows.name = current_rows.name
         ORDER BY current_rows.sessions DESC
       `, [current.start, current.end, previous.start, previous.end]),
+      pool.query<Ga4DimensionRow>(`
+        WITH current_rows AS (
+          SELECT COALESCE(city, 'Unknown city') AS name, COALESCE(SUM("engagedSessions"), 0) AS sessions, COALESCE(SUM("totalUsers"), 0) AS users
+          FROM public.demographic_city_report
+          WHERE date BETWEEN $1 AND $2
+          GROUP BY name
+        ),
+        previous_rows AS (
+          SELECT COALESCE(city, 'Unknown city') AS name, COALESCE(SUM("engagedSessions"), 0) AS previous_sessions
+          FROM public.demographic_city_report
+          WHERE date BETWEEN $3 AND $4
+          GROUP BY name
+        )
+        SELECT current_rows.name, current_rows.sessions::text, current_rows.users::text, '0'::text AS conversions, COALESCE(previous_rows.previous_sessions, 0)::text AS previous_sessions
+        FROM current_rows
+        LEFT JOIN previous_rows ON previous_rows.name = current_rows.name
+        ORDER BY current_rows.sessions DESC
+        LIMIT 20
+      `, [current.start, current.end, previous.start, previous.end]),
+      pool.query<Ga4DimensionRow>(`
+        WITH current_rows AS (
+          SELECT COALESCE(region, 'Unknown region') AS name, COALESCE(SUM("engagedSessions"), 0) AS sessions, COALESCE(SUM("totalUsers"), 0) AS users
+          FROM public.demographic_region_report
+          WHERE date BETWEEN $1 AND $2
+          GROUP BY name
+        ),
+        previous_rows AS (
+          SELECT COALESCE(region, 'Unknown region') AS name, COALESCE(SUM("engagedSessions"), 0) AS previous_sessions
+          FROM public.demographic_region_report
+          WHERE date BETWEEN $3 AND $4
+          GROUP BY name
+        )
+        SELECT current_rows.name, current_rows.sessions::text, current_rows.users::text, '0'::text AS conversions, COALESCE(previous_rows.previous_sessions, 0)::text AS previous_sessions
+        FROM current_rows
+        LEFT JOIN previous_rows ON previous_rows.name = current_rows.name
+        ORDER BY current_rows.sessions DESC
+        LIMIT 20
+      `, [current.start, current.end, previous.start, previous.end]),
+      pool.query<Ga4DimensionRow>(`
+        WITH current_rows AS (
+          SELECT COALESCE(country, 'Unknown country') AS name, COALESCE(SUM("engagedSessions"), 0) AS sessions, COALESCE(SUM("totalUsers"), 0) AS users
+          FROM public.demographic_country_report
+          WHERE date BETWEEN $1 AND $2
+          GROUP BY name
+        ),
+        previous_rows AS (
+          SELECT COALESCE(country, 'Unknown country') AS name, COALESCE(SUM("engagedSessions"), 0) AS previous_sessions
+          FROM public.demographic_country_report
+          WHERE date BETWEEN $3 AND $4
+          GROUP BY name
+        )
+        SELECT current_rows.name, current_rows.sessions::text, current_rows.users::text, '0'::text AS conversions, COALESCE(previous_rows.previous_sessions, 0)::text AS previous_sessions
+        FROM current_rows
+        LEFT JOIN previous_rows ON previous_rows.name = current_rows.name
+        ORDER BY current_rows.sessions DESC
+        LIMIT 20
+      `, [current.start, current.end, previous.start, previous.end]),
     ]);
 
     const currentSummary = currentSummaryResult.rows[0];
@@ -4273,8 +4380,22 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
     const previousSessions = numberFromPg(previousSummary?.sessions);
     const currentUsers = numberFromPg(currentSummary?.users);
     const previousUsers = numberFromPg(previousSummary?.users);
+    const currentEngagedSessions = numberFromPg(currentSummary?.engaged_sessions);
+    const previousEngagedSessions = numberFromPg(previousSummary?.engaged_sessions);
+    const currentEventCount = numberFromPg(currentSummary?.event_count);
+    const previousEventCount = numberFromPg(previousSummary?.event_count);
+    const currentPageViews = numberFromPg(currentSummary?.page_views);
+    const previousPageViews = numberFromPg(previousSummary?.page_views);
+    const currentDuration = numberFromPg(currentSummary?.engagement_duration);
+    const previousDuration = numberFromPg(previousSummary?.engagement_duration);
     const currentRevenue = numberFromPg(currentSummary?.revenue);
     const previousRevenue = numberFromPg(previousSummary?.revenue);
+    const currentEngagementRate = rate(currentEngagedSessions, currentSessions) ?? 0;
+    const previousEngagementRate = rate(previousEngagedSessions, previousSessions) ?? 0;
+    const currentEventsPerSession = rate(currentEventCount, currentSessions) ?? 0;
+    const previousEventsPerSession = rate(previousEventCount, previousSessions) ?? 0;
+    const currentAverageDuration = rate(currentDuration, currentSessions) ?? 0;
+    const previousAverageDuration = rate(previousDuration, previousSessions) ?? 0;
     const tablesWithRows = tablesResult.rows.filter((row) => numberFromPg(row.row_count) > 0).map((row) => row.table_name);
     const dataAvailable = tablesWithRows.length > 0 && (currentSessions > 0 || currentUsers > 0 || currentConversions > 0);
 
@@ -4284,6 +4405,11 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
         periodLabel: range.label,
         sessions: calculateTrend('sessions', currentSessions, previousSessions),
         users: calculateTrend('users', currentUsers, previousUsers),
+        engagedSessions: calculateTrend('engaged_sessions', currentEngagedSessions, previousEngagedSessions),
+        engagementRate: calculateTrend('engagement_rate', currentEngagementRate, previousEngagementRate),
+        eventsPerSession: calculateTrend('events_per_session', currentEventsPerSession, previousEventsPerSession),
+        pageViews: calculateTrend('page_views', currentPageViews, previousPageViews),
+        averageEngagementDuration: calculateTrend('average_engagement_duration', currentAverageDuration, previousAverageDuration),
         conversions: calculateTrend('conversions', currentConversions, previousConversions),
         conversionRate: calculateTrend('conversion_rate', rate(currentConversions, currentSessions) ?? 0, rate(previousConversions, previousSessions) ?? 0),
         revenue: calculateTrend('revenue', currentRevenue, previousRevenue),
@@ -4294,16 +4420,24 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
           date: row.date,
           sessions: numberFromPg(row.sessions),
           users: numberFromPg(row.users),
+          engagedSessions: numberFromPg(row.engaged_sessions),
+          eventCount: numberFromPg(row.event_count),
+          pageViews: numberFromPg(row.page_views),
           conversions: numberFromPg(row.conversions),
         })),
         sources: sourcesResult.rows.map(mapGa4Dimension),
         channels: channelsResult.rows.map(mapGa4Dimension),
         campaigns: campaignsResult.rows.map(mapGa4Dimension),
         devices: devicesResult.rows.map(mapGa4Dimension),
+        cities: citiesResult.rows.map(mapGa4Dimension),
+        regions: regionsResult.rows.map(mapGa4Dimension),
+        countries: countriesResult.rows.map(mapGa4Dimension),
         insights: dataAvailable
           ? [
-              currentConversions === 0 && currentSessions > 0 ? 'Traffic is visible, but GA4 conversions are not currently recorded for this period.' : 'GA4 traffic and conversion tables are connected.',
-              currentSessions > previousSessions ? 'Sessions increased vs the previous period.' : 'Sessions did not increase vs the previous period.',
+              currentSessions > previousSessions ? 'Traffic is growing vs the previous period.' : 'Traffic is flat or down vs the previous period.',
+              currentEngagementRate >= 50 ? 'Engagement looks healthy.' : 'Engagement may need attention.',
+              sourcesResult.rows.some((row) => String(row.name ?? '').toLowerCase().includes('facebook') || String(row.name ?? '').toLowerCase().includes('instagram') || String(row.name ?? '').toLowerCase().includes('meta')) ? 'Meta traffic is visible in GA4.' : 'Meta traffic is not clearly visible in GA4 source/medium.',
+              campaignsResult.rows.some((row) => row.name && row.name !== 'Unknown campaign') ? 'Campaign data is available.' : 'Campaign naming is missing or mostly unknown.',
             ]
           : [
               'GA4 tables exist in PostgreSQL, but they currently contain no usable rows for dashboard metrics.',

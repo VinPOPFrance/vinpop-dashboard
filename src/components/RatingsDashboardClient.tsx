@@ -52,34 +52,21 @@ type RatedWineRow = Record<string, unknown> & RatedWineDetail;
 
 const wineColumns: SortableColumn<RatingTableRow>[] = [
   { key: 'wine', label: 'Wine', type: 'text', width: 220 },
-  { key: 'shopifyProductId', label: 'Shopify product ID', type: 'text', width: 160 },
-  { key: 'color', label: 'Color', type: 'text' },
   { key: 'ratings', label: 'Ratings', type: 'number' },
-  { key: 'customers', label: 'Customers', type: 'number' },
   { key: 'love', label: 'Love', type: 'number' },
   { key: 'like', label: 'Like', type: 'number' },
   { key: 'dislike', label: 'Dislike', type: 'number' },
   { key: 'loveRate', label: 'Love %', type: 'percent' },
-  { key: 'likeRate', label: 'Like %', type: 'percent' },
   { key: 'dislikeRate', label: 'Dislike %', type: 'percent' },
-  { key: 'positiveRate', label: 'Positive %', type: 'percent' },
-  { key: 'averageScore', label: 'Avg score', type: 'number' },
   { key: 'action', label: 'Action', type: 'text' },
 ];
 
 const customerColumns: SortableColumn<CustomerTableRow>[] = [
   { key: 'email', label: 'Customer email', type: 'text', width: 220 },
-  { key: 'totalSpent', label: 'Total spent', type: 'money' },
-  { key: 'orders', label: 'Orders', type: 'number' },
   { key: 'bottlesBought', label: 'Bottles bought', type: 'number' },
   { key: 'bottlesRated', label: 'Bottles rated', type: 'number' },
   { key: 'ratedRate', label: '% rated', type: 'percent' },
   { key: 'unrated', label: 'Unrated est.', type: 'number' },
-  { key: 'love', label: 'Love', type: 'number' },
-  { key: 'like', label: 'Like', type: 'number' },
-  { key: 'dislike', label: 'Dislike', type: 'number' },
-  { key: 'lastOrderDate', label: 'Last order', type: 'date' },
-  { key: 'lastRatingDate', label: 'Last rating', type: 'date' },
   { key: 'stage', label: 'Stage', type: 'text' },
   { key: 'nextAction', label: 'Next action', type: 'text', width: 240 },
 ];
@@ -187,6 +174,10 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
   );
   const selectedWine = metrics.wines.find((wine) => wine.shopifyProductId === selectedProductId) ?? metrics.wines[0];
   const selectedCustomer = metrics.customers.find((customer) => customer.customerId === selectedCustomerId) ?? metrics.customers[0];
+  const topLovedWines = [...wineRows].sort((a, b) => b.love - a.love).slice(0, 5);
+  const weakSignalWines = [...wineRows].filter((row) => row.dislike > 0 || (row.dislikeRate ?? 0) >= 20).sort((a, b) => b.dislike - a.dislike).slice(0, 5);
+  const customersNeedingRating = [...customerRows].filter((row) => row.unrated > 0).sort((a, b) => b.unrated - a.unrated).slice(0, 5);
+  const smartBoxReadyCustomers = [...customerRows].filter((row) => row.stage.includes('Ready for Smart Box')).slice(0, 5);
   const selectedWineCustomers = selectedWine
     ? metrics.customers.filter((customer) =>
         customer.ratedWines.some((wine) => wine.shopifyProductId === selectedWine.shopifyProductId),
@@ -253,6 +244,44 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
       </PageSection>
 
       <PageSection>
+        <SectionTitle sub="The answers this page should give quickly">What Matters Now</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+          <Card>
+            <SectionTitle>Top Loved Wines</SectionTitle>
+            {topLovedWines.map((wine) => (
+              <p key={wine.shopifyProductId} style={{ margin: '0 0 8px', color: '#2D6A4F', fontSize: 13, fontWeight: 700 }}>
+                {wine.wine}: {formatNumber(wine.love)} love ratings
+              </p>
+            ))}
+          </Card>
+          <Card>
+            <SectionTitle>Weak Signals</SectionTitle>
+            {(weakSignalWines.length ? weakSignalWines : wineRows.slice(0, 3)).map((wine) => (
+              <p key={wine.shopifyProductId} style={{ margin: '0 0 8px', color: wine.dislike > 0 ? '#B45309' : '#6B6B6B', fontSize: 13, fontWeight: 700 }}>
+                {wine.wine}: {formatNumber(wine.dislike)} dislikes
+              </p>
+            ))}
+          </Card>
+          <Card>
+            <SectionTitle>Needs Rating</SectionTitle>
+            {customersNeedingRating.map((customer) => (
+              <p key={customer.customerId} style={{ margin: '0 0 8px', color: '#B45309', fontSize: 13, fontWeight: 700 }}>
+                {customer.email}: {formatNumber(customer.unrated)} unrated
+              </p>
+            ))}
+          </Card>
+          <Card>
+            <SectionTitle>Ready for Smart Box</SectionTitle>
+            {smartBoxReadyCustomers.length ? smartBoxReadyCustomers.map((customer) => (
+              <p key={customer.customerId} style={{ margin: '0 0 8px', color: '#2D6A4F', fontSize: 13, fontWeight: 700 }}>
+                {customer.email}
+              </p>
+            )) : <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13 }}>No customer in this filtered view.</p>}
+          </Card>
+        </div>
+      </PageSection>
+
+      <PageSection>
         <SectionTitle sub="Buttons filter charts, wine table, and customer table">Rating Filters</SectionTitle>
         <Card>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -300,6 +329,7 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
               getRowKey={(row) => row.shopifyProductId}
               selectedRowKey={selectedWine?.shopifyProductId}
               onRowClick={(row) => setSelectedProductId(row.shopifyProductId)}
+              maxHeight={480}
             />
           </Card>
           <Card>
@@ -337,6 +367,7 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
               getRowKey={(row) => row.customerId}
               selectedRowKey={selectedCustomer?.customerId}
               onRowClick={(row) => setSelectedCustomerId(row.customerId)}
+              maxHeight={480}
             />
           </Card>
           <CustomerDetail customer={selectedCustomer} />
@@ -393,11 +424,11 @@ function CustomerDetail({ customer }: { customer?: CustomerRatingsSummary }) {
       </p>
       <SectionTitle sub={customer.wineColorsRated}>Rated Wines</SectionTitle>
       <div style={{ border: '1px solid #E8E6E1', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
-        <SortableDataTable columns={ratedWineColumns} rows={customer.ratedWines as RatedWineRow[]} enableSearch={false} initialSortKey="ratingDate" />
+        <SortableDataTable columns={ratedWineColumns} rows={customer.ratedWines as RatedWineRow[]} enableSearch={false} initialSortKey="ratingDate" maxHeight={260} />
       </div>
       <SectionTitle sub="Purchased product context">Products Bought</SectionTitle>
       <div style={{ border: '1px solid #E8E6E1', borderRadius: 8, overflow: 'hidden' }}>
-        <SortableDataTable columns={productColumns} rows={customer.purchasedProducts as ProductRow[]} enableSearch={false} initialSortKey="quantityBought" />
+        <SortableDataTable columns={productColumns} rows={customer.purchasedProducts as ProductRow[]} enableSearch={false} initialSortKey="quantityBought" maxHeight={260} />
       </div>
     </Card>
   );
