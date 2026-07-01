@@ -3,48 +3,56 @@
 import { useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { DonutChart } from '@/components/DonutChart';
 import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
 import { CUSTOMER_STAGE_DEFINITIONS, type CustomerStageDefinition } from '@/lib/customerStages';
-import { formatNumber, formatPercent } from '@/lib/format';
-import type { CustomerRatingsSummary } from '@/lib/db';
+import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
+import type { CustomerProductSummary, CustomerRatingsSummary, RatedWineDetail } from '@/lib/db';
 
 type FunnelCustomerRow = Record<string, unknown> & {
+  customerId: string;
   email: string;
-  stage: string;
   totalSpent: number;
   ordersCount: number;
   bottlesBought: number;
   bottlesRated: number;
   ratedPercentage: number | null;
   unratedBottlesRemaining: number;
-  firstOrderDate: string | null;
   lastOrderDate: string | null;
   lastRatingDate: string | null;
-  repeatBuyer: string;
-  smartBoxReady: string;
-  subscriptionReady: string;
   nextAction: string;
-  emailAngle: string;
 };
 
-const columns: SortableColumn<FunnelCustomerRow>[] = [
-  { key: 'email', label: 'Customer email', type: 'text', width: 240 },
-  { key: 'stage', label: 'Stage', type: 'text', width: 180 },
+type ProductRow = Record<string, unknown> & CustomerProductSummary;
+type RatedWineRow = Record<string, unknown> & RatedWineDetail;
+type StageWithCount = CustomerStageDefinition & { count: number };
+
+const customerColumns: SortableColumn<FunnelCustomerRow>[] = [
+  { key: 'email', label: 'Email', type: 'text', width: 240 },
   { key: 'totalSpent', label: 'Total spent', type: 'money' },
   { key: 'ordersCount', label: 'Orders', type: 'number' },
-  { key: 'bottlesBought', label: 'Bottles bought', type: 'number' },
-  { key: 'bottlesRated', label: 'Bottles rated', type: 'number' },
+  { key: 'bottlesBought', label: 'Bought', type: 'number' },
+  { key: 'bottlesRated', label: 'Rated', type: 'number' },
   { key: 'ratedPercentage', label: '% rated', type: 'percent' },
-  { key: 'unratedBottlesRemaining', label: 'Unrated left', type: 'number' },
-  { key: 'firstOrderDate', label: 'First order', type: 'date' },
+  { key: 'unratedBottlesRemaining', label: 'Unrated', type: 'number' },
   { key: 'lastOrderDate', label: 'Last order', type: 'date' },
   { key: 'lastRatingDate', label: 'Last rating', type: 'date' },
-  { key: 'repeatBuyer', label: 'Repeat buyer', type: 'text' },
-  { key: 'smartBoxReady', label: 'Ready for Smart Box', type: 'text' },
-  { key: 'subscriptionReady', label: 'Subscription ready', type: 'text' },
   { key: 'nextAction', label: 'Next action', type: 'text', width: 260 },
-  { key: 'emailAngle', label: 'Suggested email angle', type: 'text', width: 260 },
+];
+
+const productColumns: SortableColumn<ProductRow>[] = [
+  { key: 'productName', label: 'Product / wine', type: 'text', width: 220 },
+  { key: 'quantityBought', label: 'Bought', type: 'number' },
+  { key: 'netRevenue', label: 'Net revenue', type: 'money' },
+  { key: 'ratedCount', label: 'Rated', type: 'number' },
+  { key: 'unratedCount', label: 'Unrated', type: 'number' },
+  { key: 'ratingStatus', label: 'Status', type: 'text' },
+];
+
+const ratedWineColumns: SortableColumn<RatedWineRow>[] = [
+  { key: 'wineName', label: 'Wine / product', type: 'text', width: 220 },
+  { key: 'color', label: 'Color', type: 'text' },
+  { key: 'ratingLabel', label: 'Rating', type: 'text' },
+  { key: 'ratingDate', label: 'Rating date', type: 'date' },
 ];
 
 function healthColor(health: string) {
@@ -66,6 +74,44 @@ function stageFromParam(stageParam: string | null) {
   return match?.name ?? 'All';
 }
 
+function StageButton({
+  stage,
+  totalKnown,
+  isSelected,
+  onClick,
+}: {
+  stage: StageWithCount;
+  totalKnown: number;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        border: isSelected ? '1px solid #722F37' : '1px solid #E8E6E1',
+        background: isSelected ? '#FFF6F7' : '#FFFFFF',
+        borderRadius: 8,
+        padding: 10,
+        cursor: 'pointer',
+        textAlign: 'left',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+        <span style={{ color: '#1A1A1A', fontSize: 13, fontWeight: 800 }}>{stage.name}</span>
+        <span style={{ color: healthColor(stage.health), fontSize: 12, fontWeight: 800 }}>{formatNumber(stage.count)}</span>
+      </div>
+      <div style={{ height: 8, background: '#F5F4F0', borderRadius: 999, overflow: 'hidden', marginTop: 8 }}>
+        <span style={{ display: 'block', height: '100%', width: `${Math.max((stage.count / totalKnown) * 100, stage.count > 0 ? 2 : 0)}%`, background: healthColor(stage.health) }} />
+      </div>
+      <div style={{ color: '#6B6B6B', fontSize: 11, marginTop: 7, lineHeight: 1.35 }}>
+        {formatPercent((stage.count / totalKnown) * 100)} · {stage.recommendedAction}
+      </div>
+    </button>
+  );
+}
+
 export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSummary[] }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -74,17 +120,9 @@ export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSum
     return stageFromParam(new URLSearchParams(window.location.search).get('stage'));
   };
   const [stageFilter, setStageFilter] = useState(initialStage);
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [ratingStatusFilter, setRatingStatusFilter] = useState('All');
-  const [orderStatusFilter, setOrderStatusFilter] = useState('All');
   const [repeatFilter, setRepeatFilter] = useState('All');
-  const [startupFilter, setStartupFilter] = useState('All');
-  const [smartBoxFilter, setSmartBoxFilter] = useState('All');
-  const [selectedStageName, setSelectedStageName] = useState(initialStage);
-  const applyStageFilter = (stageName: string) => {
-    setStageFilter(stageName);
-    setSelectedStageName(stageName);
-    router.replace(stageName === 'All' ? pathname : `${pathname}?stage=${encodeURIComponent(stageName)}`, { scroll: false });
-  };
 
   const stageCounts = useMemo(
     () =>
@@ -94,193 +132,202 @@ export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSum
       })),
     [customers],
   );
-  const totalKnown = Math.max(customers.length, 1);
   const visibleStageCounts = stageCounts.filter((stage) => stage.count > 0 || stage.confidence === 'unavailable');
-  const selectedStage = CUSTOMER_STAGE_DEFINITIONS.find((stage) => stage.name === selectedStageName) ?? visibleStageCounts[0];
+  const totalKnown = Math.max(customers.length, 1);
+  const selectedStage = CUSTOMER_STAGE_DEFINITIONS.find((stage) => stage.name === stageFilter) ?? null;
   const filteredCustomers = customers.filter((customer) => {
     if (stageFilter !== 'All' && customer.funnelStage !== stageFilter) return false;
-    if (ratingStatusFilter === 'Has ratings' && customer.bottlesRated === 0) return false;
     if (ratingStatusFilter === 'Needs ratings' && customer.unratedBottlesRemaining <= 0) return false;
-    if (orderStatusFilter === 'Has orders' && customer.ordersCount === 0) return false;
-    if (orderStatusFilter === 'No orders' && customer.ordersCount > 0) return false;
+    if (ratingStatusFilter === 'Has ratings' && customer.bottlesRated === 0) return false;
     if (repeatFilter === 'Repeat only' && !customer.repeatCustomer) return false;
-    if (startupFilter === 'Startup Pack only' && !customer.startupPackBuyer) return false;
-    if (smartBoxFilter === 'Ready only' && !customer.smartBoxReady) return false;
     return true;
   });
-  const rows = filteredCustomers.map((customer) => ({
+  const selectedCustomer = filteredCustomers.find((customer) => customer.customerId === selectedCustomerId) ?? filteredCustomers[0] ?? null;
+  const rows: FunnelCustomerRow[] = filteredCustomers.map((customer) => ({
+    customerId: customer.customerId,
     email: customer.email,
-    stage: customer.funnelStage,
     totalSpent: customer.totalSpent,
     ordersCount: customer.ordersCount,
     bottlesBought: customer.bottlesBought,
     bottlesRated: customer.bottlesRated,
     ratedPercentage: customer.ratedPercentage,
     unratedBottlesRemaining: customer.unratedBottlesRemaining,
-    firstOrderDate: customer.firstOrderDate,
     lastOrderDate: customer.lastOrderDate,
     lastRatingDate: customer.lastRatingDate,
-    repeatBuyer: customer.repeatCustomer ? 'Yes' : 'No',
-    smartBoxReady: customer.smartBoxReady ? 'Yes' : 'No',
-    subscriptionReady: customer.subscriptionReady ? 'Yes' : 'No',
     nextAction: customer.nextAction,
-    emailAngle: customer.emailAngle,
   }));
-  const biggestOpportunity = [...stageCounts].sort((a, b) => b.count - a.count).find((stage) => stage.health !== 'good' && stage.count > 0);
-  const highestDropoff = stageCounts.reduce<{ label: string; dropoff: number; rate: number | null } | null>((best, stage, index) => {
-    if (index === 0) return best;
-    const previous = stageCounts[index - 1];
-    if (previous.count === 0) return best;
-    const dropoff = Math.max(previous.count - stage.count, 0);
-    const dropoffRate = (dropoff / previous.count) * 100;
-    if (!best || dropoff > best.dropoff) return { label: `${previous.name} → ${stage.name}`, dropoff, rate: dropoffRate };
-    return best;
-  }, null);
+  const applyStageFilter = (stageName: string) => {
+    setStageFilter(stageName);
+    setSelectedCustomerId('');
+    router.replace(stageName === 'All' ? pathname : `${pathname}?stage=${encodeURIComponent(stageName)}`, { scroll: false });
+  };
 
   return (
     <>
       <PageSection>
-        <SectionTitle sub="Early visitor/session stages are gray until tracking exists">Sales Funnel Visual</SectionTitle>
-        <Card style={{ marginBottom: 12 }}>
-          <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700 }}>
-            Visitor/session tracking is not yet implemented, so early funnel stages cannot be measured precisely.
-          </p>
-        </Card>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(260px, 0.7fr)', gap: 16 }}>
+        <SectionTitle sub="Click a stage to see customers and the next action.">Segment Action Screen</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 360px) minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
           <Card>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {visibleStageCounts.map((stage, index) => {
-                const previous = index > 0 ? visibleStageCounts[index - 1] : null;
-                const conversion = previous && previous.count > 0 ? (stage.count / previous.count) * 100 : null;
-                return (
-                  <button
-                    key={stage.name}
-                    type="button"
-                    onClick={() => applyStageFilter(stage.name)}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'minmax(170px, 240px) 1fr auto',
-                      alignItems: 'center',
-                      gap: 12,
-                      border: stageFilter === stage.name ? '1px solid #722F37' : '1px solid #E8E6E1',
-                      background: stageFilter === stage.name ? '#FFF6F7' : '#FFFFFF',
-                      borderRadius: 8,
-                      padding: 12,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <span style={{ color: '#1A1A1A', fontWeight: 700, fontSize: 13 }}>{stage.name}</span>
-                    <span style={{ height: 10, background: '#F5F4F0', borderRadius: 999, overflow: 'hidden' }}>
-                      <span style={{ display: 'block', height: '100%', width: `${Math.max((stage.count / totalKnown) * 100, stage.count > 0 ? 2 : 0)}%`, background: healthColor(stage.health) }} />
-                    </span>
-                    <span style={{ color: healthColor(stage.health), fontWeight: 700, fontSize: 12, textAlign: 'right' }}>
-                      {formatNumber(stage.count)}
-                      <br />
-                      <span style={{ color: '#9B9B9B', fontWeight: 500 }}>{conversion === null ? 'n/a' : formatPercent(conversion)}</span>
-                    </span>
-                  </button>
-                );
-              })}
+            <div style={{ color: '#1A1A1A', fontSize: 14, fontWeight: 800, marginBottom: 10 }}>Funnel stages</div>
+            <button
+              type="button"
+              onClick={() => applyStageFilter('All')}
+              style={{
+                width: '100%',
+                border: stageFilter === 'All' ? '1px solid #722F37' : '1px solid #E8E6E1',
+                background: stageFilter === 'All' ? '#FFF6F7' : '#FFFFFF',
+                borderRadius: 8,
+                padding: 10,
+                cursor: 'pointer',
+                textAlign: 'left',
+                color: '#1A1A1A',
+                fontWeight: 800,
+                marginBottom: 8,
+              }}
+            >
+              All known customers · {formatNumber(customers.length)}
+            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {visibleStageCounts.map((stage) => (
+                <StageButton
+                  key={stage.name}
+                  stage={stage}
+                  totalKnown={totalKnown}
+                  isSelected={stageFilter === stage.name}
+                  onClick={() => applyStageFilter(stage.name)}
+                />
+              ))}
             </div>
           </Card>
-          <Card>
-            <SectionTitle sub="Stage distribution">Known Customers</SectionTitle>
-            <DonutChart data={stageCounts.filter((stage) => stage.count > 0).map((stage) => ({ label: stage.name, value: stage.count, color: healthColor(stage.health) }))} />
+
+          <Card style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: 14, borderBottom: '1px solid #E8E6E1', display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ color: '#1A1A1A', fontSize: 14, fontWeight: 800 }}>
+                  {stageFilter === 'All' ? 'All customers' : stageFilter}
+                </div>
+                <div style={{ color: '#6B6B6B', fontSize: 12 }}>{formatNumber(filteredCustomers.length)} customers in this segment</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <select value={ratingStatusFilter} onChange={(event) => setRatingStatusFilter(event.target.value)} style={selectStyle}>
+                  <option>All</option>
+                  <option>Needs ratings</option>
+                  <option>Has ratings</option>
+                </select>
+                <select value={repeatFilter} onChange={(event) => setRepeatFilter(event.target.value)} style={selectStyle}>
+                  <option>All</option>
+                  <option>Repeat only</option>
+                </select>
+              </div>
+            </div>
+            {rows.length ? (
+              <SortableDataTable
+                columns={customerColumns}
+                rows={rows}
+                initialSortKey="totalSpent"
+                searchPlaceholder="Search customer email or action..."
+                getRowKey={(row) => row.customerId}
+                selectedRowKey={selectedCustomer?.customerId}
+                onRowClick={(row) => setSelectedCustomerId(row.customerId)}
+              />
+            ) : (
+              <div style={{ padding: 18, color: '#B45309', fontSize: 13, fontWeight: 700 }}>
+                No customers match this stage/filter yet. Check tracking readiness if this should not be empty.
+              </div>
+            )}
           </Card>
         </div>
       </PageSection>
 
       <PageSection>
-        <SectionTitle sub="What deserves attention first">Funnel Snapshot</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-          <Card><p style={{ margin: 0, color: '#1A1A1A', fontWeight: 700 }}>Known customers/leads: {formatNumber(customers.length)}</p></Card>
-          <Card><p style={{ margin: 0, color: '#B45309', fontWeight: 700 }}>Highest drop-off: {highestDropoff ? `${highestDropoff.label} (${formatNumber(highestDropoff.dropoff)}, ${formatPercent(highestDropoff.rate)})` : 'Unavailable'}</p></Card>
-          <Card><p style={{ margin: 0, color: '#2D6A4F', fontWeight: 700 }}>Biggest opportunity: {biggestOpportunity?.name ?? 'No urgent stage detected'}</p></Card>
-        </div>
-      </PageSection>
-
-      <PageSection>
-        <SectionTitle sub="Recommended action, offer, objection, and confidence">Stage Cards</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-          {visibleStageCounts.map((stage) => <StageCard key={stage.name} stage={stage} totalKnown={totalKnown} />)}
-        </div>
-      </PageSection>
-
-      <PageSection>
-        <SectionTitle sub="Filters update the table below">Customer Segment Filters</SectionTitle>
+        <SectionTitle sub="Directly tied to the selected stage">Selected Stage Action</SectionTitle>
         <Card>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <select value={stageFilter} onChange={(event) => applyStageFilter(event.target.value)} style={selectStyle}>
-              <option>All</option>
-              {CUSTOMER_STAGE_DEFINITIONS.map((stage) => <option key={stage.name}>{stage.name}</option>)}
-            </select>
-            <select value={ratingStatusFilter} onChange={(event) => setRatingStatusFilter(event.target.value)} style={selectStyle}>
-              <option>All</option>
-              <option>Has ratings</option>
-              <option>Needs ratings</option>
-            </select>
-            <select value={orderStatusFilter} onChange={(event) => setOrderStatusFilter(event.target.value)} style={selectStyle}>
-              <option>All</option>
-              <option>Has orders</option>
-              <option>No orders</option>
-            </select>
-            <select value={repeatFilter} onChange={(event) => setRepeatFilter(event.target.value)} style={selectStyle}>
-              <option>All</option>
-              <option>Repeat only</option>
-            </select>
-            <select value={startupFilter} onChange={(event) => setStartupFilter(event.target.value)} style={selectStyle}>
-              <option>All</option>
-              <option>Startup Pack only</option>
-            </select>
-            <select value={smartBoxFilter} onChange={(event) => setSmartBoxFilter(event.target.value)} style={selectStyle}>
-              <option>All</option>
-              <option>Ready only</option>
-            </select>
-          </div>
+          {selectedStage ? (
+            <>
+              <div style={{ color: healthColor(selectedStage.health), fontSize: 12, fontWeight: 800, textTransform: 'uppercase' }}>
+                {selectedStage.health} · confidence {selectedStage.confidence}
+              </div>
+              <div style={{ color: '#1A1A1A', fontSize: 16, fontWeight: 800, marginTop: 6 }}>
+                {selectedStage.name} · {formatNumber(filteredCustomers.length)} customers
+              </div>
+              <p style={{ margin: '8px 0 0', color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>{selectedStage.explanation}</p>
+              <p style={{ margin: '10px 0 0', color: '#2D6A4F', fontSize: 13, fontWeight: 800 }}>Next action: {selectedStage.recommendedAction}</p>
+              <p style={{ margin: '8px 0 0', color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>
+                Suggested email: {selectedStage.emailAngle}
+                <br />
+                Offer: {selectedStage.offer}
+                <br />
+                Objection to handle: {selectedStage.objection}
+              </p>
+            </>
+          ) : (
+            <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, fontWeight: 700 }}>
+              Select a stage to see the action. Start with segments that need rating reminders or are ready for Smart Box.
+            </p>
+          )}
         </Card>
       </PageSection>
 
       <PageSection>
-        <SectionTitle sub={selectedStage?.explanation}>Selected Stage Detail</SectionTitle>
-        <Card style={{ marginBottom: 12 }}>
-          <div style={{ color: healthColor(selectedStage?.health ?? 'missing'), fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
-            {(selectedStage?.health ?? 'missing').toUpperCase()} · confidence {selectedStage?.confidence ?? 'low'}
-          </div>
-          <p style={{ margin: '0 0 6px', color: '#1A1A1A', fontSize: 13, fontWeight: 700 }}>{selectedStage?.recommendedAction}</p>
-          <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13 }}>
-            Email: {selectedStage?.emailAngle} · Meta/Instagram: {selectedStage?.socialAngle} · Offer: {selectedStage?.offer} · Objection: {selectedStage?.objection}
-          </p>
+        <SectionTitle sub="Appears close to the selected customer table">Selected Customer Detail</SectionTitle>
+        <Card>
+          {selectedCustomer ? (
+            <>
+              <div style={{ color: '#1A1A1A', fontSize: 16, fontWeight: 800, marginBottom: 10 }}>{selectedCustomer.email}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, color: '#6B6B6B', fontSize: 12, marginBottom: 14 }}>
+                <div>Stage: {selectedCustomer.funnelStage}</div>
+                <div>Total spent: {formatEuro(selectedCustomer.totalSpent)}</div>
+                <div>Orders: {formatNumber(selectedCustomer.ordersCount)}</div>
+                <div>Bought: {formatNumber(selectedCustomer.bottlesBought)}</div>
+                <div>Rated: {formatNumber(selectedCustomer.bottlesRated)}</div>
+                <div>% rated: {formatPercent(selectedCustomer.ratedPercentage)}</div>
+                <div>Unrated: {formatNumber(selectedCustomer.unratedBottlesRemaining)}</div>
+                <div>Love / Like / Dislike: {formatNumber(selectedCustomer.loveCount)} / {formatNumber(selectedCustomer.likeCount)} / {formatNumber(selectedCustomer.dislikeCount)}</div>
+              </div>
+              <p style={{ margin: '0 0 14px', color: '#2D6A4F', fontSize: 13, fontWeight: 800 }}>{selectedCustomer.nextAction}</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+                <div>
+                  <SectionTitle sub={selectedCustomer.wineColorsRated}>Wines Rated</SectionTitle>
+                  <div style={{ border: '1px solid #E8E6E1', borderRadius: 8, overflow: 'hidden' }}>
+                    <SortableDataTable columns={ratedWineColumns} rows={selectedCustomer.ratedWines as RatedWineRow[]} enableSearch={false} initialSortKey="ratingDate" />
+                  </div>
+                </div>
+                <div>
+                  <SectionTitle sub="Best-effort bought minus rated estimate">Products Bought</SectionTitle>
+                  <div style={{ border: '1px solid #E8E6E1', borderRadius: 8, overflow: 'hidden' }}>
+                    <SortableDataTable columns={productColumns} rows={selectedCustomer.purchasedProducts as ProductRow[]} enableSearch={false} initialSortKey="quantityBought" />
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700 }}>Click a customer in the selected stage table to inspect detail.</p>
+          )}
         </Card>
-        <Card style={{ padding: 0, overflow: 'hidden' }}>
-          <SortableDataTable
-            columns={columns}
-            rows={rows}
-            initialSortKey="totalSpent"
-            searchPlaceholder="Search customer email, stage, action..."
-          />
-        </Card>
+      </PageSection>
+
+      <PageSection>
+        <details>
+          <summary style={{ cursor: 'pointer', color: '#722F37', fontSize: 13, fontWeight: 800 }}>Stage playbook</summary>
+          <Card style={{ marginTop: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+              {visibleStageCounts.map((stage) => (
+                <div key={stage.name} style={{ border: '1px solid #E8E6E1', borderRadius: 8, padding: 10 }}>
+                  <div style={{ color: '#1A1A1A', fontSize: 13, fontWeight: 800 }}>{stage.name}</div>
+                  <p style={{ margin: '6px 0 0', color: '#6B6B6B', fontSize: 12, lineHeight: 1.45 }}>
+                    Email: {stage.emailAngle}
+                    <br />
+                    Angle: {stage.socialAngle}
+                    <br />
+                    Objection: {stage.objection}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </details>
       </PageSection>
     </>
-  );
-}
-
-function StageCard({ stage, totalKnown }: { stage: CustomerStageDefinition & { count: number }; totalKnown: number }) {
-  return (
-    <Card>
-      <div style={{ color: healthColor(stage.health), fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{stage.health.toUpperCase()}</div>
-      <div style={{ color: '#1A1A1A', fontSize: 15, fontWeight: 700 }}>{stage.name}</div>
-      <p style={{ color: '#6B6B6B', margin: '6px 0', fontSize: 13 }}>
-        {formatNumber(stage.count)} customers · {formatPercent((stage.count / totalKnown) * 100)}
-      </p>
-      <p style={{ color: '#2D6A4F', margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>{stage.recommendedAction}</p>
-      <p style={{ color: '#6B6B6B', margin: 0, fontSize: 12, lineHeight: 1.5 }}>
-        Email: {stage.emailAngle}
-        <br />
-        Social: {stage.socialAngle}
-        <br />
-        Objection: {stage.objection}
-      </p>
-    </Card>
   );
 }
 

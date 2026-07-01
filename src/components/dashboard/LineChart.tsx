@@ -1,6 +1,6 @@
 'use client';
 
-export function LineChart({ data, color = '#722F37' }: { data: { label: string; value: number }[]; color?: string }) {
+export function LineChart({ data, color = '#722F37' }: { data: { label: string; value: number; tooltip?: string }[]; color?: string }) {
   const width = 520;
   const height = 180;
   const padding = 24;
@@ -20,7 +20,9 @@ export function LineChart({ data, color = '#722F37' }: { data: { label: string; 
       <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="#E8E6E1" />
       {points.length > 0 ? <path d={path} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" /> : null}
       {points.map((point) => (
-        <circle key={`${point.label}.${point.x}`} cx={point.x} cy={point.y} r="3" fill={color} />
+        <circle key={`${point.label}.${point.x}`} cx={point.x} cy={point.y} r="4" fill={color}>
+          <title>{point.tooltip ?? `${point.label}: ${point.value.toLocaleString('en-US')}`}</title>
+        </circle>
       ))}
       {points.slice(-4).map((point) => (
         <text key={point.label} x={point.x} y={height - 6} textAnchor="middle" fontSize="10" fill="#9B9B9B">
