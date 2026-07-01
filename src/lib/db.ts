@@ -534,6 +534,19 @@ export type MetaPerformanceRow = {
   recommendedAction: string;
 };
 
+export type MetaDailyPerformancePoint = {
+  date: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  ctr: number | null;
+  cpc: number | null;
+  cpm: number | null;
+  purchases: number | null;
+  cpa: number | null;
+  roas: number | null;
+};
+
 export type MetaAdsPerformanceMetrics = {
   totalSpend: number;
   impressions: number;
@@ -554,6 +567,7 @@ export type MetaAdsPerformanceMetrics = {
   roas: number | null;
   attributionAvailable: boolean;
   attributionNote: string;
+  daily: MetaDailyPerformancePoint[];
   campaigns: MetaPerformanceRow[];
   adSets: MetaPerformanceRow[];
   ads: MetaPerformanceRow[];
@@ -3732,7 +3746,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
 
   try {
     const pool = getPool(databaseUrl);
-    const [summaryResult, campaignsResult, adSetsResult, adsResult] = await Promise.all([
+    const [summaryResult, dailyResult, campaignsResult, adSetsResult, adsResult] = await Promise.all([
       pool.query<Record<string, string | null>>(`
         SELECT
           COALESCE(SUM(spend), 0)::text AS total_spend,
@@ -3766,6 +3780,30 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           MIN(date_start)::text AS first_date,
           MAX(date_stop)::text AS latest_date
         FROM public.ads_insights
+      `),
+      pool.query<Record<string, string | null>>(`
+        SELECT
+          date_start::text AS date,
+          COALESCE(SUM(spend), 0)::text AS spend,
+          COALESCE(SUM(impressions), 0)::text AS impressions,
+          COALESCE(SUM(clicks), 0)::text AS clicks,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
+            ), 0)
+          ), 0)::text AS purchases,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
+            ), 0)
+          ), 0)::text AS purchase_value
+        FROM public.ads_insights
+        GROUP BY date_start
+        ORDER BY date_start
       `),
       pool.query<Record<string, string | null>>(`
         SELECT
@@ -3934,6 +3972,27 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
     const purchases = purchasesRaw > 0 ? purchasesRaw : null;
     const purchaseValue = purchaseValueRaw > 0 ? purchaseValueRaw : null;
     const hookEvents = numberFromPg(summary?.hook_events);
+    const daily = dailyResult.rows.map((row) => {
+      const spend = numberFromPg(row.spend);
+      const impressionsValue = numberFromPg(row.impressions);
+      const clicksValue = numberFromPg(row.clicks);
+      const purchasesValue = numberFromPg(row.purchases);
+      const purchaseValue = numberFromPg(row.purchase_value);
+      const purchasesOrNull = purchasesValue > 0 ? purchasesValue : null;
+
+      return {
+        date: row.date || '',
+        spend,
+        impressions: impressionsValue,
+        clicks: clicksValue,
+        ctr: rate(clicksValue, impressionsValue),
+        cpc: ratio(spend, clicksValue),
+        cpm: impressionsValue === 0 ? null : (spend / impressionsValue) * 1000,
+        purchases: purchasesOrNull,
+        cpa: purchasesOrNull === null ? null : ratio(spend, purchasesOrNull),
+        roas: purchaseValue > 0 && spend > 0 ? purchaseValue / spend : null,
+      };
+    });
 
     return {
       ok: true,
@@ -3959,6 +4018,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         attributionNote: purchases !== null || purchaseValue !== null
           ? 'Meta platform purchase/action values are available. Shopify server-side order attribution is still separate until UTM/meta click tracking is joined to orders.'
           : 'Meta spend/click metrics are available, but purchases, CAC, and ROAS are unavailable until Meta action values or Shopify attribution are reliable.',
+        daily,
         campaigns: campaignsResult.rows.map(toRow),
         adSets: adSetsResult.rows.map(toRow),
         ads: adsResult.rows.map(toRow),
@@ -4053,38 +4113,38 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
       pool.query<Ga4SummaryRow>(`
         SELECT
           COALESCE(SUM(sessions), 0)::text AS sessions,
-          COALESCE(SUM(totalUsers), 0)::text AS users,
-          COALESCE(SUM(totalRevenue), 0)::text AS revenue
+          COALESCE(SUM("totalUsers"), 0)::text AS users,
+          COALESCE(SUM("totalRevenue"), 0)::text AS revenue
         FROM public.traffic_acquisition_session_source_medium_report
         WHERE date BETWEEN $1 AND $2
       `, [current.start, current.end]),
       pool.query<Ga4SummaryRow>(`
         SELECT
           COALESCE(SUM(sessions), 0)::text AS sessions,
-          COALESCE(SUM(totalUsers), 0)::text AS users,
-          COALESCE(SUM(totalRevenue), 0)::text AS revenue
+          COALESCE(SUM("totalUsers"), 0)::text AS users,
+          COALESCE(SUM("totalRevenue"), 0)::text AS revenue
         FROM public.traffic_acquisition_session_source_medium_report
         WHERE date BETWEEN $1 AND $2
       `, [previous.start, previous.end]),
       pool.query<Ga4ConversionRow>(`
-        SELECT COALESCE(SUM(totalUsers), 0)::text AS conversions
+        SELECT COALESCE(SUM("totalUsers"), 0)::text AS conversions
         FROM public.conversions_report
         WHERE date BETWEEN $1 AND $2
       `, [current.start, current.end]),
       pool.query<Ga4ConversionRow>(`
-        SELECT COALESCE(SUM(totalUsers), 0)::text AS conversions
+        SELECT COALESCE(SUM("totalUsers"), 0)::text AS conversions
         FROM public.conversions_report
         WHERE date BETWEEN $1 AND $2
       `, [previous.start, previous.end]),
       pool.query<Ga4SeriesRow>(`
         WITH traffic AS (
-          SELECT date, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM(totalUsers), 0) AS users
+          SELECT date, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM("totalUsers"), 0) AS users
           FROM public.traffic_acquisition_session_source_medium_report
           WHERE date BETWEEN $1 AND $2
           GROUP BY date
         ),
         conversions AS (
-          SELECT date, COALESCE(SUM(totalUsers), 0) AS conversions
+          SELECT date, COALESCE(SUM("totalUsers"), 0) AS conversions
           FROM public.conversions_report
           WHERE date BETWEEN $1 AND $2
           GROUP BY date
@@ -4101,16 +4161,16 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
       pool.query<Ga4DimensionRow>(`
         WITH current_rows AS (
           SELECT
-            CONCAT(COALESCE(sessionSource, 'unknown'), ' / ', COALESCE(sessionMedium, 'unknown')) AS name,
+            CONCAT(COALESCE("sessionSource", 'unknown'), ' / ', COALESCE("sessionMedium", 'unknown')) AS name,
             COALESCE(SUM(sessions), 0) AS sessions,
-            COALESCE(SUM(totalUsers), 0) AS users
+            COALESCE(SUM("totalUsers"), 0) AS users
           FROM public.traffic_acquisition_session_source_medium_report
           WHERE date BETWEEN $1 AND $2
           GROUP BY name
         ),
         previous_rows AS (
           SELECT
-            CONCAT(COALESCE(sessionSource, 'unknown'), ' / ', COALESCE(sessionMedium, 'unknown')) AS name,
+            CONCAT(COALESCE("sessionSource", 'unknown'), ' / ', COALESCE("sessionMedium", 'unknown')) AS name,
             COALESCE(SUM(sessions), 0) AS previous_sessions
           FROM public.traffic_acquisition_session_source_medium_report
           WHERE date BETWEEN $3 AND $4
@@ -4124,13 +4184,13 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
       `, [current.start, current.end, previous.start, previous.end]),
       pool.query<Ga4DimensionRow>(`
         WITH current_rows AS (
-          SELECT COALESCE(sessionDefaultChannelGrouping, 'Unknown') AS name, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM(totalUsers), 0) AS users
+          SELECT COALESCE("sessionDefaultChannelGrouping", 'Unknown') AS name, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM("totalUsers"), 0) AS users
           FROM public.traffic_acquisition_session_default_channel_grouping_report
           WHERE date BETWEEN $1 AND $2
           GROUP BY name
         ),
         previous_rows AS (
-          SELECT COALESCE(sessionDefaultChannelGrouping, 'Unknown') AS name, COALESCE(SUM(sessions), 0) AS previous_sessions
+          SELECT COALESCE("sessionDefaultChannelGrouping", 'Unknown') AS name, COALESCE(SUM(sessions), 0) AS previous_sessions
           FROM public.traffic_acquisition_session_default_channel_grouping_report
           WHERE date BETWEEN $3 AND $4
           GROUP BY name
@@ -4143,13 +4203,13 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
       `, [current.start, current.end, previous.start, previous.end]),
       pool.query<Ga4DimensionRow>(`
         WITH current_rows AS (
-          SELECT COALESCE(sessionCampaignName, 'Unknown campaign') AS name, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM(totalUsers), 0) AS users
+          SELECT COALESCE("sessionCampaignName", 'Unknown campaign') AS name, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM("totalUsers"), 0) AS users
           FROM public.traffic_acquisition_session_campaign_report
           WHERE date BETWEEN $1 AND $2
           GROUP BY name
         ),
         previous_rows AS (
-          SELECT COALESCE(sessionCampaignName, 'Unknown campaign') AS name, COALESCE(SUM(sessions), 0) AS previous_sessions
+          SELECT COALESCE("sessionCampaignName", 'Unknown campaign') AS name, COALESCE(SUM(sessions), 0) AS previous_sessions
           FROM public.traffic_acquisition_session_campaign_report
           WHERE date BETWEEN $3 AND $4
           GROUP BY name
@@ -4162,13 +4222,13 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
       `, [current.start, current.end, previous.start, previous.end]),
       pool.query<Ga4DimensionRow>(`
         WITH current_rows AS (
-          SELECT COALESCE(deviceCategory, 'Unknown device') AS name, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM(totalUsers), 0) AS users
+          SELECT COALESCE("deviceCategory", 'Unknown device') AS name, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM("totalUsers"), 0) AS users
           FROM public.devices
           WHERE date BETWEEN $1 AND $2
           GROUP BY name
         ),
         previous_rows AS (
-          SELECT COALESCE(deviceCategory, 'Unknown device') AS name, COALESCE(SUM(sessions), 0) AS previous_sessions
+          SELECT COALESCE("deviceCategory", 'Unknown device') AS name, COALESCE(SUM(sessions), 0) AS previous_sessions
           FROM public.devices
           WHERE date BETWEEN $3 AND $4
           GROUP BY name
@@ -4495,7 +4555,7 @@ export async function getSiteBehavior(range: DateRange): Promise<SiteBehaviorRes
           SELECT generate_series($1::date, $2::date, interval '1 day')::date AS date
         ),
         ga4 AS (
-          SELECT to_date(date, 'YYYYMMDD') AS date, SUM(totalUsers) AS visitors, SUM(sessions) AS sessions, NULL::numeric AS page_views
+          SELECT to_date(date, 'YYYYMMDD') AS date, SUM("totalUsers") AS visitors, SUM(sessions) AS sessions, NULL::numeric AS page_views
           FROM public.traffic_acquisition_session_source_medium_report
           WHERE date BETWEEN $3 AND $4
           GROUP BY 1
@@ -4814,7 +4874,7 @@ export async function getCustomerActivityReadiness(): Promise<CustomerActivityRe
 }
 
 export async function getTodayActionPlan(): Promise<TodayActionPlanResult> {
-  const [repeatResult, startupResult, ratingsResult, ratingsIntelligenceResult, foodResult, stockResult, funnelResult, metaResult, activityResult] =
+  const [repeatResult, startupResult, ratingsResult, ratingsIntelligenceResult, foodResult, stockResult, funnelResult, metaResult, activityResult, trackingResult] =
     await Promise.all([
       getRepeatCustomerMetrics(),
       getStartupPackRetention(),
@@ -4825,9 +4885,10 @@ export async function getTodayActionPlan(): Promise<TodayActionPlanResult> {
       getShopifyFunnelBasic(),
       getMetaAdsPerformance(),
       getCustomerActivityReadiness(),
+      getTrackingReadiness(),
     ]);
 
-  const firstFailure = [repeatResult, startupResult, ratingsResult, ratingsIntelligenceResult, foodResult, stockResult, funnelResult, metaResult, activityResult].find(
+  const firstFailure = [repeatResult, startupResult, ratingsResult, ratingsIntelligenceResult, foodResult, stockResult, funnelResult, metaResult, activityResult, trackingResult].find(
     (result) => !result.ok,
   );
   if (firstFailure && !firstFailure.ok) return firstFailure;
@@ -4841,10 +4902,62 @@ export async function getTodayActionPlan(): Promise<TodayActionPlanResult> {
   const funnel = funnelResult.ok ? funnelResult.metrics : null;
   const meta = metaResult.ok ? metaResult.metrics : null;
   const activity = activityResult.ok ? activityResult.metrics : null;
+  const tracking = trackingResult.ok ? trackingResult.metrics : null;
   const actions: TodayAction[] = [];
   const stageCustomers = ratingsIntelligence?.customers ?? [];
   const needsRatingCustomers = stageCustomers.filter((customer) => customer.funnelStage === 'Needs to Rate Wines');
   const readyForSmartBoxCustomers = stageCustomers.filter((customer) => customer.funnelStage === 'Ready for Smart Box');
+
+  if (!tracking?.ga4Connected) {
+    actions.push({
+      priority: 'High',
+      businessProblem: 'GA4 data is not connected to usable dashboard tables.',
+      whyItMatters: 'Without GA4 rows, traffic, sessions, pages per session and acquisition direction are missing.',
+      suggestedAction: 'Connect GA4 data to dashboard by fixing Airbyte GA4 streams or adding BigQuery/Data API ingestion.',
+      relatedPage: '/tracking-readiness',
+      metricEvidence: 'GA4 reporting tables have no usable rows.',
+      stageAffected: 'Visitor',
+      recommendedOffer: 'Tracking implementation',
+      objectionToAddress: 'We cannot know if ads drive qualified traffic.',
+      businessImpact: 'Unlocks traffic trends and acquisition diagnosis.',
+    });
+  }
+
+  const quizEventsAvailable = Boolean(
+    tracking?.availableTables.some((table) =>
+      table.matchedColumns.some((column) => column.toLowerCase() === 'event_name' || column.toLowerCase() === 'eventname'),
+    ),
+  );
+  if (!quizEventsAvailable) {
+    actions.push({
+      priority: 'High',
+      businessProblem: 'Quiz started/completed events are not trackable yet.',
+      whyItMatters: 'The dashboard cannot tell whether ads drive quiz engagement or where visitors drop out.',
+      suggestedAction: 'Implement quiz_started and quiz_completed tracking in GA4, Meta, and PostgreSQL.',
+      relatedPage: '/tracking-readiness',
+      metricEvidence: 'No event tracking table with event_name was detected.',
+      stageAffected: 'Quiz Started',
+      recommendedEmail: 'Not applicable',
+      recommendedOffer: 'Tracking setup',
+      objectionToAddress: 'Quiz engagement is currently invisible.',
+      businessImpact: 'Unlocks quiz funnel and ad optimization signals.',
+    });
+  }
+
+  if (!meta?.attributionAvailable) {
+    actions.push({
+      priority: 'High',
+      businessProblem: 'Meta attribution is missing before scaling ads.',
+      whyItMatters: 'Spend, CTR, and CPC exist, but true CAC/ROAS require campaign-to-order attribution.',
+      suggestedAction: 'Implement UTM, Meta click id, visitor/session tracking, and order attribution.',
+      relatedPage: '/attribution-readiness',
+      metricEvidence: meta?.attributionNote ?? 'Meta attribution unavailable.',
+      stageAffected: 'Visitor',
+      recommendedOffer: 'Attribution readiness',
+      objectionToAddress: 'Good CPC may still produce poor sales.',
+      businessImpact: 'Prevents scaling ads without sales proof.',
+    });
+  }
 
   if (needsRatingCustomers.length > 0) {
     actions.push({
@@ -4877,6 +4990,25 @@ export async function getTodayActionPlan(): Promise<TodayActionPlanResult> {
       recommendedOffer: 'Smart Box',
       objectionToAddress: 'Will the next box be better than the kit?',
       businessImpact: 'This is the cleanest conversion segment for the next offer.',
+    });
+  }
+
+  if (needsRatingCustomers.length > 0 || readyForSmartBoxCustomers.length > 0) {
+    const targetStage = readyForSmartBoxCustomers.length > 0 ? 'Ready for Smart Box' : 'Needs to Rate Wines';
+    const targetCount = readyForSmartBoxCustomers.length > 0 ? readyForSmartBoxCustomers.length : needsRatingCustomers.length;
+    actions.push({
+      priority: 'Medium',
+      businessProblem: 'Funnel stages have contactable customers.',
+      whyItMatters: 'The highest leverage daily action is often contacting a concrete segment instead of reading more dashboards.',
+      suggestedAction: 'Click a Sales Funnel stage and contact customers in that segment.',
+      relatedPage: `/sales-funnel?stage=${encodeURIComponent(targetStage)}`,
+      metricEvidence: `${targetCount} customers in ${targetStage}.`,
+      stageAffected: targetStage,
+      customersAffected: targetCount,
+      recommendedEmail: targetStage === 'Ready for Smart Box' ? 'Your taste profile is ready for a Smart Box.' : 'Rate your bottles so we can build your Smart Box.',
+      recommendedOffer: targetStage === 'Ready for Smart Box' ? 'Smart Box' : 'Rating reminder',
+      objectionToAddress: targetStage === 'Ready for Smart Box' ? 'Will the next box be better?' : 'Rating feels like work.',
+      businessImpact: 'Turns funnel diagnosis into customer contact.',
     });
   }
 

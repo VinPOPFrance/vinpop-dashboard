@@ -106,6 +106,35 @@ export default async function TrackingReadinessPage() {
                 ))}
               </div>
             </PageSection>
+
+            <PageSection>
+              <SectionTitle sub="Prepare quiz_started and quiz_completed without touching the Shopify theme yet">Quiz Tracking Plan</SectionTitle>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+                <Card>
+                  <div style={{ color: '#1A1A1A', fontSize: 14, fontWeight: 700 }}>1. GA4 event</div>
+                  <p style={{ color: '#6B6B6B', fontSize: 13, lineHeight: 1.5, margin: '8px 0 0' }}>
+                    Send quiz_started on the first quiz click/answer and quiz_completed when the last question or email step is submitted. GA4 is useful for traffic and behavior reports.
+                  </p>
+                </Card>
+                <Card>
+                  <div style={{ color: '#1A1A1A', fontSize: 14, fontWeight: 700 }}>2. Meta Pixel / custom event</div>
+                  <p style={{ color: '#6B6B6B', fontSize: 13, lineHeight: 1.5, margin: '8px 0 0' }}>
+                    Send the same events to Meta for optimization and audience building. Keep event names consistent across GA4, Meta, and backend tracking.
+                  </p>
+                </Card>
+                <Card>
+                  <div style={{ color: '#1A1A1A', fontSize: 14, fontWeight: 700 }}>3. PostgreSQL backend event</div>
+                  <p style={{ color: '#6B6B6B', fontSize: 13, lineHeight: 1.5, margin: '8px 0 0' }}>
+                    Store visitor_id, session_id, event_name, event_time, page_url, UTM fields, and customer_id when known. This is required for reliable dashboard attribution.
+                  </p>
+                </Card>
+              </div>
+              <Card style={{ marginTop: 12 }}>
+                <p style={{ margin: 0, color: '#1A1A1A', fontSize: 13, fontWeight: 700 }}>
+                  Recommended events: quiz_started, quiz_completed, email_submitted, taste_kit_viewed, taste_kit_added_to_cart, checkout_started, purchase_completed, wine_rated_love, wine_rated_like, wine_rated_dislike, smart_box_viewed, smart_box_purchased.
+                </p>
+              </Card>
+            </PageSection>
           </>
         ) : (
           <Card>

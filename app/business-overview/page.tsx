@@ -5,10 +5,11 @@ import { DonutChart } from '@/components/DonutChart';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { MetricCard } from '@/components/MetricCard';
 import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
+import { LineChart } from '@/components/dashboard/LineChart';
 import { TrendBadge } from '@/components/dashboard/TrendBadge';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
-import { getBusinessOverview, getBusinessOverviewPeriodTrends, getCustomerIntelligence, getTodayActionPlan } from '@/lib/db';
+import { getBusinessOverview, getBusinessOverviewPeriodTrends, getCustomerIntelligence, getMetaAdsPerformance, getSiteBehavior, getTodayActionPlan } from '@/lib/db';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
 
 export const runtime = 'nodejs';
@@ -53,16 +54,20 @@ export default async function BusinessOverviewPage({
 }) {
   await connection();
   const range = getDateRangeFromSearchParams(await searchParams);
-  const [result, actionPlanResult, customerResult, trendsResult] = await Promise.all([
+  const [result, actionPlanResult, customerResult, trendsResult, siteBehaviorResult, metaResult] = await Promise.all([
     getBusinessOverview(),
     getTodayActionPlan(),
     getCustomerIntelligence(),
     getBusinessOverviewPeriodTrends(range),
+    getSiteBehavior(range),
+    getMetaAdsPerformance(),
   ]);
   const metrics = result.ok ? result.metrics : null;
   const actionPlan = actionPlanResult.ok ? actionPlanResult.metrics : null;
   const customers = customerResult.ok ? customerResult.metrics.customers : [];
   const trends = trendsResult.ok ? trendsResult.metrics : null;
+  const siteBehavior = siteBehaviorResult.ok ? siteBehaviorResult.metrics : null;
+  const meta = metaResult.ok ? metaResult.metrics : null;
   const stageCounts = Array.from(
     customers.reduce((map, customer) => {
       map.set(customer.funnelStage, (map.get(customer.funnelStage) ?? 0) + 1);
@@ -142,6 +147,7 @@ export default async function BusinessOverviewPage({
     { href: '/site-behavior', title: 'Site Behavior', subtitle: 'Daily orders, checkout, quiz, rating, and session readiness' },
     { href: '/geo-insights', title: 'Geo Insights', subtitle: 'Buyer city/periphery targeting signals' },
     { href: '/tracking-readiness', title: 'Tracking Readiness', subtitle: 'GA4/session/event/attribution diagnostic' },
+    { href: '/attribution-readiness', title: 'Attribution Readiness', subtitle: 'UTM, session, and order join blockers for CAC/ROAS' },
     { href: '/customer-activity-readiness', title: 'Customer Activity Readiness', subtitle: 'Session tracking gap check' },
     { href: '/today-action-plan', title: 'Today Action Plan', subtitle: 'Prioritized next actions' },
   ];
@@ -176,6 +182,45 @@ export default async function BusinessOverviewPage({
                   <MetricCard label="Average order value" value={formatEuro(trends.averageOrderValue.current)} hint={<TrendBadge trend={trends.averageOrderValue} />} tone={trends.averageOrderValue.status === 'good' ? 'good' : trends.averageOrderValue.status === 'warning' ? 'warning' : 'default'} />
                   <MetricCard label="Meta spend" value={formatEuro(trends.metaSpend.current)} hint={<TrendBadge trend={trends.metaSpend} />} tone="default" />
                   <MetricCard label="GA4 sessions" value={formatNumber(trends.ga4Sessions.current)} hint={<TrendBadge trend={trends.ga4Sessions} />} tone={trends.ga4Sessions.status === 'good' ? 'good' : trends.ga4Sessions.status === 'warning' ? 'warning' : 'default'} />
+                </div>
+              </PageSection>
+            ) : null}
+
+            {siteBehavior ? (
+              <PageSection>
+                <SectionTitle sub="Daily movement from available aggregate tables">Direction Charts</SectionTitle>
+                {!siteBehavior.hasGa4Rows ? (
+                  <Card style={{ marginBottom: 16, borderColor: '#F2C94C', background: '#FFFCF0' }}>
+                    <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 800 }}>
+                      GA4 connector exists but usable GA4 traffic tables are not yet available in PostgreSQL.
+                    </p>
+                  </Card>
+                ) : null}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 16 }}>
+                  <Card>
+                    <SectionTitle>Daily Orders</SectionTitle>
+                    <LineChart data={siteBehavior.series.map((row) => ({ label: row.date, value: row.orders }))} color="#722F37" />
+                  </Card>
+                  <Card>
+                    <SectionTitle>Daily Abandoned Checkouts</SectionTitle>
+                    <LineChart data={siteBehavior.series.map((row) => ({ label: row.date, value: row.abandonedCheckouts }))} color="#B45309" />
+                  </Card>
+                  <Card>
+                    <SectionTitle>Daily Ratings</SectionTitle>
+                    <LineChart data={siteBehavior.series.map((row) => ({ label: row.date, value: row.ratings }))} color="#A67C00" />
+                  </Card>
+                  {meta ? (
+                    <>
+                      <Card>
+                        <SectionTitle>Meta Spend</SectionTitle>
+                        <LineChart data={meta.daily.map((row) => ({ label: row.date, value: row.spend }))} color="#6B6B6B" />
+                      </Card>
+                      <Card>
+                        <SectionTitle>Meta Clicks</SectionTitle>
+                        <LineChart data={meta.daily.map((row) => ({ label: row.date, value: row.clicks }))} color="#2D6A4F" />
+                      </Card>
+                    </>
+                  ) : null}
                 </div>
               </PageSection>
             ) : null}

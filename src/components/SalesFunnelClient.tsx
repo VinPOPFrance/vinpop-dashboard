@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { DonutChart } from '@/components/DonutChart';
 import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
@@ -16,11 +17,15 @@ type FunnelCustomerRow = Record<string, unknown> & {
   bottlesBought: number;
   bottlesRated: number;
   ratedPercentage: number | null;
+  unratedBottlesRemaining: number;
+  firstOrderDate: string | null;
   lastOrderDate: string | null;
   lastRatingDate: string | null;
   repeatBuyer: string;
   smartBoxReady: string;
+  subscriptionReady: string;
   nextAction: string;
+  emailAngle: string;
 };
 
 const columns: SortableColumn<FunnelCustomerRow>[] = [
@@ -31,11 +36,15 @@ const columns: SortableColumn<FunnelCustomerRow>[] = [
   { key: 'bottlesBought', label: 'Bottles bought', type: 'number' },
   { key: 'bottlesRated', label: 'Bottles rated', type: 'number' },
   { key: 'ratedPercentage', label: '% rated', type: 'percent' },
+  { key: 'unratedBottlesRemaining', label: 'Unrated left', type: 'number' },
+  { key: 'firstOrderDate', label: 'First order', type: 'date' },
   { key: 'lastOrderDate', label: 'Last order', type: 'date' },
   { key: 'lastRatingDate', label: 'Last rating', type: 'date' },
   { key: 'repeatBuyer', label: 'Repeat buyer', type: 'text' },
   { key: 'smartBoxReady', label: 'Ready for Smart Box', type: 'text' },
+  { key: 'subscriptionReady', label: 'Subscription ready', type: 'text' },
   { key: 'nextAction', label: 'Next action', type: 'text', width: 260 },
+  { key: 'emailAngle', label: 'Suggested email angle', type: 'text', width: 260 },
 ];
 
 function healthColor(health: string) {
@@ -49,13 +58,20 @@ function stageSlug(stage: string) {
   return stage.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
+function stageFromParam(stageParam: string | null) {
+  if (!stageParam) return 'All';
+  const decoded = decodeURIComponent(stageParam).replace(/\+/g, ' ');
+  const normalized = stageSlug(decoded);
+  const match = CUSTOMER_STAGE_DEFINITIONS.find((stage) => stageSlug(stage.name) === normalized || stage.name.toLowerCase() === decoded.toLowerCase());
+  return match?.name ?? 'All';
+}
+
 export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSummary[] }) {
+  const pathname = usePathname();
+  const router = useRouter();
   const initialStage = () => {
     if (typeof window === 'undefined') return 'All';
-    const stageParam = new URLSearchParams(window.location.search).get('stage');
-    if (!stageParam) return 'All';
-    const match = CUSTOMER_STAGE_DEFINITIONS.find((stage) => stageSlug(stage.name) === stageParam || stage.name === stageParam);
-    return match?.name ?? 'All';
+    return stageFromParam(new URLSearchParams(window.location.search).get('stage'));
   };
   const [stageFilter, setStageFilter] = useState(initialStage);
   const [ratingStatusFilter, setRatingStatusFilter] = useState('All');
@@ -64,6 +80,11 @@ export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSum
   const [startupFilter, setStartupFilter] = useState('All');
   const [smartBoxFilter, setSmartBoxFilter] = useState('All');
   const [selectedStageName, setSelectedStageName] = useState(initialStage);
+  const applyStageFilter = (stageName: string) => {
+    setStageFilter(stageName);
+    setSelectedStageName(stageName);
+    router.replace(stageName === 'All' ? pathname : `${pathname}?stage=${encodeURIComponent(stageName)}`, { scroll: false });
+  };
 
   const stageCounts = useMemo(
     () =>
@@ -95,11 +116,15 @@ export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSum
     bottlesBought: customer.bottlesBought,
     bottlesRated: customer.bottlesRated,
     ratedPercentage: customer.ratedPercentage,
+    unratedBottlesRemaining: customer.unratedBottlesRemaining,
+    firstOrderDate: customer.firstOrderDate,
     lastOrderDate: customer.lastOrderDate,
     lastRatingDate: customer.lastRatingDate,
     repeatBuyer: customer.repeatCustomer ? 'Yes' : 'No',
     smartBoxReady: customer.smartBoxReady ? 'Yes' : 'No',
+    subscriptionReady: customer.subscriptionReady ? 'Yes' : 'No',
     nextAction: customer.nextAction,
+    emailAngle: customer.emailAngle,
   }));
   const biggestOpportunity = [...stageCounts].sort((a, b) => b.count - a.count).find((stage) => stage.health !== 'good' && stage.count > 0);
   const highestDropoff = stageCounts.reduce<{ label: string; dropoff: number; rate: number | null } | null>((best, stage, index) => {
@@ -131,10 +156,7 @@ export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSum
                   <button
                     key={stage.name}
                     type="button"
-                    onClick={() => {
-                      setStageFilter(stage.name);
-                      setSelectedStageName(stage.name);
-                    }}
+                    onClick={() => applyStageFilter(stage.name)}
                     style={{
                       display: 'grid',
                       gridTemplateColumns: 'minmax(170px, 240px) 1fr auto',
@@ -188,7 +210,7 @@ export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSum
         <SectionTitle sub="Filters update the table below">Customer Segment Filters</SectionTitle>
         <Card>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <select value={stageFilter} onChange={(event) => { setStageFilter(event.target.value); setSelectedStageName(event.target.value); }} style={selectStyle}>
+            <select value={stageFilter} onChange={(event) => applyStageFilter(event.target.value)} style={selectStyle}>
               <option>All</option>
               {CUSTOMER_STAGE_DEFINITIONS.map((stage) => <option key={stage.name}>{stage.name}</option>)}
             </select>

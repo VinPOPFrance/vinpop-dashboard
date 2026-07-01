@@ -16,6 +16,7 @@ const navItems = [
   { href: '/today-action-plan', label: 'Today Action Plan', icon: '!' },
   { href: '/customers', label: 'Customers', icon: '◪' },
   { href: '/tracking-readiness', label: 'Tracking Readiness', icon: '?' },
+  { href: '/attribution-readiness', label: 'Attribution Readiness', icon: '↔' },
 ];
 
 export function Sidebar() {

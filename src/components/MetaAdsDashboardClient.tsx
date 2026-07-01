@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { BarChart } from '@/components/BarChart';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
+import { LineChart } from '@/components/dashboard/LineChart';
 import { formatDate, formatEuro, formatNumber, formatPercent } from '@/lib/format';
 import type { MetaAdsPerformanceMetrics, MetaPerformanceRow } from '@/lib/db';
 
@@ -136,6 +137,59 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
           </div>
         </div>
       </Card>
+
+      <PageSection>
+        <SectionTitle sub="Daily evolution from Meta ads_insights">Daily Performance</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+          <Card>
+            <SectionTitle>Spend by Day</SectionTitle>
+            <LineChart data={metrics.daily.map((row) => ({ label: row.date, value: row.spend }))} color="#722F37" />
+          </Card>
+          <Card>
+            <SectionTitle>Clicks by Day</SectionTitle>
+            <LineChart data={metrics.daily.map((row) => ({ label: row.date, value: row.clicks }))} color="#2D6A4F" />
+          </Card>
+          <Card>
+            <SectionTitle>CPC by Day</SectionTitle>
+            <LineChart data={metrics.daily.map((row) => ({ label: row.date, value: row.cpc ?? 0 }))} color="#B45309" />
+          </Card>
+          <Card>
+            <SectionTitle>CTR by Day</SectionTitle>
+            <LineChart data={metrics.daily.map((row) => ({ label: row.date, value: row.ctr ?? 0 }))} color="#A67C00" />
+          </Card>
+          <Card>
+            <SectionTitle>Impressions by Day</SectionTitle>
+            <LineChart data={metrics.daily.map((row) => ({ label: row.date, value: row.impressions }))} color="#6B6B6B" />
+          </Card>
+          <Card>
+            <SectionTitle>CPM by Day</SectionTitle>
+            <LineChart data={metrics.daily.map((row) => ({ label: row.date, value: row.cpm ?? 0 }))} color="#722F37" />
+          </Card>
+          {metrics.attributionAvailable ? (
+            <>
+              <Card>
+                <SectionTitle>Purchases by Day</SectionTitle>
+                <LineChart data={metrics.daily.map((row) => ({ label: row.date, value: row.purchases ?? 0 }))} color="#2D6A4F" />
+              </Card>
+              <Card>
+                <SectionTitle>CPA by Day</SectionTitle>
+                <LineChart data={metrics.daily.map((row) => ({ label: row.date, value: row.cpa ?? 0 }))} color="#B45309" />
+              </Card>
+              <Card>
+                <SectionTitle>ROAS by Day</SectionTitle>
+                <LineChart data={metrics.daily.map((row) => ({ label: row.date, value: row.roas ?? 0 }))} color="#A67C00" />
+              </Card>
+            </>
+          ) : (
+            <Card>
+              <SectionTitle>CPA / ROAS</SectionTitle>
+              <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700 }}>
+                Attribution unavailable. Need UTM tracking, Meta click id, session tracking, and order attribution before true CAC/ROAS.
+              </p>
+            </Card>
+          )}
+        </div>
+      </PageSection>
 
       <PageSection>
         <SectionTitle sub="Click a campaign bar to filter ad sets and ads">Campaign Visuals</SectionTitle>
