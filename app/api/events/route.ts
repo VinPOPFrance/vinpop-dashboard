@@ -60,6 +60,34 @@ function readOptionalString(source: Record<string, unknown>, key: string, maxLen
   return trimmed.slice(0, maxLength);
 }
 
+function getNestedPayload(source: Record<string, unknown>): Record<string, unknown> | null {
+  const payload = source.payload;
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return null;
+  }
+
+  return payload as Record<string, unknown>;
+}
+
+function readOptionalStringWithPayloadFallback(
+  source: Record<string, unknown>,
+  key: string,
+  maxLength = 1024,
+): string | null {
+  const direct = readOptionalString(source, key, maxLength);
+  if (direct) {
+    return direct;
+  }
+
+  const nestedPayload = getNestedPayload(source);
+  if (!nestedPayload) {
+    return null;
+  }
+
+  return readOptionalString(nestedPayload, key, maxLength);
+}
+
 function normalizeEventTime(rawValue: unknown): string {
   if (typeof rawValue === 'string' || typeof rawValue === 'number') {
     const parsed = new Date(rawValue);
@@ -217,12 +245,12 @@ export async function POST(request: NextRequest) {
   const result = await insertSiteEvent({
     eventName,
     eventTime: normalizeEventTime(body.event_time),
-    visitorId: readOptionalString(body, 'visitor_id', 255),
-    sessionId: readOptionalString(body, 'session_id', 255),
+    visitorId: readOptionalStringWithPayloadFallback(body, 'visitor_id', 255),
+    sessionId: readOptionalStringWithPayloadFallback(body, 'session_id', 255),
     customerId: readOptionalString(body, 'customer_id', 255),
     email: storableEmail,
     emailHash,
-    pageUrl: readOptionalString(body, 'page_url', 2048),
+    pageUrl: readOptionalStringWithPayloadFallback(body, 'page_url', 2048),
     referrer: readOptionalString(body, 'referrer', 2048),
     utmSource: readOptionalString(body, 'utm_source', 255),
     utmMedium: readOptionalString(body, 'utm_medium', 255),
