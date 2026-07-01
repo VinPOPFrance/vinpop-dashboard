@@ -4,12 +4,11 @@ import { useMemo, useState } from 'react';
 import { Card, SectionTitle } from '@/components/Layout';
 import { MetricCard } from '@/components/MetricCard';
 import { LineChart } from '@/components/dashboard/LineChart';
-import { formatDate, formatEuro, formatNumber } from '@/lib/format';
-import type { MetaDailyPerformancePoint, SiteBehaviorSeriesPoint } from '@/lib/db';
+import { formatDate, formatNumber } from '@/lib/format';
+import type { SiteBehaviorSeriesPoint } from '@/lib/db';
 
 type Props = {
   siteSeries: SiteBehaviorSeriesPoint[];
-  metaDaily: MetaDailyPerformancePoint[];
   hasGa4Rows: boolean;
 };
 
@@ -19,46 +18,28 @@ type DayDetail = {
   abandonedCheckouts: number;
   ratings: number;
   sessions: number | null;
-  metaSpend: number;
-  metaClicks: number;
+  users: number | null;
+  pageViews: number | null;
 };
 
-function aggregateMetaDaily(rows: MetaDailyPerformancePoint[]) {
-  const byDate = new Map<string, { spend: number; clicks: number }>();
-  for (const row of rows) {
-    const current = byDate.get(row.date) ?? { spend: 0, clicks: 0 };
-    current.spend += row.spend;
-    current.clicks += row.clicks;
-    byDate.set(row.date, current);
-  }
-  return byDate;
-}
-
-export function BusinessOverviewDailyClient({ siteSeries, metaDaily, hasGa4Rows }: Props) {
+export function BusinessOverviewDailyClient({ siteSeries, hasGa4Rows }: Props) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const metaByDate = useMemo(() => aggregateMetaDaily(metaDaily), [metaDaily]);
-  const metaSeries = useMemo(
-    () =>
-      Array.from(metaByDate.entries())
-        .map(([date, row]) => ({ date, ...row }))
-        .sort((a, b) => a.date.localeCompare(b.date)),
-    [metaByDate],
-  );
+
   const selectedDay = useMemo<DayDetail | null>(() => {
     if (!selectedDate) return null;
     const site = siteSeries.find((row) => row.date === selectedDate);
-    const meta = metaByDate.get(selectedDate);
-    if (!site && !meta) return null;
+    if (!site) return null;
+
     return {
       date: selectedDate,
-      orders: site?.orders ?? 0,
-      abandonedCheckouts: site?.abandonedCheckouts ?? 0,
-      ratings: site?.ratings ?? 0,
-      sessions: site?.sessions ?? null,
-      metaSpend: meta?.spend ?? 0,
-      metaClicks: meta?.clicks ?? 0,
+      orders: site.orders,
+      abandonedCheckouts: site.abandonedCheckouts,
+      ratings: site.ratings,
+      sessions: site.sessions ?? null,
+      users: site.visitors ?? null,
+      pageViews: site.pageViews ?? null,
     };
-  }, [metaByDate, selectedDate, siteSeries]);
+  }, [selectedDate, siteSeries]);
 
   return (
     <>
@@ -84,14 +65,14 @@ export function BusinessOverviewDailyClient({ siteSeries, metaDaily, hasGa4Rows 
               <MetricCard label="Orders" value={formatNumber(selectedDay.orders)} />
               <MetricCard label="Abandoned checkouts" value={formatNumber(selectedDay.abandonedCheckouts)} />
               <MetricCard label="Ratings" value={formatNumber(selectedDay.ratings)} />
-              <MetricCard label="Meta spend" value={formatEuro(selectedDay.metaSpend)} />
-              <MetricCard label="Meta clicks" value={formatNumber(selectedDay.metaClicks)} />
               {hasGa4Rows ? <MetricCard label="Sessions" value={formatNumber(selectedDay.sessions)} /> : null}
+              {hasGa4Rows ? <MetricCard label="Users" value={formatNumber(selectedDay.users)} /> : null}
+              {hasGa4Rows ? <MetricCard label="Page views" value={formatNumber(selectedDay.pageViews)} /> : null}
             </div>
           </>
         ) : (
           <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, fontWeight: 700 }}>
-            Click any chart point to inspect orders, abandoned checkouts, ratings, Meta spend, Meta clicks, and sessions when available.
+            Click any chart point to inspect orders, abandoned checkouts, ratings, and GA4 trend values for the same day.
           </p>
         )}
       </Card>
@@ -103,6 +84,12 @@ export function BusinessOverviewDailyClient({ siteSeries, metaDaily, hasGa4Rows 
             <LineChart data={siteSeries.map((row) => ({ label: row.date, value: row.sessions ?? 0 }))} color="#2D6A4F" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
           </Card>
         ) : null}
+        {hasGa4Rows ? (
+          <Card>
+            <SectionTitle>Users by Day</SectionTitle>
+            <LineChart data={siteSeries.map((row) => ({ label: row.date, value: row.visitors ?? 0 }))} color="#1D4E89" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
+          </Card>
+        ) : null}
         <Card>
           <SectionTitle>Orders by Day</SectionTitle>
           <LineChart data={siteSeries.map((row) => ({ label: row.date, value: row.orders }))} color="#722F37" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
@@ -110,10 +97,6 @@ export function BusinessOverviewDailyClient({ siteSeries, metaDaily, hasGa4Rows 
         <Card>
           <SectionTitle>Ratings by Day</SectionTitle>
           <LineChart data={siteSeries.map((row) => ({ label: row.date, value: row.ratings }))} color="#A67C00" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
-        </Card>
-        <Card>
-          <SectionTitle>Meta Spend / Clicks by Day</SectionTitle>
-          <LineChart data={metaSeries.map((row) => ({ label: row.date, value: row.spend }))} color="#6B6B6B" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} />
         </Card>
       </div>
     </>

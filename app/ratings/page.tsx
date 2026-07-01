@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
@@ -10,8 +11,6 @@ export const runtime = 'nodejs';
 
 export default async function RatingsPage() {
   await connection();
-  const result = await timeAsync('page:/ratings getRatingsIntelligence', () => getCachedRatingsIntelligence());
-  const metrics = result.ok ? result.metrics : null;
 
   return (
     <DashboardLayout>
@@ -26,25 +25,48 @@ export default async function RatingsPage() {
             Wine-level aggregates use public.ratings.id → public.mapping.vp_id → public.mapping.wl_id → public.wines.id.
           </p>
         </Card>
-
-        {metrics ? (
-          metrics.wineLevelAnalysisAvailable ? (
-            <RatingsDashboardClient metrics={metrics} />
-          ) : (
+        <Suspense
+          fallback={(
             <Card>
-              <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 600 }}>
-                {metrics.wineLevelUnavailableReason}
+              <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, fontWeight: 600 }}>
+                Loading aggregate rating trends...
               </p>
             </Card>
-          )
-        ) : (
-          <Card>
-            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 600 }}>
-              Could not load rating aggregates. Check the server database connection.
-            </p>
-          </Card>
-        )}
+          )}
+        >
+          <RatingsContent />
+        </Suspense>
       </PageSection>
     </DashboardLayout>
   );
+}
+
+async function RatingsContent() {
+  const result = await timeAsync('page:/ratings getRatingsIntelligence', () => getCachedRatingsIntelligence(), {
+    category: 'page',
+    rowCount: (helperResult) => (helperResult.ok ? helperResult.metrics.wines.length : null),
+  });
+  const metrics = result.ok ? result.metrics : null;
+
+  if (!metrics) {
+    return (
+      <Card>
+        <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 600 }}>
+          Could not load rating aggregates. Check the server database connection.
+        </p>
+      </Card>
+    );
+  }
+
+  if (!metrics.wineLevelAnalysisAvailable) {
+    return (
+      <Card>
+        <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 600 }}>
+          {metrics.wineLevelUnavailableReason}
+        </p>
+      </Card>
+    );
+  }
+
+  return <RatingsDashboardClient metrics={metrics} />;
 }

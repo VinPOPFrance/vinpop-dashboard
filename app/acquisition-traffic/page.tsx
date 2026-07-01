@@ -6,8 +6,9 @@ import { MetricCard } from '@/components/MetricCard';
 import { TrendBadge } from '@/components/dashboard/TrendBadge';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
-import { getAcquisitionTraffic } from '@/lib/db';
+import { getCachedAcquisitionTraffic, rangeCacheArgs } from '@/lib/cachedDb';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
+import { timeAsync } from '@/lib/performance';
 
 export const runtime = 'nodejs';
 
@@ -18,7 +19,8 @@ export default async function AcquisitionTrafficPage({
 }) {
   await connection();
   const range = getDateRangeFromSearchParams(await searchParams);
-  const result = await getAcquisitionTraffic(range);
+  const rangeArgs = rangeCacheArgs(range);
+  const result = await timeAsync('page:/acquisition-traffic getAcquisitionTraffic', () => getCachedAcquisitionTraffic(...rangeArgs));
   const metrics = result.ok ? result.metrics : null;
 
   return (

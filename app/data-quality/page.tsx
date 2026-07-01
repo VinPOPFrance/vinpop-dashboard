@@ -3,8 +3,11 @@ import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { MetricCard } from '@/components/MetricCard';
 import { TopBar } from '@/components/TopBar';
-import { getBusinessOverview, getFoodPairingIntelligence, getMetaAdsPerformance, getRatingsIntelligence, getTrackingReadiness } from '@/lib/db';
+import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
+import { getCachedMetaAdsOverviewSummary, rangeCacheArgs } from '@/lib/cachedDb';
+import { getFoodPairingIntelligence, getRatingsIntelligence, getShopifyOrdersSummary, getTrackingReadiness } from '@/lib/db';
 import { formatNumber, formatPercent } from '@/lib/format';
+import { timeAsync } from '@/lib/performance';
 
 export const runtime = 'nodejs';
 
@@ -14,20 +17,23 @@ function statusColor(good: boolean) {
 
 export default async function DataQualityPage() {
   await connection();
-  const [trackingResult, metaResult, businessResult, ratingsResult, foodPairingResult] = await Promise.all([
-    getTrackingReadiness(),
-    getMetaAdsPerformance(),
-    getBusinessOverview(),
-    getRatingsIntelligence(),
-    getFoodPairingIntelligence(),
+  const defaultRange = getDateRangeFromSearchParams({ range: '30d' });
+  const rangeArgs = rangeCacheArgs(defaultRange);
+  const [trackingResult, metaResult, ordersResult, ratingsResult, foodPairingResult] = await Promise.all([
+    timeAsync('page:/data-quality getTrackingReadiness', () => getTrackingReadiness()),
+    timeAsync('page:/data-quality getMetaAdsOverviewSummary', () => getCachedMetaAdsOverviewSummary(...rangeArgs)),
+    timeAsync('page:/data-quality getShopifyOrdersSummary', () => getShopifyOrdersSummary()),
+    timeAsync('page:/data-quality getRatingsIntelligence', () => getRatingsIntelligence()),
+    timeAsync('page:/data-quality getFoodPairingIntelligence', () => getFoodPairingIntelligence()),
   ]);
   const tracking = trackingResult.ok ? trackingResult.metrics : null;
   const meta = metaResult.ok ? metaResult.metrics : null;
-  const business = businessResult.ok ? businessResult.metrics : null;
+  const orders = ordersResult.ok ? ordersResult.metrics : null;
   const ratings = ratingsResult.ok ? ratingsResult.metrics : null;
   const foodPairing = foodPairingResult.ok ? foodPairingResult.metrics : null;
   const ga4Rows = tracking?.ga4TablesWithRows.length ?? 0;
   const ratingsMappingReady = Boolean(ratings?.wineLevelAnalysisAvailable);
+  const hasTrueSessionTracking = Boolean(tracking?.availableTables.some((table) => table.matchedColumns.some((column) => column.toLowerCase() === 'session_id' || column.toLowerCase() === 'visitor_id')));
 
   return (
     <DashboardLayout>
@@ -41,20 +47,22 @@ export default async function DataQualityPage() {
         </Card>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 18 }}>
-          <MetricCard label="GA4 tables with rows" value={formatNumber(ga4Rows)} tone={ga4Rows ? 'good' : 'warning'} />
-          <MetricCard label="Session tracking" value={tracking?.capabilities.some((capability) => capability.label.toLowerCase().includes('session') && capability.available) ? 'Available' : 'Needs review'} tone="warning" />
-          <MetricCard label="Meta attribution" value={meta?.attributionAvailable ? 'Available' : 'Unavailable'} tone={meta?.attributionAvailable ? 'good' : 'warning'} />
-          <MetricCard label="Shopify orders" value={business ? formatNumber(business.totalOrders) : 'Unavailable'} tone={business ? 'good' : 'warning'} />
+          <MetricCard label="GA4 aggregate reports" value={ga4Rows > 0 ? 'Available' : 'Missing'} tone={ga4Rows ? 'good' : 'warning'} />
+          <MetricCard label="True visitor/session tracking" value={hasTrueSessionTracking ? 'Available' : 'Missing'} tone={hasTrueSessionTracking ? 'good' : 'warning'} />
+          <MetricCard label="Meta platform attribution" value={meta?.attributionAvailable ? 'Available' : 'Missing'} tone={meta?.attributionAvailable ? 'good' : 'warning'} />
+          <MetricCard label="True Shopify CAC/ROAS attribution" value="Missing" tone="warning" />
+          <MetricCard label="Shopify orders" value={orders ? formatNumber(orders.totalOrders) : 'Unavailable'} tone={orders ? 'good' : 'warning'} />
           <MetricCard label="Ratings mapping" value={ratingsMappingReady ? 'Available' : 'Needs review'} tone={ratingsMappingReady ? 'good' : 'warning'} />
           <MetricCard label="Food pairing coverage" value={foodPairing ? formatPercent(foodPairing.pairingCoverageRate) : 'Unavailable'} tone={(foodPairing?.pairingCoverageRate ?? 0) >= 80 ? 'good' : 'warning'} />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
           {[
-            ['GA4 data status', ga4Rows > 0, ga4Rows > 0 ? `${formatNumber(ga4Rows)} GA4 report tables have rows.` : 'GA4 tables need sync or date-range review.', '/acquisition-traffic'],
-            ['Session / event tracking', Boolean(tracking?.ga4Connected), tracking?.ga4Connected ? 'GA4 acquisition reports are connected.' : 'Review session and event tracking setup.', '/tracking-readiness'],
-            ['Meta attribution status', Boolean(meta?.attributionAvailable), meta?.attributionAvailable ? 'Meta reports include purchase attribution fields.' : 'True CAC/ROAS still unavailable until Meta → session → Shopify order link exists.', '/attribution-readiness'],
-            ['Shopify data status', Boolean(business), business ? `${formatNumber(business.totalOrders)} orders and ${formatNumber(business.abandonedCheckoutCount)} abandoned checkouts loaded.` : 'Shopify aggregate data could not be loaded.', '/shopify-orders-summary'],
+            ['GA4 aggregate reports', ga4Rows > 0, ga4Rows > 0 ? `${formatNumber(ga4Rows)} GA4 aggregate report tables have rows.` : 'GA4 aggregate report tables need sync or date-range review.', '/acquisition-traffic'],
+            ['True visitor/session tracking', hasTrueSessionTracking, hasTrueSessionTracking ? 'Visitor/session identifiers were detected in tracking-ready tables.' : 'Missing visitor_id/session_id level tracking tables.', '/tracking-readiness'],
+            ['Meta platform attribution', Boolean(meta?.attributionAvailable), meta?.attributionAvailable ? 'Meta reports include purchase/action attribution fields.' : 'Meta spend/click rows exist but purchase attribution fields are missing.', '/attribution-readiness'],
+            ['True Shopify CAC/ROAS attribution', false, 'Missing until UTM/session/order join exists between ad touchpoints and Shopify orders.', '/attribution-readiness'],
+            ['Shopify data status', Boolean(orders), orders ? `${formatNumber(orders.totalOrders)} orders loaded.` : 'Shopify aggregate data could not be loaded.', '/shopify-orders-summary'],
             ['Ratings mapping status', ratingsMappingReady, ratingsMappingReady ? `${formatNumber(ratings?.uniqueRatedWines)} rated wines mapped.` : ratings?.wineLevelUnavailableReason ?? 'Ratings mapping could not be loaded.', '/ratings'],
             ['Food pairing coverage', (foodPairing?.pairingCoverageRate ?? 0) >= 80, foodPairing ? `${formatPercent(foodPairing.pairingCoverageRate)} of wines have pairing coverage.` : 'Food pairing data could not be loaded.', '/food-pairing-intelligence'],
           ].map(([title, good, body, href]) => (

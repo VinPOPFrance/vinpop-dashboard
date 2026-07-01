@@ -10,7 +10,10 @@ export const runtime = 'nodejs';
 
 export default async function SalesFunnelPage() {
   await connection();
-  const result = await timeAsync('page:/sales-funnel getCustomerIntelligence', () => getCachedCustomerIntelligence());
+  const result = await timeAsync('page:/sales-funnel getCustomerIntelligence', () => getCachedCustomerIntelligence(), {
+    category: 'page',
+    rowCount: (helperResult) => (helperResult.ok ? helperResult.metrics.customers.length : null),
+  });
 
   return (
     <DashboardLayout>

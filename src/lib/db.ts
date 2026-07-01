@@ -581,6 +581,22 @@ export type MetaAdsPerformanceMetrics = {
   ads: MetaPerformanceRow[];
 };
 
+export type MetaOverviewDailyPoint = {
+  date: string;
+  spend: number;
+  clicks: number;
+};
+
+export type MetaAdsOverviewSummaryMetrics = {
+  totalSpend: number;
+  clicks: number;
+  ctr: number | null;
+  cpc: number | null;
+  attributionAvailable: boolean;
+  attributionNote: string;
+  daily: MetaOverviewDailyPoint[];
+};
+
 export type TrackingReadinessTable = {
   schemaName: string;
   tableName: string;
@@ -707,6 +723,27 @@ export type AcquisitionTrafficMetrics = {
   regions: AcquisitionTrafficDimensionRow[];
   countries: AcquisitionTrafficDimensionRow[];
   insights: string[];
+};
+
+export type Ga4OverviewDailyPoint = {
+  date: string;
+  sessions: number;
+  users: number;
+  pageViews: number;
+};
+
+export type Ga4OverviewTrendsMetrics = {
+  periodLabel: string;
+  dataAvailable: boolean;
+  sessions: Trend;
+  users: Trend;
+  engagedSessions: Trend;
+  pageViews: Trend;
+  engagementRate: Trend;
+  eventsPerSession: Trend;
+  conversions: Trend;
+  topSourceMedium: string | null;
+  daily: Ga4OverviewDailyPoint[];
 };
 
 export type BusinessOverviewPeriodTrends = {
@@ -1101,8 +1138,16 @@ export type MetaAdsPerformanceResult =
   | { ok: true; metrics: MetaAdsPerformanceMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
+export type MetaAdsOverviewSummaryResult =
+  | { ok: true; metrics: MetaAdsOverviewSummaryMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
 export type AcquisitionTrafficResult =
   | { ok: true; metrics: AcquisitionTrafficMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type Ga4OverviewTrendsResult =
+  | { ok: true; metrics: Ga4OverviewTrendsMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 export type TrackingReadinessResult =
@@ -3759,6 +3804,83 @@ function metaRecommendedAction(label: string, ctrValue: number | null, cpcValue:
   return 'Add UTM/meta click tracking before scaling.';
 }
 
+export async function getMetaAdsOverviewSummary(range: DateRange): Promise<MetaAdsOverviewSummaryResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  const start = dateToSql(range.start);
+  const end = dateToSql(range.end);
+
+  try {
+    const pool = getPool(databaseUrl);
+    const [summaryResult, dailyResult] = await Promise.all([
+      pool.query<Record<string, string | null>>(`
+        SELECT
+          COALESCE(SUM(spend), 0)::text AS total_spend,
+          COALESCE(SUM(impressions), 0)::text AS impressions,
+          COALESCE(SUM(clicks), 0)::text AS clicks,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
+            ), 0)
+          ), 0)::text AS purchases,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
+            ), 0)
+          ), 0)::text AS purchase_value
+        FROM public.ads_insights
+        WHERE date_start BETWEEN $1 AND $2
+      `, [start, end]),
+      pool.query<Record<string, string | null>>(`
+        SELECT
+          date_start::text AS date,
+          COALESCE(SUM(spend), 0)::text AS spend,
+          COALESCE(SUM(clicks), 0)::text AS clicks
+        FROM public.ads_insights
+        WHERE date_start BETWEEN $1 AND $2
+        GROUP BY date_start
+        ORDER BY date_start
+      `, [start, end]),
+    ]);
+
+    const summary = summaryResult.rows[0];
+    const totalSpend = numberFromPg(summary?.total_spend);
+    const impressions = numberFromPg(summary?.impressions);
+    const clicks = numberFromPg(summary?.clicks);
+    const purchases = numberFromPg(summary?.purchases);
+    const purchaseValue = numberFromPg(summary?.purchase_value);
+
+    return {
+      ok: true,
+      metrics: {
+        totalSpend,
+        clicks,
+        ctr: rate(clicks, impressions),
+        cpc: ratio(totalSpend, clicks),
+        attributionAvailable: purchases > 0 || purchaseValue > 0,
+        attributionNote:
+          purchases > 0 || purchaseValue > 0
+            ? 'Meta platform attribution fields are available. True Shopify CAC/ROAS attribution still requires session/order joining.'
+            : 'Meta spend and clicks are available, but purchase attribution fields are missing for this period.',
+        daily: dailyResult.rows.map((row) => ({
+          date: row.date || '',
+          spend: numberFromPg(row.spend),
+          clicks: numberFromPg(row.clicks),
+        })),
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Meta ads overview summary failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
 export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) return { ok: false, reason: 'missing-url' };
@@ -4063,6 +4185,140 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
   } catch (error) {
     const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
     console.error('Meta ads performance failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getGa4OverviewTrends(range: DateRange): Promise<Ga4OverviewTrendsResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  const previousRange = getPreviousDateRange(range);
+  const current = ga4Bounds(range);
+  const previous = ga4Bounds(previousRange);
+
+  try {
+    const pool = getPool(databaseUrl);
+    const [currentSummaryResult, previousSummaryResult, currentConversionsResult, previousConversionsResult, dailyResult, topSourceResult] = await Promise.all([
+      pool.query<Ga4SummaryRow>(`
+        SELECT
+          COALESCE(SUM(sessions), 0)::text AS sessions,
+          COALESCE(SUM("totalUsers"), 0)::text AS users,
+          COALESCE(SUM("engagedSessions"), 0)::text AS engaged_sessions,
+          COALESCE(SUM("eventCount"), 0)::text AS event_count,
+          (SELECT COALESCE(SUM("screenPageViews"), 0)::text FROM public.devices WHERE date BETWEEN $1 AND $2) AS page_views,
+          COALESCE(SUM("userEngagementDuration"), 0)::text AS engagement_duration,
+          '0'::text AS revenue
+        FROM public.traffic_acquisition_session_source_medium_report
+        WHERE date BETWEEN $1 AND $2
+      `, [current.start, current.end]),
+      pool.query<Ga4SummaryRow>(`
+        SELECT
+          COALESCE(SUM(sessions), 0)::text AS sessions,
+          COALESCE(SUM("totalUsers"), 0)::text AS users,
+          COALESCE(SUM("engagedSessions"), 0)::text AS engaged_sessions,
+          COALESCE(SUM("eventCount"), 0)::text AS event_count,
+          (SELECT COALESCE(SUM("screenPageViews"), 0)::text FROM public.devices WHERE date BETWEEN $1 AND $2) AS page_views,
+          COALESCE(SUM("userEngagementDuration"), 0)::text AS engagement_duration,
+          '0'::text AS revenue
+        FROM public.traffic_acquisition_session_source_medium_report
+        WHERE date BETWEEN $1 AND $2
+      `, [previous.start, previous.end]),
+      pool.query<Ga4ConversionRow>(`
+        SELECT COALESCE(SUM("totalUsers"), 0)::text AS conversions
+        FROM public.conversions_report
+        WHERE date BETWEEN $1 AND $2
+      `, [current.start, current.end]),
+      pool.query<Ga4ConversionRow>(`
+        SELECT COALESCE(SUM("totalUsers"), 0)::text AS conversions
+        FROM public.conversions_report
+        WHERE date BETWEEN $1 AND $2
+      `, [previous.start, previous.end]),
+      pool.query<Ga4SeriesRow>(`
+        WITH traffic AS (
+          SELECT
+            date,
+            COALESCE(SUM(sessions), 0) AS sessions,
+            COALESCE(SUM("totalUsers"), 0) AS users,
+            COALESCE(SUM("engagedSessions"), 0) AS engaged_sessions,
+            COALESCE(SUM("eventCount"), 0) AS event_count
+          FROM public.traffic_acquisition_session_source_medium_report
+          WHERE date BETWEEN $1 AND $2
+          GROUP BY date
+        ),
+        devices AS (
+          SELECT date, COALESCE(SUM("screenPageViews"), 0) AS page_views
+          FROM public.devices
+          WHERE date BETWEEN $1 AND $2
+          GROUP BY date
+        )
+        SELECT
+          traffic.date AS date,
+          COALESCE(traffic.sessions, 0)::text AS sessions,
+          COALESCE(traffic.users, 0)::text AS users,
+          COALESCE(traffic.engaged_sessions, 0)::text AS engaged_sessions,
+          COALESCE(traffic.event_count, 0)::text AS event_count,
+          COALESCE(devices.page_views, 0)::text AS page_views,
+          '0'::text AS conversions
+        FROM traffic
+        LEFT JOIN devices ON devices.date = traffic.date
+        ORDER BY traffic.date
+      `, [current.start, current.end]),
+      pool.query<{ source_medium: string | null; sessions: string | null }>(`
+        SELECT
+          CONCAT(COALESCE("sessionSource", 'unknown'), ' / ', COALESCE("sessionMedium", 'unknown')) AS source_medium,
+          COALESCE(SUM(sessions), 0)::text AS sessions
+        FROM public.traffic_acquisition_session_source_medium_report
+        WHERE date BETWEEN $1 AND $2
+        GROUP BY source_medium
+        ORDER BY SUM(sessions) DESC
+        LIMIT 1
+      `, [current.start, current.end]),
+    ]);
+
+    const currentSummary = currentSummaryResult.rows[0];
+    const previousSummary = previousSummaryResult.rows[0];
+    const currentSessions = numberFromPg(currentSummary?.sessions);
+    const previousSessions = numberFromPg(previousSummary?.sessions);
+    const currentUsers = numberFromPg(currentSummary?.users);
+    const previousUsers = numberFromPg(previousSummary?.users);
+    const currentEngagedSessions = numberFromPg(currentSummary?.engaged_sessions);
+    const previousEngagedSessions = numberFromPg(previousSummary?.engaged_sessions);
+    const currentEventCount = numberFromPg(currentSummary?.event_count);
+    const previousEventCount = numberFromPg(previousSummary?.event_count);
+    const currentPageViews = numberFromPg(currentSummary?.page_views);
+    const previousPageViews = numberFromPg(previousSummary?.page_views);
+    const currentConversions = numberFromPg(currentConversionsResult.rows[0]?.conversions);
+    const previousConversions = numberFromPg(previousConversionsResult.rows[0]?.conversions);
+    const currentEngagementRate = rate(currentEngagedSessions, currentSessions) ?? 0;
+    const previousEngagementRate = rate(previousEngagedSessions, previousSessions) ?? 0;
+    const currentEventsPerSession = rate(currentEventCount, currentSessions) ?? 0;
+    const previousEventsPerSession = rate(previousEventCount, previousSessions) ?? 0;
+
+    return {
+      ok: true,
+      metrics: {
+        periodLabel: range.label,
+        dataAvailable: currentSessions > 0 || currentUsers > 0 || currentPageViews > 0,
+        sessions: calculateTrend('sessions', currentSessions, previousSessions),
+        users: calculateTrend('users', currentUsers, previousUsers),
+        engagedSessions: calculateTrend('engaged_sessions', currentEngagedSessions, previousEngagedSessions),
+        pageViews: calculateTrend('page_views', currentPageViews, previousPageViews),
+        engagementRate: calculateTrend('engagement_rate', currentEngagementRate, previousEngagementRate),
+        eventsPerSession: calculateTrend('events_per_session', currentEventsPerSession, previousEventsPerSession),
+        conversions: calculateTrend('conversions', currentConversions, previousConversions),
+        topSourceMedium: topSourceResult.rows[0]?.source_medium || null,
+        daily: dailyResult.rows.map((row) => ({
+          date: row.date,
+          sessions: numberFromPg(row.sessions),
+          users: numberFromPg(row.users),
+          pageViews: numberFromPg(row.page_views),
+        })),
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('GA4 overview trends failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }

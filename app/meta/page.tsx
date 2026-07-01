@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
@@ -10,8 +11,6 @@ export const runtime = 'nodejs';
 
 export default async function MetaPage() {
   await connection();
-  const result = await timeAsync('page:/meta getMetaAdsPerformance', () => getCachedMetaAdsPerformance());
-  const metrics = result.ok ? result.metrics : null;
 
   return (
     <DashboardLayout>
@@ -23,14 +22,41 @@ export default async function MetaPage() {
             Aggregate ad metrics only. No customer data is displayed.
           </p>
           <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13 }}>
-            {metrics?.attributionNote ?? 'Meta Ads performance could not be loaded.'}
+            Meta platform attribution is displayed when purchase/action values are available. True Shopify CAC/ROAS attribution still requires session/order joining.
           </p>
         </Card>
-
-        {metrics ? (
-          <MetaAdsDashboardClient metrics={metrics} />
-        ) : null}
+        <Suspense
+          fallback={(
+            <Card>
+              <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, fontWeight: 600 }}>
+                Loading Meta campaign/adset/ad drilldowns...
+              </p>
+            </Card>
+          )}
+        >
+          <MetaContent />
+        </Suspense>
       </PageSection>
     </DashboardLayout>
   );
+}
+
+async function MetaContent() {
+  const result = await timeAsync('page:/meta getMetaAdsPerformance', () => getCachedMetaAdsPerformance(), {
+    category: 'page',
+    rowCount: (helperResult) => (helperResult.ok ? helperResult.metrics.ads.length : null),
+  });
+  const metrics = result.ok ? result.metrics : null;
+
+  if (!metrics) {
+    return (
+      <Card>
+        <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 600 }}>
+          Could not load Meta Ads performance. Check the server database connection.
+        </p>
+      </Card>
+    );
+  }
+
+  return <MetaAdsDashboardClient metrics={metrics} />;
 }
