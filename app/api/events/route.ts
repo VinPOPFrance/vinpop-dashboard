@@ -18,11 +18,16 @@ const allowedEventNames = new Set([
   'vinpop_smart_box_purchased',
 ]);
 
-const exactAllowedOrigins = new Set(['https://www.vinpop.nl', 'https://vinpop.nl']);
+const exactAllowedOrigins = new Set([
+  'https://www.vinpop.nl',
+  'https://vinpop.nl',
+  'https://ivmtpi-7a.myshopify.com',
+]);
 
 const allowedHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Credentials': 'true',
   'Access-Control-Max-Age': '86400',
   Vary: 'Origin',
 };
@@ -38,20 +43,7 @@ function getCorsHeaders(origin: string | null): Headers {
 }
 
 function isAllowedOrigin(origin: string): boolean {
-  if (exactAllowedOrigins.has(origin)) {
-    return true;
-  }
-
-  try {
-    const parsed = new URL(origin);
-    if (parsed.protocol !== 'https:') {
-      return false;
-    }
-
-    return parsed.hostname.endsWith('.myshopify.com') || parsed.hostname.endsWith('.shopifypreview.com');
-  } catch {
-    return false;
-  }
+  return exactAllowedOrigins.has(origin);
 }
 
 function readOptionalString(source: Record<string, unknown>, key: string, maxLength = 1024): string | null {
