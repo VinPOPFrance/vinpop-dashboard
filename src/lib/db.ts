@@ -509,6 +509,10 @@ export type FoodPairingIntelligenceMetrics = {
 };
 
 export type MetaPerformanceRow = {
+  id: string;
+  parentId: string;
+  campaignId: string;
+  adSetId: string;
   name: string;
   parentName: string;
   campaignName: string;
@@ -532,10 +536,14 @@ export type MetaPerformanceRow = {
   status: string;
   performanceLabel: string;
   recommendedAction: string;
+  sufficientSpend: boolean;
 };
 
 export type MetaDailyPerformancePoint = {
   date: string;
+  campaignId: string;
+  adSetId: string;
+  adId: string;
   spend: number;
   impressions: number;
   clicks: number;
@@ -3784,6 +3792,9 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       pool.query<Record<string, string | null>>(`
         SELECT
           date_start::text AS date,
+          COALESCE(ads_insights.campaign_id, '') AS campaign_id,
+          COALESCE(ads_insights.adset_id, '') AS adset_id,
+          COALESCE(ads_insights.ad_id, '') AS ad_id,
           COALESCE(SUM(spend), 0)::text AS spend,
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
@@ -3802,11 +3813,12 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
             ), 0)
           ), 0)::text AS purchase_value
         FROM public.ads_insights
-        GROUP BY date_start
+        GROUP BY date_start, ads_insights.campaign_id, ads_insights.adset_id, ads_insights.ad_id
         ORDER BY date_start
       `),
       pool.query<Record<string, string | null>>(`
         SELECT
+          COALESCE(ads_insights.campaign_id, '') AS id,
           COALESCE(campaign_name, 'Unknown campaign') AS name,
           MIN(date_start)::text AS first_date,
           MAX(date_stop)::text AS latest_date,
@@ -3838,12 +3850,14 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(MAX(campaigns.effective_status), MAX(campaigns.status), 'Unknown') AS status
         FROM public.ads_insights
         LEFT JOIN public.campaigns ON campaigns.id = ads_insights.campaign_id
-        GROUP BY campaign_name
+        GROUP BY ads_insights.campaign_id, campaign_name
         ORDER BY SUM(spend) DESC NULLS LAST
         LIMIT 50
       `),
       pool.query<Record<string, string | null>>(`
         SELECT
+          COALESCE(ads_insights.adset_id, '') AS id,
+          COALESCE(ads_insights.campaign_id, '') AS campaign_id,
           COALESCE(adset_name, 'Unknown ad set') AS name,
           COALESCE(campaign_name, 'Unknown campaign') AS parent_name,
           MIN(date_start)::text AS first_date,
@@ -3876,12 +3890,15 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(MAX(ad_sets.effective_status), 'Unknown') AS status
         FROM public.ads_insights
         LEFT JOIN public.ad_sets ON ad_sets.id = ads_insights.adset_id
-        GROUP BY adset_name, campaign_name
+        GROUP BY ads_insights.adset_id, ads_insights.campaign_id, adset_name, campaign_name
         ORDER BY SUM(spend) DESC NULLS LAST
         LIMIT 50
       `),
       pool.query<Record<string, string | null>>(`
         SELECT
+          COALESCE(ads_insights.ad_id, '') AS id,
+          COALESCE(ads_insights.adset_id, '') AS adset_id,
+          COALESCE(ads_insights.campaign_id, '') AS campaign_id,
           COALESCE(ad_name, 'Unknown ad') AS name,
           COALESCE(ads.name, ad_name, 'Unknown creative') AS creative_label,
           COALESCE(adset_name, 'Unknown ad set') AS parent_name,
@@ -3916,7 +3933,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(MAX(ads.effective_status), MAX(ads.status), 'Unknown') AS status
         FROM public.ads_insights
         LEFT JOIN public.ads ON ads.id = ads_insights.ad_id
-        GROUP BY ad_name, ads.name, adset_name, campaign_name
+        GROUP BY ads_insights.ad_id, ads_insights.adset_id, ads_insights.campaign_id, ad_name, ads.name, adset_name, campaign_name
         ORDER BY SUM(spend) DESC NULLS LAST
         LIMIT 50
       `),
@@ -3938,6 +3955,10 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       const roasValue = purchaseValue === null || spend === 0 ? null : purchaseValue / spend;
       const performanceLabel = metaPerformanceLabel(spend, clicks, ctrValue, cpcValue, purchases, roasValue);
       return {
+        id: row.id || row.name || 'unknown',
+        parentId: row.adset_id || row.campaign_id || '',
+        campaignId: row.campaign_id || row.id || '',
+        adSetId: row.adset_id || '',
         name: row.name || 'Unknown',
         parentName: row.parent_name || row.campaign_name || '',
         campaignName: row.campaign_name || row.parent_name || row.name || 'Unknown',
@@ -3961,6 +3982,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         status: row.status || 'Unknown',
         performanceLabel,
         recommendedAction: metaRecommendedAction(performanceLabel, ctrValue, cpcValue, hookRate),
+        sufficientSpend: spend >= 15,
       };
     };
     const summary = summaryResult.rows[0];
@@ -3982,6 +4004,9 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
 
       return {
         date: row.date || '',
+        campaignId: row.campaign_id || '',
+        adSetId: row.adset_id || '',
+        adId: row.ad_id || '',
         spend,
         impressions: impressionsValue,
         clicks: clicksValue,
@@ -4956,6 +4981,71 @@ export async function getTodayActionPlan(): Promise<TodayActionPlanResult> {
       recommendedOffer: 'Attribution readiness',
       objectionToAddress: 'Good CPC may still produce poor sales.',
       businessImpact: 'Prevents scaling ads without sales proof.',
+    });
+  }
+
+  const metaAdsWithEnoughSpend = meta?.ads.filter((ad) => ad.spend >= 15) ?? [];
+  const weakMetaAds = metaAdsWithEnoughSpend.filter((ad) => (ad.ctr ?? 0) < 1);
+  const strongMetaAds = metaAdsWithEnoughSpend.filter((ad) => (ad.ctr ?? 0) >= 2 && (ad.cpc ?? 99) <= 0.5);
+  const hookRateUnavailable = meta ? meta.ads.every((ad) => ad.hookRate === null) : false;
+
+  if (weakMetaAds.length > 0) {
+    actions.push({
+      priority: 'High',
+      businessProblem: 'Some Meta creatives have enough spend and weak CTR.',
+      whyItMatters: 'Spend above €15 with CTR below 1% is a useful signal that the hook or creative is not pulling attention.',
+      suggestedAction: 'Pause or refresh weak creatives.',
+      relatedPage: '/meta',
+      metricEvidence: `${weakMetaAds.length} ads have spend >= €15 and CTR < 1%.`,
+      stageAffected: 'Visitor',
+      recommendedOffer: 'Creative refresh',
+      objectionToAddress: 'The first impression is not strong enough.',
+      businessImpact: 'Stops budget leaking into weak hooks.',
+    });
+  }
+
+  if (strongMetaAds.length > 0) {
+    actions.push({
+      priority: 'Medium',
+      businessProblem: 'Some Meta creatives have strong click signals.',
+      whyItMatters: 'CTR >= 2% with CPC <= €0.50 suggests the creative is worth testing further, even before true ROAS is available.',
+      suggestedAction: 'Test increasing budget on strongest creatives, but do not scale based only on clicks.',
+      relatedPage: '/meta',
+      metricEvidence: `${strongMetaAds.length} ads have spend >= €15, CTR >= 2%, and CPC <= €0.50.`,
+      stageAffected: 'Visitor',
+      recommendedOffer: 'Controlled budget test',
+      objectionToAddress: 'Clicks are not yet proven customers.',
+      businessImpact: 'Finds promising creatives while keeping attribution risk visible.',
+    });
+  }
+
+  if (!meta?.attributionAvailable) {
+    actions.push({
+      priority: 'High',
+      businessProblem: 'Meta clicks cannot yet be tied to Shopify customers.',
+      whyItMatters: 'Good CTR and CPC are creative signals, not proof of profitable sales.',
+      suggestedAction: 'Do not scale based only on Meta clicks; implement attribution first.',
+      relatedPage: '/attribution-readiness',
+      metricEvidence: 'True Shopify CAC/ROAS unavailable.',
+      stageAffected: 'Visitor',
+      recommendedOffer: 'Attribution setup',
+      objectionToAddress: 'A good ad can still send low-converting traffic.',
+      businessImpact: 'Keeps scaling decisions honest.',
+    });
+  }
+
+  if (hookRateUnavailable) {
+    actions.push({
+      priority: 'Medium',
+      businessProblem: 'Hook rate is unavailable for Meta creatives.',
+      whyItMatters: 'Without 3-second video views, video plays, or thruplays, the dashboard cannot separate weak hooks from weak CTAs.',
+      suggestedAction: 'Configure video view metrics / hook tracking.',
+      relatedPage: '/meta',
+      metricEvidence: 'No hook-rate proxy found in Meta action metrics.',
+      stageAffected: 'Visitor',
+      recommendedOffer: 'Creative diagnostics',
+      objectionToAddress: 'We cannot tell whether people stop watching or stop clicking.',
+      businessImpact: 'Improves creative testing decisions.',
     });
   }
 
