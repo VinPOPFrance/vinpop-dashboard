@@ -6,13 +6,16 @@ import { usePathname } from 'next/navigation';
 const navItems = [
   { href: '/business-overview', label: 'Business Overview', icon: '◆' },
   { href: '/acquisition-traffic', label: 'Acquisition & Traffic', icon: '◎' },
+  { href: '/site-behavior', label: 'Site Behavior', icon: '⌁' },
   { href: '/sales-funnel', label: 'Sales Funnel', icon: '▽' },
   { href: '/ratings', label: 'Calibration & Ratings', icon: '★' },
   { href: '/repeat-customers', label: 'Retention', icon: '↻' },
   { href: '/shopify-products-summary', label: 'Products & Stock', icon: '▣' },
   { href: '/meta', label: 'Marketing Performance', icon: '◈' },
+  { href: '/geo-insights', label: 'Geo Insights', icon: '⌖' },
   { href: '/today-action-plan', label: 'Today Action Plan', icon: '!' },
   { href: '/customers', label: 'Customers', icon: '◪' },
+  { href: '/tracking-readiness', label: 'Tracking Readiness', icon: '?' },
 ];
 
 export function Sidebar() {
@@ -64,6 +67,7 @@ export function Sidebar() {
             <Link
               key={`${item.href}.${item.label}`}
               href={item.href}
+              prefetch={false}
               style={{
                 display: 'flex',
                 alignItems: 'center',

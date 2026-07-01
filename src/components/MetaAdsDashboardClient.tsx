@@ -11,17 +11,22 @@ type MetaRow = MetaPerformanceRow & Record<string, unknown>;
 
 const columns: SortableColumn<MetaRow>[] = [
   { key: 'name', label: 'Name', type: 'text', width: 220 },
+  { key: 'creativeLabel', label: 'Creative / hook label', type: 'text', width: 220 },
   { key: 'parentName', label: 'Parent', type: 'text', width: 180 },
   { key: 'campaignName', label: 'Campaign', type: 'text', width: 180 },
   { key: 'firstDate', label: 'First date', type: 'date' },
   { key: 'latestDate', label: 'Latest date', type: 'date' },
   { key: 'spend', label: 'Spend', type: 'money' },
   { key: 'impressions', label: 'Impressions', type: 'number' },
+  { key: 'reach', label: 'Reach', type: 'number' },
+  { key: 'frequency', label: 'Frequency', type: 'number' },
   { key: 'clicks', label: 'Clicks', type: 'number' },
   { key: 'ctr', label: 'CTR', type: 'percent' },
   { key: 'cpc', label: 'CPC', type: 'money' },
   { key: 'cpm', label: 'CPM', type: 'money' },
+  { key: 'hookRate', label: 'Hook rate', type: 'percent' },
   { key: 'purchases', label: 'Purchases', type: 'number' },
+  { key: 'purchaseValue', label: 'Revenue', type: 'money' },
   { key: 'cpa', label: 'CPA', type: 'money' },
   { key: 'roas', label: 'ROAS', type: 'number' },
   { key: 'performanceLabel', label: 'Label', type: 'text' },
@@ -93,6 +98,18 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
   const topSpend = [...campaigns].sort((a, b) => b.spend - a.spend)[0];
   const topCtr = [...campaigns].filter((row) => row.clicks > 0).sort((a, b) => (b.ctr ?? 0) - (a.ctr ?? 0))[0];
   const bestCpc = [...campaigns].filter((row) => row.clicks > 0 && row.cpc !== null).sort((a, b) => (a.cpc ?? 0) - (b.cpc ?? 0))[0];
+  const hookData = [...ads]
+    .filter((row) => row.hookRate !== null)
+    .sort((a, b) => (b.hookRate ?? 0) - (a.hookRate ?? 0))
+    .slice(0, 8)
+    .map((row) => ({ label: row.name, value: row.hookRate ?? 0, color: '#A67C00' }));
+  const bestCreatives = [...ads]
+    .sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0) || (b.ctr ?? 0) - (a.ctr ?? 0))
+    .slice(0, 5);
+  const weakestCreatives = [...ads]
+    .filter((row) => row.spend > 0)
+    .sort((a, b) => (a.ctr ?? 0) - (b.ctr ?? 0) || (b.spend ?? 0) - (a.spend ?? 0))
+    .slice(0, 5);
   const weakest = [...campaigns].filter((row) => row.spend > 0).sort((a, b) => {
     const aScore = (a.ctr ?? 0) - (a.cpc ?? 0);
     const bScore = (b.ctr ?? 0) - (b.cpc ?? 0);
@@ -135,6 +152,16 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
             <SectionTitle>CTR</SectionTitle>
             <BarChart data={ctrData} valueFormatter={(value) => formatPercent(value)} onBarClick={(label) => { setCampaignFilter(label); setAdSetFilter(''); }} />
           </Card>
+          <Card>
+            <SectionTitle>Hook Rate</SectionTitle>
+            {hookData.length ? (
+              <BarChart data={hookData} valueFormatter={(value) => formatPercent(value)} />
+            ) : (
+              <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700 }}>
+                Hook rate unavailable. Need video view / 3-second / thruplay action metrics.
+              </p>
+            )}
+          </Card>
         </div>
         <Card style={{ marginTop: 12 }}>
           {campaignFilter ? (
@@ -156,12 +183,34 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
       </PageSection>
 
       <PageSection>
+        <SectionTitle sub="Top and weak creative reads from available Meta metrics">Creative Decisions</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          <Card>
+            <div style={{ color: '#2D6A4F', fontSize: 13, fontWeight: 800, marginBottom: 8 }}>Top 5 creative candidates</div>
+            {bestCreatives.map((row) => (
+              <p key={`best.${row.name}`} style={{ margin: '0 0 8px', color: '#1A1A1A', fontSize: 12 }}>
+                <strong>{row.name}</strong> · CTR {formatPercent(row.ctr)} · CPC {formatEuro(row.cpc)} · {row.performanceLabel}
+              </p>
+            ))}
+          </Card>
+          <Card>
+            <div style={{ color: '#B45309', fontSize: 13, fontWeight: 800, marginBottom: 8 }}>Top 5 weak creatives</div>
+            {weakestCreatives.map((row) => (
+              <p key={`weak.${row.name}`} style={{ margin: '0 0 8px', color: '#1A1A1A', fontSize: 12 }}>
+                <strong>{row.name}</strong> · Spend {formatEuro(row.spend)} · CTR {formatPercent(row.ctr)} · {row.recommendedAction}
+              </p>
+            ))}
+          </Card>
+        </div>
+      </PageSection>
+
+      <PageSection>
         <SectionTitle sub="Plain business read">Simple Interpretation</SectionTitle>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
           <Card><p style={{ margin: 0, color: (metrics.ctr ?? 0) >= 1 ? '#2D6A4F' : '#B45309', fontSize: 13, fontWeight: 600 }}>CTR: {formatPercent(metrics.ctr)} from {formatNumber(metrics.clicks)} clicks.</p></Card>
           <Card><p style={{ margin: 0, color: (metrics.cpc ?? 99) <= 1.5 ? '#2D6A4F' : '#B45309', fontSize: 13, fontWeight: 600 }}>CPC: {formatEuro(metrics.cpc)}.</p></Card>
-          <Card><p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 600 }}>CAC unavailable until Meta clicks are joined to Shopify orders.</p></Card>
-          <Card><p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 600 }}>ROAS unavailable until revenue attribution is available.</p></Card>
+          <Card><p style={{ margin: 0, color: metrics.attributionAvailable ? '#2D6A4F' : '#B45309', fontSize: 13, fontWeight: 600 }}>CAC: {metrics.attributionAvailable ? formatEuro(metrics.cpa) : 'Attribution unavailable'}.</p></Card>
+          <Card><p style={{ margin: 0, color: metrics.attributionAvailable ? '#2D6A4F' : '#B45309', fontSize: 13, fontWeight: 600 }}>ROAS: {metrics.attributionAvailable ? formatNumber(metrics.roas, 2) : 'Attribution unavailable'}.</p></Card>
         </div>
       </PageSection>
 

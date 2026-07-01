@@ -512,14 +512,19 @@ export type MetaPerformanceRow = {
   name: string;
   parentName: string;
   campaignName: string;
+  creativeLabel: string;
   firstDate: string | null;
   latestDate: string | null;
   spend: number;
   impressions: number;
   clicks: number;
+  reach: number;
+  frequency: number | null;
   ctr: number | null;
   cpc: number | null;
   cpm: number | null;
+  hookRate: number | null;
+  hookMetric: string;
   purchases: number | null;
   purchaseValue: number | null;
   cpa: number | null;
@@ -538,6 +543,8 @@ export type MetaAdsPerformanceMetrics = {
   ctr: number | null;
   cpc: number | null;
   cpm: number | null;
+  hookRate: number | null;
+  hookMetric: string;
   campaignsCount: number;
   adSetsCount: number;
   adsCount: number;
@@ -550,6 +557,89 @@ export type MetaAdsPerformanceMetrics = {
   campaigns: MetaPerformanceRow[];
   adSets: MetaPerformanceRow[];
   ads: MetaPerformanceRow[];
+};
+
+export type TrackingReadinessTable = {
+  schemaName: string;
+  tableName: string;
+  rowCount: number | null;
+  firstDate: string | null;
+  latestDate: string | null;
+  matchedColumns: string[];
+};
+
+export type TrackingReadinessCapability = {
+  label: string;
+  available: boolean;
+  status: 'good' | 'warning' | 'critical' | 'missing';
+  evidence: string;
+  dataNeeded?: string[];
+};
+
+export type TrackingReadinessMetrics = {
+  ga4Connected: boolean;
+  ga4TablesWithRows: string[];
+  availableTables: TrackingReadinessTable[];
+  missingTables: string[];
+  capabilities: TrackingReadinessCapability[];
+  requiredVisitorFields: string[];
+  requiredSessionFields: string[];
+  requiredEventFields: string[];
+};
+
+export type SiteBehaviorSeriesPoint = {
+  date: string;
+  visitors: number | null;
+  sessions: number | null;
+  pageViews: number | null;
+  orders: number;
+  abandonedCheckouts: number;
+  quizzes: number;
+  ratings: number;
+};
+
+export type SiteBehaviorMetrics = {
+  hasSessionData: boolean;
+  hasGa4Rows: boolean;
+  visitorsPerDayAvailable: boolean;
+  sessionsPerDayAvailable: boolean;
+  pageViewsPerDayAvailable: boolean;
+  clicksPerSessionAvailable: boolean;
+  pagesPerSessionAvailable: boolean;
+  averageSessionDurationAvailable: boolean;
+  totalOrders: number;
+  totalAbandonedCheckouts: number;
+  totalQuizzes: number;
+  totalRatings: number;
+  checkoutAbandonmentRate: number | null;
+  purchaseConversionRate: number | null;
+  series: SiteBehaviorSeriesPoint[];
+  insights: string[];
+};
+
+export type GeoInsightCityRow = {
+  city: string;
+  region: string;
+  classification: 'Big city' | 'Periphery / smaller city';
+  customers: number;
+  orders: number;
+  revenue: number;
+};
+
+export type GeoInsightsMetrics = {
+  buyersWithCityData: number;
+  buyersMissingCityData: number;
+  bigCityCustomers: number;
+  peripheryCustomers: number;
+  bigCityCustomerShare: number | null;
+  peripheryCustomerShare: number | null;
+  bigCityRevenue: number;
+  peripheryRevenue: number;
+  bigCityOrderCount: number;
+  peripheryOrderCount: number;
+  topCities: GeoInsightCityRow[];
+  recommendation: string;
+  heuristicNote: string;
 };
 
 export type AcquisitionTrafficSeriesPoint = {
@@ -980,6 +1070,18 @@ export type MetaAdsPerformanceResult =
 
 export type AcquisitionTrafficResult =
   | { ok: true; metrics: AcquisitionTrafficMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type TrackingReadinessResult =
+  | { ok: true; metrics: TrackingReadinessMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type SiteBehaviorResult =
+  | { ok: true; metrics: SiteBehaviorMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type GeoInsightsResult =
+  | { ok: true; metrics: GeoInsightsMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 export type BusinessOverviewPeriodTrendsResult =
@@ -3598,17 +3700,29 @@ export async function getFoodPairingIntelligence(): Promise<FoodPairingIntellige
   }
 }
 
-function metaPerformanceLabel(spend: number, clicks: number, ctrValue: number | null, cpcValue: number | null): string {
-  if (spend <= 0 || clicks <= 0 || ctrValue === null || cpcValue === null) return 'Unclear';
-  if (ctrValue >= 2 && cpcValue <= 0.5) return 'Winner';
-  if (ctrValue >= 1 && cpcValue <= 1.5) return 'Watch';
-  return 'Weak';
+function metaPerformanceLabel(
+  spend: number,
+  clicks: number,
+  ctrValue: number | null,
+  cpcValue: number | null,
+  purchases: number | null,
+  roasValue: number | null,
+): string {
+  if ((purchases ?? 0) > 0 && (roasValue ?? 0) >= 1.5) return 'Scale candidate';
+  if (spend <= 0 || clicks <= 0 || ctrValue === null || cpcValue === null) return 'Insufficient data';
+  if (ctrValue >= 1.5 && cpcValue <= 1) return purchases === null ? 'Attribution missing' : 'Keep testing';
+  if (spend >= 25 && ctrValue < 0.8) return 'Weak creative';
+  if (ctrValue >= 1) return 'Watch';
+  return 'Weak creative';
 }
 
-function metaRecommendedAction(label: string): string {
-  if (label === 'Winner') return 'Consider increasing budget carefully.';
-  if (label === 'Watch') return 'Keep running and compare conversion data.';
-  if (label === 'Weak') return 'Review creative, targeting or landing page.';
+function metaRecommendedAction(label: string, ctrValue: number | null, cpcValue: number | null, hookRate: number | null): string {
+  if (label === 'Scale candidate') return 'Scale carefully if CPA and stock capacity are acceptable.';
+  if (label === 'Attribution missing' && (ctrValue ?? 0) >= 1.5 && (cpcValue ?? 99) <= 1) return 'Keep creative, fix attribution.';
+  if (label === 'Weak creative') return 'Stop, refresh creative, or test a stronger first 3 seconds.';
+  if (hookRate !== null && hookRate >= 20 && (ctrValue ?? 0) < 1) return 'Hook works, improve offer or CTA.';
+  if (hookRate !== null && hookRate < 10) return 'Test a stronger first 3 seconds.';
+  if (label === 'Watch') return 'Keep testing and compare against checkout friction.';
   return 'Add UTM/meta click tracking before scaling.';
 }
 
@@ -3624,6 +3738,28 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(spend), 0)::text AS total_spend,
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
+          COALESCE(SUM(reach), 0)::text AS reach,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
+            ), 0)
+          ), 0)::text AS purchases,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
+            ), 0)
+          ), 0)::text AS purchase_value,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('video_view', 'video_play', 'video_3_sec_watched_actions', 'thruplay')
+            ), 0)
+          ), 0)::text AS hook_events,
           COUNT(DISTINCT campaign_id)::text AS campaigns_count,
           COUNT(DISTINCT adset_id)::text AS ad_sets_count,
           COUNT(DISTINCT ad_id)::text AS ads_count,
@@ -3639,6 +3775,28 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(spend), 0)::text AS spend,
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
+          COALESCE(SUM(reach), 0)::text AS reach,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
+            ), 0)
+          ), 0)::text AS purchases,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
+            ), 0)
+          ), 0)::text AS purchase_value,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('video_view', 'video_play', 'video_3_sec_watched_actions', 'thruplay')
+            ), 0)
+          ), 0)::text AS hook_events,
           COALESCE(MAX(campaigns.effective_status), MAX(campaigns.status), 'Unknown') AS status
         FROM public.ads_insights
         LEFT JOIN public.campaigns ON campaigns.id = ads_insights.campaign_id
@@ -3655,6 +3813,28 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(spend), 0)::text AS spend,
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
+          COALESCE(SUM(reach), 0)::text AS reach,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
+            ), 0)
+          ), 0)::text AS purchases,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
+            ), 0)
+          ), 0)::text AS purchase_value,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('video_view', 'video_play', 'video_3_sec_watched_actions', 'thruplay')
+            ), 0)
+          ), 0)::text AS hook_events,
           COALESCE(MAX(ad_sets.effective_status), 'Unknown') AS status
         FROM public.ads_insights
         LEFT JOIN public.ad_sets ON ad_sets.id = ads_insights.adset_id
@@ -3665,6 +3845,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       pool.query<Record<string, string | null>>(`
         SELECT
           COALESCE(ad_name, 'Unknown ad') AS name,
+          COALESCE(ads.name, ad_name, 'Unknown creative') AS creative_label,
           COALESCE(adset_name, 'Unknown ad set') AS parent_name,
           COALESCE(campaign_name, 'Unknown campaign') AS campaign_name,
           MIN(date_start)::text AS first_date,
@@ -3672,10 +3853,32 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(spend), 0)::text AS spend,
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
+          COALESCE(SUM(reach), 0)::text AS reach,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
+            ), 0)
+          ), 0)::text AS purchases,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
+            ), 0)
+          ), 0)::text AS purchase_value,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('video_view', 'video_play', 'video_3_sec_watched_actions', 'thruplay')
+            ), 0)
+          ), 0)::text AS hook_events,
           COALESCE(MAX(ads.effective_status), MAX(ads.status), 'Unknown') AS status
         FROM public.ads_insights
         LEFT JOIN public.ads ON ads.id = ads_insights.ad_id
-        GROUP BY ad_name, adset_name, campaign_name
+        GROUP BY ad_name, ads.name, adset_name, campaign_name
         ORDER BY SUM(spend) DESC NULLS LAST
         LIMIT 50
       `),
@@ -3684,35 +3887,53 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       const spend = numberFromPg(row.spend);
       const impressions = numberFromPg(row.impressions);
       const clicks = numberFromPg(row.clicks);
+      const reach = numberFromPg(row.reach);
+      const purchasesRaw = numberFromPg(row.purchases);
+      const purchaseValueRaw = numberFromPg(row.purchase_value);
+      const purchases = purchasesRaw > 0 ? purchasesRaw : null;
+      const purchaseValue = purchaseValueRaw > 0 ? purchaseValueRaw : null;
+      const hookEvents = numberFromPg(row.hook_events);
       const ctrValue = rate(clicks, impressions);
       const cpcValue = ratio(spend, clicks);
       const cpmValue = impressions === 0 ? null : (spend / impressions) * 1000;
-      const performanceLabel = metaPerformanceLabel(spend, clicks, ctrValue, cpcValue);
+      const hookRate = hookEvents > 0 ? rate(hookEvents, impressions) : null;
+      const roasValue = purchaseValue === null || spend === 0 ? null : purchaseValue / spend;
+      const performanceLabel = metaPerformanceLabel(spend, clicks, ctrValue, cpcValue, purchases, roasValue);
       return {
         name: row.name || 'Unknown',
         parentName: row.parent_name || row.campaign_name || '',
         campaignName: row.campaign_name || row.parent_name || row.name || 'Unknown',
+        creativeLabel: row.creative_label || row.name || 'Unknown creative',
         firstDate: row.first_date || null,
         latestDate: row.latest_date || null,
         spend,
         impressions,
         clicks,
+        reach,
+        frequency: ratio(impressions, reach),
         ctr: ctrValue,
         cpc: cpcValue,
         cpm: cpmValue,
-        purchases: null,
-        purchaseValue: null,
-        cpa: null,
-        roas: null,
+        hookRate,
+        hookMetric: hookRate === null ? 'Unavailable' : 'Video action proxy / impressions',
+        purchases,
+        purchaseValue,
+        cpa: purchases === null ? null : ratio(spend, purchases),
+        roas: roasValue,
         status: row.status || 'Unknown',
         performanceLabel,
-        recommendedAction: metaRecommendedAction(performanceLabel),
+        recommendedAction: metaRecommendedAction(performanceLabel, ctrValue, cpcValue, hookRate),
       };
     };
     const summary = summaryResult.rows[0];
     const totalSpend = numberFromPg(summary?.total_spend);
     const impressions = numberFromPg(summary?.impressions);
     const clicks = numberFromPg(summary?.clicks);
+    const purchasesRaw = numberFromPg(summary?.purchases);
+    const purchaseValueRaw = numberFromPg(summary?.purchase_value);
+    const purchases = purchasesRaw > 0 ? purchasesRaw : null;
+    const purchaseValue = purchaseValueRaw > 0 ? purchaseValueRaw : null;
+    const hookEvents = numberFromPg(summary?.hook_events);
 
     return {
       ok: true,
@@ -3725,15 +3946,19 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         ctr: rate(clicks, impressions),
         cpc: ratio(totalSpend, clicks),
         cpm: impressions === 0 ? null : (totalSpend / impressions) * 1000,
+        hookRate: hookEvents > 0 ? rate(hookEvents, impressions) : null,
+        hookMetric: hookEvents > 0 ? 'Video action proxy / impressions' : 'Unavailable',
         campaignsCount: numberFromPg(summary?.campaigns_count),
         adSetsCount: numberFromPg(summary?.ad_sets_count),
         adsCount: numberFromPg(summary?.ads_count),
-        purchases: null,
-        purchaseValue: null,
-        cpa: null,
-        roas: null,
-        attributionAvailable: false,
-        attributionNote: 'Meta platform spend/click metrics are available, but reliable Shopify order attribution is unavailable until UTM/meta click tracking is joined to orders.',
+        purchases,
+        purchaseValue,
+        cpa: purchases === null ? null : ratio(totalSpend, purchases),
+        roas: purchaseValue === null || totalSpend === 0 ? null : purchaseValue / totalSpend,
+        attributionAvailable: purchases !== null || purchaseValue !== null,
+        attributionNote: purchases !== null || purchaseValue !== null
+          ? 'Meta platform purchase/action values are available. Shopify server-side order attribution is still separate until UTM/meta click tracking is joined to orders.'
+          : 'Meta spend/click metrics are available, but purchases, CAC, and ROAS are unavailable until Meta action values or Shopify attribution are reliable.',
         campaigns: campaignsResult.rows.map(toRow),
         adSets: adSetsResult.rows.map(toRow),
         ads: adsResult.rows.map(toRow),
@@ -4004,6 +4229,502 @@ export async function getAcquisitionTraffic(range: DateRange): Promise<Acquisiti
   } catch (error) {
     const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
     console.error('Acquisition traffic failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+const trackingVisitorFields = [
+  'visitor_id',
+  'first_seen_at',
+  'last_seen_at',
+  'landing_page',
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_content',
+  'utm_term',
+  'meta_click_id',
+  'country',
+  'city',
+  'region',
+  'device',
+  'consent_analytics',
+  'consent_marketing',
+];
+
+const trackingSessionFields = [
+  'session_id',
+  'visitor_id',
+  'customer_id',
+  'started_at',
+  'ended_at',
+  'page_count',
+  'click_count',
+  'source',
+  'campaign',
+  'device',
+  'country',
+  'city',
+  'region',
+];
+
+const trackingEventFields = [
+  'event_id',
+  'visitor_id',
+  'session_id',
+  'customer_id',
+  'event_name',
+  'event_time',
+  'page_url',
+  'referrer',
+  'product_id',
+  'order_id',
+  'funnel_stage',
+];
+
+type TrackingMetadataRow = {
+  table_schema: string;
+  table_name: string;
+  column_name: string;
+};
+
+type TrackingCountRow = {
+  table_name: string;
+  row_count: string | null;
+  first_date: string | null;
+  latest_date: string | null;
+};
+
+function hasColumn(tables: TrackingReadinessTable[], columnNames: string[]) {
+  const wanted = new Set(columnNames.map((column) => column.toLowerCase()));
+  return tables.some((table) => table.matchedColumns.some((column) => wanted.has(column.toLowerCase())));
+}
+
+export async function getTrackingReadiness(): Promise<TrackingReadinessResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  try {
+    const pool = getPool(databaseUrl);
+    const [metadataResult, countsResult] = await Promise.all([
+      pool.query<TrackingMetadataRow>(`
+        SELECT table_schema, table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+          AND (
+            table_name ILIKE ANY ($1)
+            OR column_name ILIKE ANY ($1)
+          )
+        ORDER BY table_schema, table_name, ordinal_position
+        LIMIT 1000
+      `, [[
+        '%google%', '%ga4%', '%analytics%', '%sessions%', '%session%', '%events%', '%event%',
+        '%visitor%', '%visitors%', '%pageviews%', '%page_views%', '%clicks%', '%activity%',
+        '%utm%', '%meta_click_id%', '%fbp%', '%fbc%', '%gclid%', '%checkout%', '%abandoned%',
+      ]]),
+      pool.query<TrackingCountRow>(`
+        SELECT 'traffic_acquisition_session_source_medium_report' AS table_name, COUNT(*)::text AS row_count, MIN(date)::text AS first_date, MAX(date)::text AS latest_date FROM public.traffic_acquisition_session_source_medium_report
+        UNION ALL SELECT 'traffic_acquisition_session_campaign_report', COUNT(*)::text, MIN(date)::text, MAX(date)::text FROM public.traffic_acquisition_session_campaign_report
+        UNION ALL SELECT 'traffic_acquisition_session_default_channel_grouping_report', COUNT(*)::text, MIN(date)::text, MAX(date)::text FROM public.traffic_acquisition_session_default_channel_grouping_report
+        UNION ALL SELECT 'devices', COUNT(*)::text, MIN(date)::text, MAX(date)::text FROM public.devices
+        UNION ALL SELECT 'daily_active_users', COUNT(*)::text, MIN(date)::text, MAX(date)::text FROM public.daily_active_users
+        UNION ALL SELECT 'conversions_report', COUNT(*)::text, MIN(date)::text, MAX(date)::text FROM public.conversions_report
+        UNION ALL SELECT 'shopify.abandoned_checkouts', COUNT(*)::text, MIN(created_at)::text, MAX(created_at)::text FROM shopify.abandoned_checkouts
+        UNION ALL SELECT 'shopify.orders', COUNT(*)::text, MIN(created_at)::text, MAX(created_at)::text FROM shopify.orders
+      `),
+    ]);
+
+    const countMap = new Map(countsResult.rows.map((row) => [row.table_name, row]));
+    const grouped = new Map<string, TrackingReadinessTable>();
+    for (const row of metadataResult.rows) {
+      const key = `${row.table_schema}.${row.table_name}`;
+      const current = grouped.get(key) ?? {
+        schemaName: row.table_schema,
+        tableName: row.table_name,
+        rowCount: null,
+        firstDate: null,
+        latestDate: null,
+        matchedColumns: [],
+      };
+      current.matchedColumns.push(row.column_name);
+      const count = countMap.get(row.table_name) ?? countMap.get(`${row.table_schema}.${row.table_name}`);
+      if (count) {
+        current.rowCount = numberFromPg(count.row_count);
+        current.firstDate = count.first_date;
+        current.latestDate = count.latest_date;
+      }
+      grouped.set(key, current);
+    }
+
+    const availableTables = Array.from(grouped.values());
+    const ga4TablesWithRows = countsResult.rows
+      .filter((row) => !row.table_name.startsWith('shopify.') && numberFromPg(row.row_count) > 0)
+      .map((row) => row.table_name);
+    const abandonedCheckoutRows = numberFromPg(countMap.get('shopify.abandoned_checkouts')?.row_count);
+    const hasSessionTracking = hasColumn(availableTables, ['session_id', 'sessionId']) || ga4TablesWithRows.some((table) => table.includes('session'));
+    const hasVisitorTracking = hasColumn(availableTables, ['visitor_id', 'client_id', 'user_pseudo_id']);
+    const hasEvents = hasColumn(availableTables, ['event_name', 'eventName']);
+    const hasAttribution = hasColumn(availableTables, ['utm_source', 'utm_campaign', 'meta_click_id', 'fbp', 'fbc', 'gclid']);
+    const hasCity = hasColumn(availableTables, ['city', 'region', 'province']);
+
+    return {
+      ok: true,
+      metrics: {
+        ga4Connected: ga4TablesWithRows.length > 0,
+        ga4TablesWithRows,
+        availableTables,
+        missingTables: [
+          !hasVisitorTracking ? 'visitors' : '',
+          !hasSessionTracking ? 'sessions' : '',
+          !hasEvents ? 'events' : '',
+          !hasAttribution ? 'attribution / UTM identity table' : '',
+        ].filter(Boolean),
+        capabilities: [
+          {
+            label: 'GA4 connection status',
+            available: ga4TablesWithRows.length > 0,
+            status: ga4TablesWithRows.length > 0 ? 'good' : 'missing',
+            evidence: ga4TablesWithRows.length > 0 ? `${ga4TablesWithRows.length} GA4 tables contain rows.` : 'GA4 tables exist but currently have no rows.',
+          },
+          {
+            label: 'Visitor/session tracking status',
+            available: hasSessionTracking || hasVisitorTracking,
+            status: hasSessionTracking || hasVisitorTracking ? 'warning' : 'missing',
+            evidence: hasSessionTracking || hasVisitorTracking ? 'Some visitor/session-like metadata exists.' : 'No dedicated visitor/session table was found.',
+            dataNeeded: [...trackingVisitorFields, ...trackingSessionFields],
+          },
+          {
+            label: 'Event tracking status',
+            available: hasEvents,
+            status: hasEvents ? 'warning' : 'missing',
+            evidence: hasEvents ? 'Event-like columns exist.' : 'No event table with event_name/event_time was found.',
+            dataNeeded: trackingEventFields,
+          },
+          {
+            label: 'Meta attribution tracking status',
+            available: hasAttribution,
+            status: hasAttribution ? 'warning' : 'missing',
+            evidence: hasAttribution ? 'Attribution-like columns exist in synced tables.' : 'No reliable UTM/meta click identity columns were found.',
+            dataNeeded: ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'meta_click_id', 'fbp', 'fbc', 'gclid'],
+          },
+          {
+            label: 'Shopify abandoned checkout status',
+            available: abandonedCheckoutRows > 0,
+            status: abandonedCheckoutRows > 0 ? 'good' : 'missing',
+            evidence: `${abandonedCheckoutRows} abandoned checkout rows found.`,
+          },
+          {
+            label: 'Daily sessions possible',
+            available: ga4TablesWithRows.some((table) => table.includes('session')),
+            status: ga4TablesWithRows.some((table) => table.includes('session')) ? 'good' : 'missing',
+            evidence: 'Requires GA4/session rows with a date column.',
+          },
+          {
+            label: 'Pages per session possible',
+            available: hasColumn(availableTables, ['screenPageViews', 'page_count', 'pageviews']),
+            status: hasColumn(availableTables, ['screenPageViews', 'page_count', 'pageviews']) ? 'warning' : 'missing',
+            evidence: 'Requires page views or page_count by session.',
+          },
+          {
+            label: 'Clicks per session possible',
+            available: hasColumn(availableTables, ['click_count', 'clicks']),
+            status: hasColumn(availableTables, ['click_count', 'clicks']) ? 'warning' : 'missing',
+            evidence: 'Requires click_count or click events by session.',
+          },
+          {
+            label: 'Sessions before order possible',
+            available: hasSessionTracking && hasAttribution,
+            status: hasSessionTracking && hasAttribution ? 'warning' : 'missing',
+            evidence: 'Requires session/customer/order identity join.',
+          },
+          {
+            label: 'Customer last activity possible',
+            available: hasColumn(availableTables, ['last_seen_at', 'last_activity_at', 'event_time']),
+            status: hasColumn(availableTables, ['last_seen_at', 'last_activity_at', 'event_time']) ? 'warning' : 'missing',
+            evidence: 'Requires a tracked customer or visitor timestamp.',
+          },
+          {
+            label: 'City/suburb buyer geography possible',
+            available: hasCity,
+            status: hasCity ? 'good' : 'missing',
+            evidence: hasCity ? 'City/region fields exist in Shopify or tracking metadata.' : 'No city/region fields found.',
+          },
+        ],
+        requiredVisitorFields: trackingVisitorFields,
+        requiredSessionFields: trackingSessionFields,
+        requiredEventFields: trackingEventFields,
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Tracking readiness failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+type DailyBehaviorRow = {
+  date: string;
+  visitors: string | null;
+  sessions: string | null;
+  page_views: string | null;
+  orders: string | null;
+  abandoned_checkouts: string | null;
+  quizzes: string | null;
+  ratings: string | null;
+};
+
+export async function getSiteBehavior(range: DateRange): Promise<SiteBehaviorResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  try {
+    const pool = getPool(databaseUrl);
+    const current = {
+      sqlStart: dateToSql(range.start),
+      sqlEnd: dateToSql(range.end),
+      gaStart: dateToGa4(range.start),
+      gaEnd: dateToGa4(range.end),
+    };
+    const [ga4CountResult, seriesResult] = await Promise.all([
+      pool.query<{ row_count: string | null }>(`
+        SELECT COUNT(*)::text AS row_count
+        FROM public.traffic_acquisition_session_source_medium_report
+      `),
+      pool.query<DailyBehaviorRow>(`
+        WITH dates AS (
+          SELECT generate_series($1::date, $2::date, interval '1 day')::date AS date
+        ),
+        ga4 AS (
+          SELECT to_date(date, 'YYYYMMDD') AS date, SUM(totalUsers) AS visitors, SUM(sessions) AS sessions, NULL::numeric AS page_views
+          FROM public.traffic_acquisition_session_source_medium_report
+          WHERE date BETWEEN $3 AND $4
+          GROUP BY 1
+        ),
+        orders AS (
+          SELECT created_at::date AS date, COUNT(*) AS orders
+          FROM shopify.orders
+          WHERE created_at::date BETWEEN $1::date AND $2::date
+          GROUP BY 1
+        ),
+        checkouts AS (
+          SELECT created_at::date AS date, COUNT(*) AS abandoned_checkouts
+          FROM shopify.abandoned_checkouts
+          WHERE created_at::date BETWEEN $1::date AND $2::date
+          GROUP BY 1
+        ),
+        quizzes AS (
+          SELECT created_at::date AS date, COUNT(*) AS quizzes
+          FROM public.quizz
+          WHERE created_at::date BETWEEN $1::date AND $2::date
+          GROUP BY 1
+        ),
+        ratings AS (
+          SELECT created_at::date AS date, COUNT(*) AS ratings
+          FROM public.ratings
+          WHERE created_at::date BETWEEN $1::date AND $2::date
+          GROUP BY 1
+        )
+        SELECT
+          dates.date::text AS date,
+          COALESCE(ga4.visitors, 0)::text AS visitors,
+          COALESCE(ga4.sessions, 0)::text AS sessions,
+          COALESCE(ga4.page_views, 0)::text AS page_views,
+          COALESCE(orders.orders, 0)::text AS orders,
+          COALESCE(checkouts.abandoned_checkouts, 0)::text AS abandoned_checkouts,
+          COALESCE(quizzes.quizzes, 0)::text AS quizzes,
+          COALESCE(ratings.ratings, 0)::text AS ratings
+        FROM dates
+        LEFT JOIN ga4 ON ga4.date = dates.date
+        LEFT JOIN orders ON orders.date = dates.date
+        LEFT JOIN checkouts ON checkouts.date = dates.date
+        LEFT JOIN quizzes ON quizzes.date = dates.date
+        LEFT JOIN ratings ON ratings.date = dates.date
+        ORDER BY dates.date
+      `, [current.sqlStart, current.sqlEnd, current.gaStart, current.gaEnd]),
+    ]);
+
+    const hasGa4Rows = numberFromPg(ga4CountResult.rows[0]?.row_count) > 0;
+    const series = seriesResult.rows.map((row) => ({
+      date: row.date,
+      visitors: hasGa4Rows ? numberFromPg(row.visitors) : null,
+      sessions: hasGa4Rows ? numberFromPg(row.sessions) : null,
+      pageViews: hasGa4Rows && numberFromPg(row.page_views) > 0 ? numberFromPg(row.page_views) : null,
+      orders: numberFromPg(row.orders),
+      abandonedCheckouts: numberFromPg(row.abandoned_checkouts),
+      quizzes: numberFromPg(row.quizzes),
+      ratings: numberFromPg(row.ratings),
+    }));
+    const totalOrders = series.reduce((sum, row) => sum + row.orders, 0);
+    const totalAbandonedCheckouts = series.reduce((sum, row) => sum + row.abandonedCheckouts, 0);
+    const totalRatings = series.reduce((sum, row) => sum + row.ratings, 0);
+    const totalQuizzes = series.reduce((sum, row) => sum + row.quizzes, 0);
+    const totalSessions = series.reduce((sum, row) => sum + (row.sessions ?? 0), 0);
+    const insights = [
+      hasGa4Rows ? 'GA4 session rows are available for behavior trends.' : 'Session/event tracking is unavailable or empty; implement tracking to see stay/leave behavior.',
+      totalAbandonedCheckouts > totalOrders ? 'Abandoned checkouts exceed completed orders. Checkout friction needs attention.' : 'Completed orders are not below abandoned checkouts for this period.',
+      totalOrders > 0 && totalRatings / totalOrders < 1 ? 'Ratings look low compared with orders. Post-delivery rating reminders may need work.' : 'Ratings are visible for this period.',
+    ];
+
+    return {
+      ok: true,
+      metrics: {
+        hasSessionData: hasGa4Rows && totalSessions > 0,
+        hasGa4Rows,
+        visitorsPerDayAvailable: hasGa4Rows,
+        sessionsPerDayAvailable: hasGa4Rows,
+        pageViewsPerDayAvailable: false,
+        clicksPerSessionAvailable: false,
+        pagesPerSessionAvailable: false,
+        averageSessionDurationAvailable: false,
+        totalOrders,
+        totalAbandonedCheckouts,
+        totalQuizzes,
+        totalRatings,
+        checkoutAbandonmentRate: rate(totalAbandonedCheckouts, totalAbandonedCheckouts + totalOrders),
+        purchaseConversionRate: rate(totalOrders, totalSessions),
+        series,
+        insights,
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Site behavior failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+const majorNlBeCities = new Set([
+  'amsterdam',
+  'rotterdam',
+  'den haag',
+  'the hague',
+  'utrecht',
+  'eindhoven',
+  'tilburg',
+  'groningen',
+  'almere',
+  'breda',
+  'nijmegen',
+  'enschede',
+  'haarlem',
+  'arnhem',
+  'amersfoort',
+  'apeldoorn',
+  'antwerpen',
+  'brussel',
+  'brussels',
+  'gent',
+  'ghent',
+  'charleroi',
+  'liege',
+  'luik',
+  'brugge',
+  'leuven',
+  'mechelen',
+]);
+
+function classifyCity(city: string): GeoInsightCityRow['classification'] {
+  return majorNlBeCities.has(city.trim().toLowerCase()) ? 'Big city' : 'Periphery / smaller city';
+}
+
+type GeoCityRow = {
+  city: string | null;
+  region: string | null;
+  customers: string | null;
+  orders: string | null;
+  revenue: string | null;
+};
+
+export async function getGeoInsights(): Promise<GeoInsightsResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  try {
+    const pool = getPool(databaseUrl);
+    const [cityResult, missingResult] = await Promise.all([
+      pool.query<GeoCityRow>(`
+        WITH address_by_customer AS (
+          SELECT DISTINCT ON (customer_id)
+            customer_id::text AS customer_id,
+            NULLIF(TRIM(city), '') AS city,
+            NULLIF(TRIM(COALESCE(province, province_code, country_code)), '') AS region
+          FROM shopify.customer_address
+          WHERE customer_id IS NOT NULL
+          ORDER BY customer_id, "default" DESC NULLS LAST, updated_at DESC NULLS LAST
+        ),
+        order_by_customer AS (
+          SELECT
+            COALESCE(customer->>'id', '') AS customer_id,
+            COUNT(*) AS orders,
+            COALESCE(SUM(total_price), 0) AS revenue
+          FROM shopify.orders
+          WHERE cancelled_at IS NULL
+          GROUP BY COALESCE(customer->>'id', '')
+        )
+        SELECT
+          address_by_customer.city,
+          COALESCE(address_by_customer.region, 'Unknown region') AS region,
+          COUNT(DISTINCT address_by_customer.customer_id)::text AS customers,
+          COALESCE(SUM(order_by_customer.orders), 0)::text AS orders,
+          COALESCE(SUM(order_by_customer.revenue), 0)::text AS revenue
+        FROM address_by_customer
+        LEFT JOIN order_by_customer ON order_by_customer.customer_id = address_by_customer.customer_id
+        WHERE address_by_customer.city IS NOT NULL
+        GROUP BY address_by_customer.city, address_by_customer.region
+        ORDER BY COALESCE(SUM(order_by_customer.revenue), 0) DESC, COUNT(DISTINCT address_by_customer.customer_id) DESC
+        LIMIT 50
+      `),
+      pool.query<{ with_city: string | null; missing_city: string | null }>(`
+        SELECT
+          COUNT(*) FILTER (WHERE NULLIF(TRIM(city), '') IS NOT NULL)::text AS with_city,
+          COUNT(*) FILTER (WHERE NULLIF(TRIM(city), '') IS NULL)::text AS missing_city
+        FROM shopify.customer_address
+        WHERE customer_id IS NOT NULL
+      `),
+    ]);
+
+    const topCities = cityResult.rows.map((row) => ({
+      city: row.city || 'Unknown city',
+      region: row.region || 'Unknown region',
+      classification: classifyCity(row.city || ''),
+      customers: numberFromPg(row.customers),
+      orders: numberFromPg(row.orders),
+      revenue: numberFromPg(row.revenue),
+    }));
+    const bigCityCustomers = topCities.filter((row) => row.classification === 'Big city').reduce((sum, row) => sum + row.customers, 0);
+    const peripheryCustomers = topCities.filter((row) => row.classification !== 'Big city').reduce((sum, row) => sum + row.customers, 0);
+    const bigCityRevenue = topCities.filter((row) => row.classification === 'Big city').reduce((sum, row) => sum + row.revenue, 0);
+    const peripheryRevenue = topCities.filter((row) => row.classification !== 'Big city').reduce((sum, row) => sum + row.revenue, 0);
+    const bigCityOrderCount = topCities.filter((row) => row.classification === 'Big city').reduce((sum, row) => sum + row.orders, 0);
+    const peripheryOrderCount = topCities.filter((row) => row.classification !== 'Big city').reduce((sum, row) => sum + row.orders, 0);
+    const buyersWithCityData = numberFromPg(missingResult.rows[0]?.with_city);
+    const buyersMissingCityData = numberFromPg(missingResult.rows[0]?.missing_city);
+
+    return {
+      ok: true,
+      metrics: {
+        buyersWithCityData,
+        buyersMissingCityData,
+        bigCityCustomers,
+        peripheryCustomers,
+        bigCityCustomerShare: rate(bigCityCustomers, bigCityCustomers + peripheryCustomers),
+        peripheryCustomerShare: rate(peripheryCustomers, bigCityCustomers + peripheryCustomers),
+        bigCityRevenue,
+        peripheryRevenue,
+        bigCityOrderCount,
+        peripheryOrderCount,
+        topCities,
+        recommendation: buyersWithCityData === 0
+          ? 'Improve checkout/location capture or Shopify address sync.'
+          : bigCityCustomers >= peripheryCustomers
+            ? 'Prioritize big city targeting, then test periphery expansion.'
+            : 'Test suburban/periphery targeting; current buyers skew outside major cities.',
+        heuristicNote: 'City classification is a simple editable NL/BE major-city list, not population data.',
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Geo insights failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }

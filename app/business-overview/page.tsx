@@ -139,6 +139,9 @@ export default async function BusinessOverviewPage({
     { href: '/ratings-intelligence', title: 'Ratings Intelligence', subtitle: 'Wine-level satisfaction signals' },
     { href: '/food-pairing-intelligence', title: 'Food Pairing Intelligence', subtitle: 'Pairing coverage and positioning' },
     { href: '/meta', title: 'Meta Ads Performance', subtitle: 'Spend, clicks, and attribution readiness' },
+    { href: '/site-behavior', title: 'Site Behavior', subtitle: 'Daily orders, checkout, quiz, rating, and session readiness' },
+    { href: '/geo-insights', title: 'Geo Insights', subtitle: 'Buyer city/periphery targeting signals' },
+    { href: '/tracking-readiness', title: 'Tracking Readiness', subtitle: 'GA4/session/event/attribution diagnostic' },
     { href: '/customer-activity-readiness', title: 'Customer Activity Readiness', subtitle: 'Session tracking gap check' },
     { href: '/today-action-plan', title: 'Today Action Plan', subtitle: 'Prioritized next actions' },
   ];

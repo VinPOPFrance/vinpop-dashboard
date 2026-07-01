@@ -16,9 +16,9 @@ export default async function MetaPage() {
 
   return (
     <DashboardLayout>
-      <TopBar title="Meta Ads" subtitle="Aggregate Meta performance with sortable campaign/ad tables" />
+      <TopBar title="Meta Creative Performance" subtitle="Campaign, ad set, creative, click cost, hook readiness, and attribution status" />
       <PageSection>
-        <SectionTitle sub="Platform metrics only where attribution is unavailable">Meta Ads Performance</SectionTitle>
+        <SectionTitle sub="Platform metrics only where attribution is unavailable">Creative Performance</SectionTitle>
         <Card style={{ marginBottom: 16 }}>
           <p style={{ margin: '0 0 8px', color: '#1A1A1A', fontSize: 13, fontWeight: 700 }}>
             Aggregate ad metrics only. No customer data is displayed.
@@ -38,6 +38,7 @@ export default async function MetaPage() {
                 ['CTR', formatPercent(metrics.ctr)],
                 ['CPC', formatEuro(metrics.cpc)],
                 ['CPM', formatEuro(metrics.cpm)],
+                ['Hook rate', formatPercent(metrics.hookRate)],
                 ['Campaigns', formatNumber(metrics.campaignsCount)],
                 ['Ad sets', formatNumber(metrics.adSetsCount)],
                 ['Ads', formatNumber(metrics.adsCount)],
