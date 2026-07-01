@@ -1,4 +1,4 @@
-export type DateRangePeriod = 'last_7_days' | 'last_14_days' | 'last_30_days' | 'this_month' | 'last_month';
+export type DateRangePeriod = 'last_7_days' | 'last_14_days' | 'last_30_days' | 'this_month' | 'last_month' | 'all';
 
 export type DateRange = {
   period: DateRangePeriod;
@@ -30,11 +30,21 @@ export function getDateRange(period: string | null | undefined): DateRange {
     period === 'last_14_days' ||
     period === 'last_30_days' ||
     period === 'this_month' ||
-    period === 'last_month'
+    period === 'last_month' ||
+    period === 'all'
       ? period
       : 'last_7_days'
   ) satisfies DateRangePeriod;
   const today = startOfDay(new Date());
+
+  if (normalized === 'all') {
+    return {
+      period: normalized,
+      label: 'All time',
+      start: new Date(2000, 0, 1),
+      end: today,
+    };
+  }
 
   if (normalized === 'this_month') {
     return {
@@ -76,6 +86,10 @@ export function getPreviousDateRange(range: DateRange): DateRange {
 }
 
 export function getDateRangeFromSearchParams(params: Record<string, string | string[] | undefined>): DateRange {
-  const raw = params.period;
-  return getDateRange(Array.isArray(raw) ? raw[0] : raw);
+  const rangeRaw = params.range;
+  const periodRaw = params.period;
+  const rawRange = Array.isArray(rangeRaw) ? rangeRaw[0] : rangeRaw;
+  const rawPeriod = Array.isArray(periodRaw) ? periodRaw[0] : periodRaw;
+  const mappedRange = rawRange === '7d' ? 'last_7_days' : rawRange === '30d' ? 'last_30_days' : rawRange === 'all' ? 'all' : null;
+  return getDateRange(mappedRange ?? rawPeriod);
 }

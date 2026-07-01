@@ -3,13 +3,14 @@ import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { RatingsDashboardClient } from '@/components/RatingsDashboardClient';
 import { TopBar } from '@/components/TopBar';
-import { getRatingsIntelligence } from '@/lib/db';
+import { getCachedRatingsIntelligence } from '@/lib/cachedDb';
+import { timeAsync } from '@/lib/performance';
 
 export const runtime = 'nodejs';
 
 export default async function RatingsPage() {
   await connection();
-  const result = await getRatingsIntelligence();
+  const result = await timeAsync('page:/ratings getRatingsIntelligence', () => getCachedRatingsIntelligence());
   const metrics = result.ok ? result.metrics : null;
 
   return (

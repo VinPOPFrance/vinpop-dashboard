@@ -1,16 +1,17 @@
 import { connection } from 'next/server';
 import { BarChart } from '@/components/BarChart';
+import { BusinessOverviewDailyClient } from '@/components/BusinessOverviewDailyClient';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { DonutChart } from '@/components/DonutChart';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { MetricCard } from '@/components/MetricCard';
 import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
-import { LineChart } from '@/components/dashboard/LineChart';
 import { TrendBadge } from '@/components/dashboard/TrendBadge';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
-import { getBusinessOverview, getBusinessOverviewPeriodTrends, getCustomerIntelligence, getMetaAdsPerformance, getSiteBehavior, getTodayActionPlan } from '@/lib/db';
+import { getCachedBusinessOverview, getCachedBusinessOverviewPeriodTrends, getCachedCustomerIntelligence, getCachedMetaAdsPerformance, getCachedSiteBehavior, getCachedTodayActionPlan, rangeCacheArgs } from '@/lib/cachedDb';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
+import { timeAsync } from '@/lib/performance';
 
 export const runtime = 'nodejs';
 
@@ -54,13 +55,14 @@ export default async function BusinessOverviewPage({
 }) {
   await connection();
   const range = getDateRangeFromSearchParams(await searchParams);
+  const rangeArgs = rangeCacheArgs(range);
   const [result, actionPlanResult, customerResult, trendsResult, siteBehaviorResult, metaResult] = await Promise.all([
-    getBusinessOverview(),
-    getTodayActionPlan(),
-    getCustomerIntelligence(),
-    getBusinessOverviewPeriodTrends(range),
-    getSiteBehavior(range),
-    getMetaAdsPerformance(),
+    timeAsync('page:/business-overview getBusinessOverview', () => getCachedBusinessOverview()),
+    timeAsync('page:/business-overview getTodayActionPlan', () => getCachedTodayActionPlan()),
+    timeAsync('page:/business-overview getCustomerIntelligence', () => getCachedCustomerIntelligence()),
+    timeAsync('page:/business-overview getBusinessOverviewPeriodTrends', () => getCachedBusinessOverviewPeriodTrends(...rangeArgs)),
+    timeAsync('page:/business-overview getSiteBehavior', () => getCachedSiteBehavior(...rangeArgs)),
+    timeAsync('page:/business-overview getMetaAdsPerformance', () => getCachedMetaAdsPerformance()),
   ]);
   const metrics = result.ok ? result.metrics : null;
   const actionPlan = actionPlanResult.ok ? actionPlanResult.metrics : null;
@@ -188,40 +190,8 @@ export default async function BusinessOverviewPage({
 
             {siteBehavior ? (
               <PageSection>
-                <SectionTitle sub="Daily movement from available aggregate tables">Direction Charts</SectionTitle>
-                {!siteBehavior.hasGa4Rows ? (
-                  <Card style={{ marginBottom: 16, borderColor: '#F2C94C', background: '#FFFCF0' }}>
-                    <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 800 }}>
-                      GA4 connector exists but usable GA4 traffic tables are not yet available in PostgreSQL.
-                    </p>
-                  </Card>
-                ) : null}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 16 }}>
-                  <Card>
-                    <SectionTitle>Daily Orders</SectionTitle>
-                    <LineChart data={siteBehavior.series.map((row) => ({ label: row.date, value: row.orders }))} color="#722F37" />
-                  </Card>
-                  <Card>
-                    <SectionTitle>Daily Abandoned Checkouts</SectionTitle>
-                    <LineChart data={siteBehavior.series.map((row) => ({ label: row.date, value: row.abandonedCheckouts }))} color="#B45309" />
-                  </Card>
-                  <Card>
-                    <SectionTitle>Daily Ratings</SectionTitle>
-                    <LineChart data={siteBehavior.series.map((row) => ({ label: row.date, value: row.ratings }))} color="#A67C00" />
-                  </Card>
-                  {meta ? (
-                    <>
-                      <Card>
-                        <SectionTitle>Meta Spend</SectionTitle>
-                        <LineChart data={meta.daily.map((row) => ({ label: row.date, value: row.spend }))} color="#6B6B6B" />
-                      </Card>
-                      <Card>
-                        <SectionTitle>Meta Clicks</SectionTitle>
-                        <LineChart data={meta.daily.map((row) => ({ label: row.date, value: row.clicks }))} color="#2D6A4F" />
-                      </Card>
-                    </>
-                  ) : null}
-                </div>
+                <SectionTitle sub="Daily movement from available aggregate tables. Click any point for date detail.">Direction Charts</SectionTitle>
+                <BusinessOverviewDailyClient siteSeries={siteBehavior.series} metaDaily={meta?.daily ?? []} hasGa4Rows={siteBehavior.hasGa4Rows} />
               </PageSection>
             ) : null}
 

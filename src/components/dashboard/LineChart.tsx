@@ -1,6 +1,18 @@
 'use client';
 
-export function LineChart({ data, color = '#722F37' }: { data: { label: string; value: number; tooltip?: string }[]; color?: string }) {
+export type LineChartPoint = { label: string; value: number; tooltip?: string };
+
+export function LineChart({
+  data,
+  color = '#722F37',
+  selectedLabel = null,
+  onPointClick,
+}: {
+  data: LineChartPoint[];
+  color?: string;
+  selectedLabel?: string | null;
+  onPointClick?: (point: LineChartPoint) => void;
+}) {
   const width = 520;
   const height = 180;
   const padding = 24;
@@ -19,11 +31,24 @@ export function LineChart({ data, color = '#722F37' }: { data: { label: string; 
       <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#E8E6E1" />
       <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="#E8E6E1" />
       {points.length > 0 ? <path d={path} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" /> : null}
-      {points.map((point) => (
-        <circle key={`${point.label}.${point.x}`} cx={point.x} cy={point.y} r="4" fill={color}>
+      {points.map((point) => {
+        const selected = selectedLabel === point.label;
+        return (
+        <circle
+          key={`${point.label}.${point.x}`}
+          cx={point.x}
+          cy={point.y}
+          r={selected ? 6 : 4}
+          fill={selected ? '#FFFFFF' : color}
+          stroke={color}
+          strokeWidth={selected ? 3 : 0}
+          style={{ cursor: onPointClick ? 'pointer' : 'default' }}
+          onClick={() => onPointClick?.(point)}
+        >
           <title>{point.tooltip ?? `${point.label}: ${point.value.toLocaleString('en-US')}`}</title>
         </circle>
-      ))}
+        );
+      })}
       {points.slice(-4).map((point) => (
         <text key={point.label} x={point.x} y={height - 6} textAnchor="middle" fontSize="10" fill="#9B9B9B">
           {point.label.slice(5)}

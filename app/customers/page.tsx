@@ -3,13 +3,14 @@ import { CustomersDashboardClient } from '@/components/CustomersDashboardClient'
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { TopBar } from '@/components/TopBar';
-import { getCustomerIntelligence } from '@/lib/db';
+import { getCachedCustomerIntelligence } from '@/lib/cachedDb';
+import { timeAsync } from '@/lib/performance';
 
 export const runtime = 'nodejs';
 
 export default async function CustomersPage() {
   await connection();
-  const result = await getCustomerIntelligence();
+  const result = await timeAsync('page:/customers getCustomerIntelligence', () => getCachedCustomerIntelligence());
   const customers = result.ok ? result.metrics.customers : [];
 
   return (

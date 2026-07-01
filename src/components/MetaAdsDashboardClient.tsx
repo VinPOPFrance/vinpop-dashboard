@@ -23,20 +23,13 @@ const drillColumns: SortableColumn<MetaRow>[] = [
   { key: 'performanceLabel', label: 'Status', type: 'text' },
 ];
 
-const rankingColumns: SortableColumn<MetaRow>[] = [
+const decisionColumns: SortableColumn<MetaRow>[] = [
   { key: 'name', label: 'Ad', type: 'text', width: 220 },
-  { key: 'campaignName', label: 'Campaign', type: 'text', width: 180 },
-  { key: 'parentName', label: 'Ad set', type: 'text', width: 180 },
   { key: 'spend', label: 'Spend', type: 'money' },
-  { key: 'impressions', label: 'Impressions', type: 'number' },
-  { key: 'clicks', label: 'Clicks', type: 'number' },
   { key: 'ctr', label: 'CTR', type: 'percent' },
   { key: 'cpc', label: 'CPC', type: 'money' },
-  { key: 'cpm', label: 'CPM', type: 'money' },
   { key: 'hookRate', label: 'Hook', type: 'percent' },
   { key: 'purchases', label: 'Meta purchases', type: 'number' },
-  { key: 'cpa', label: 'Meta CPA', type: 'money' },
-  { key: 'roas', label: 'Meta ROAS', type: 'number' },
   { key: 'recommendedAction', label: 'Action', type: 'text', width: 260 },
 ];
 
@@ -166,13 +159,25 @@ function tooltip(row: DailyRow) {
   ].filter(Boolean).join('\n');
 }
 
-function RankingTable({ title, rows, initialSortKey }: { title: string; rows: MetaPerformanceRow[]; initialSortKey: keyof MetaRow & string }) {
+function DecisionTable({
+  title,
+  rows,
+  initialSortKey,
+}: {
+  title: string;
+  rows: MetaPerformanceRow[];
+  initialSortKey: keyof MetaRow & string;
+}) {
   return (
     <Card style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}>
-        <SectionTitle>{title}</SectionTitle>
+        <SectionTitle sub={`${formatNumber(rows.length)} ads`}>{title}</SectionTitle>
       </div>
-      <SortableDataTable columns={rankingColumns} rows={rows as MetaRow[]} initialSortKey={initialSortKey} searchPlaceholder={`Search ${title.toLowerCase()}...`} />
+      {rows.length ? (
+        <SortableDataTable columns={decisionColumns} rows={rows as MetaRow[]} initialSortKey={initialSortKey} searchPlaceholder={`Search ${title.toLowerCase()}...`} />
+      ) : (
+        <p style={{ margin: 0, padding: 16, color: '#6B6B6B', fontSize: 13 }}>No ads in this group for the current filters.</p>
+      )}
     </Card>
   );
 }
@@ -185,6 +190,7 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
   const [selectedCampaignId, setSelectedCampaignId] = useState('');
   const [selectedAdSetId, setSelectedAdSetId] = useState('');
   const [selectedAdId, setSelectedAdId] = useState('');
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const dateMatches = (firstDate: string | null, latestDate: string | null) => {
     const start = firstDate ? firstDate.slice(0, 10) : '';
@@ -220,7 +226,6 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
   const quality = trafficQuality(kpis.ctr, kpis.cpc);
   const enoughSpendAds = ads.filter((row) => row.spend >= minSpend);
   const insufficientSpendAds = ads.filter((row) => row.spend < minSpend);
-  const hookAvailable = ads.some((row) => row.hookRate !== null);
   const dailyRows = aggregateDaily(
     metrics.daily
       .filter((row) => dailyDateMatches(row.date))
@@ -228,12 +233,27 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
       .filter((row) => !selectedAdSetId || row.adSetId === selectedAdSetId)
       .filter((row) => !selectedAdId || row.adId === selectedAdId),
   );
-  const bestCtr = [...enoughSpendAds].sort((a, b) => (b.ctr ?? 0) - (a.ctr ?? 0)).slice(0, 8);
-  const bestCpc = [...enoughSpendAds].filter((row) => row.cpc !== null).sort((a, b) => (a.cpc ?? 0) - (b.cpc ?? 0)).slice(0, 8);
-  const bestHook = [...enoughSpendAds].filter((row) => row.hookRate !== null).sort((a, b) => (b.hookRate ?? 0) - (a.hookRate ?? 0)).slice(0, 8);
-  const worstCtr = [...enoughSpendAds].sort((a, b) => (a.ctr ?? 0) - (b.ctr ?? 0)).slice(0, 8);
-  const worstCpc = [...enoughSpendAds].filter((row) => row.cpc !== null).sort((a, b) => (b.cpc ?? 0) - (a.cpc ?? 0)).slice(0, 8);
-  const highSpendWeak = [...enoughSpendAds].filter((row) => (row.ctr ?? 0) < 1).sort((a, b) => b.spend - a.spend).slice(0, 8);
+  const selectedDay = dailyRows.find((row) => row.date === selectedDate) ?? null;
+  const withActions = (rows: MetaPerformanceRow[]) => rows.map((row) => ({ ...row, recommendedAction: actionForAd(row, minSpend) }));
+  const scaleCandidates = withActions(
+    [...enoughSpendAds]
+      .filter((row) => (row.ctr ?? 0) >= 2 && (row.cpc ?? 99) <= 0.5)
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 6),
+  );
+  const watchAds = withActions(
+    [...enoughSpendAds]
+      .filter((row) => (row.ctr ?? 0) >= 1 && (row.cpc ?? 99) <= 1.5 && !((row.ctr ?? 0) >= 2 && (row.cpc ?? 99) <= 0.5))
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 6),
+  );
+  const refreshAds = withActions(
+    [...enoughSpendAds]
+      .filter((row) => (row.ctr ?? 0) < 1 || (row.cpc ?? 0) > 1.5 || (row.hookRate !== null && row.hookRate < 10))
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 6),
+  );
+  const insufficientSpendSummary = withActions([...insufficientSpendAds].sort((a, b) => b.spend - a.spend).slice(0, 6));
   const clearSelection = () => {
     setSelectedCampaignId('');
     setSelectedAdSetId('');
@@ -347,33 +367,56 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
       </PageSection>
 
       <PageSection>
-        <SectionTitle sub={`Only ads with spend >= ${formatEuro(minSpend)} are judged`}>Best / Worst Ads</SectionTitle>
+        <SectionTitle sub={`Creative decisions. Only ads with spend >= ${formatEuro(minSpend)} are judged.`}>Creative Decision Summary</SectionTitle>
+        <Card style={{ marginBottom: 12, borderColor: '#F2C94C', background: '#FFFCF0' }}>
+          <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 800, lineHeight: 1.5 }}>
+            Good hook / CTR / CPC means the creative is interesting. Good clicks but no measurable sales means attribution or landing page needs work. High spend with weak CTR means refresh or pause.
+          </p>
+        </Card>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
-          <RankingTable title="Best ads by CTR" rows={bestCtr.map((row) => ({ ...row, recommendedAction: actionForAd(row, minSpend) }))} initialSortKey="ctr" />
-          <RankingTable title="Best ads by CPC" rows={bestCpc.map((row) => ({ ...row, recommendedAction: actionForAd(row, minSpend) }))} initialSortKey="cpc" />
-          {hookAvailable ? <RankingTable title="Best ads by hook rate" rows={bestHook.map((row) => ({ ...row, recommendedAction: actionForAd(row, minSpend) }))} initialSortKey="hookRate" /> : null}
-          <RankingTable title="Worst ads by CTR" rows={worstCtr.map((row) => ({ ...row, recommendedAction: actionForAd(row, minSpend) }))} initialSortKey="ctr" />
-          <RankingTable title="Worst ads by CPC" rows={worstCpc.map((row) => ({ ...row, recommendedAction: actionForAd(row, minSpend) }))} initialSortKey="cpc" />
-          <RankingTable title="High spend weak performers" rows={highSpendWeak.map((row) => ({ ...row, recommendedAction: actionForAd(row, minSpend) }))} initialSortKey="spend" />
+          <DecisionTable title="Scale candidates" rows={scaleCandidates} initialSortKey="spend" />
+          <DecisionTable title="Watch / keep testing" rows={watchAds} initialSortKey="spend" />
+          <DecisionTable title="Refresh or pause" rows={refreshAds} initialSortKey="spend" />
+          <DecisionTable title="Insufficient spend" rows={insufficientSpendSummary} initialSortKey="spend" />
         </div>
-        {insufficientSpendAds.length ? (
-          <details style={{ marginTop: 12 }}>
-            <summary style={{ cursor: 'pointer', color: '#722F37', fontSize: 13, fontWeight: 800 }}>Insufficient spend ads ({formatNumber(insufficientSpendAds.length)})</summary>
-            <Card style={{ padding: 0, overflow: 'hidden', marginTop: 8 }}>
-              <SortableDataTable columns={rankingColumns} rows={insufficientSpendAds.map((row) => ({ ...row, recommendedAction: 'Not enough spend to judge' })) as MetaRow[]} initialSortKey="spend" searchPlaceholder="Search insufficient spend ads..." />
-            </Card>
-          </details>
-        ) : null}
       </PageSection>
 
       <PageSection>
-        <SectionTitle sub="Updates with date range and current selection. Hover a point for detail.">Daily Performance</SectionTitle>
+        <SectionTitle sub="Updates with date range and current selection. Click a point to inspect that day.">Daily Performance</SectionTitle>
+        <Card style={{ marginBottom: 12 }}>
+          {selectedDay ? (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+                <SectionTitle sub="Selected chart point">Selected Day Detail</SectionTitle>
+                <button type="button" onClick={() => setSelectedDate(null)} style={{ padding: '7px 10px', borderRadius: 7, border: '1px solid #E8E6E1', background: '#FFFFFF', color: '#722F37', cursor: 'pointer', fontWeight: 700 }}>
+                  Clear date
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+                <MetricCard label="Date" value={formatDate(selectedDay.date)} />
+                <MetricCard label="Spend" value={formatEuro(selectedDay.spend)} />
+                <MetricCard label="Impressions" value={formatNumber(selectedDay.impressions)} />
+                <MetricCard label="Clicks" value={formatNumber(selectedDay.clicks)} />
+                <MetricCard label="CTR" value={formatPercent(selectedDay.ctr)} />
+                <MetricCard label="CPC" value={formatEuro(selectedDay.cpc)} />
+                <MetricCard label="CPM" value={formatEuro(selectedDay.cpm)} />
+                <MetricCard label="Meta purchases" value={formatNumber(selectedDay.purchases)} />
+                <MetricCard label="Meta CPA" value={formatEuro(selectedDay.cpa)} />
+                <MetricCard label="Meta ROAS" value={formatNumber(selectedDay.roas, 2)} />
+              </div>
+            </>
+          ) : (
+            <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, fontWeight: 700 }}>
+              Click any daily chart point to see spend, clicks, CTR, CPC, CPM, Meta purchases, CPA, and ROAS for that date.
+            </p>
+          )}
+        </Card>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
-          <Card><SectionTitle>Spend</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.spend, tooltip: tooltip(row as DailyRow) }))} color="#722F37" /></Card>
-          <Card><SectionTitle>Clicks</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.clicks, tooltip: tooltip(row as DailyRow) }))} color="#2D6A4F" /></Card>
-          <Card><SectionTitle>CPC</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.cpc ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#B45309" /></Card>
-          <Card><SectionTitle>CTR</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.ctr ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#A67C00" /></Card>
-          {metrics.attributionAvailable ? <Card><SectionTitle>Meta Purchases</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.purchases ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#2D6A4F" /></Card> : null}
+          <Card><SectionTitle>Spend</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.spend, tooltip: tooltip(row as DailyRow) }))} color="#722F37" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
+          <Card><SectionTitle>Clicks</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.clicks, tooltip: tooltip(row as DailyRow) }))} color="#2D6A4F" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
+          <Card><SectionTitle>CPC</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.cpc ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#B45309" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
+          <Card><SectionTitle>CTR</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.ctr ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#A67C00" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
+          {metrics.attributionAvailable ? <Card><SectionTitle>Meta Purchases</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.purchases ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#2D6A4F" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card> : null}
         </div>
         <details style={{ marginTop: 12 }}>
           <summary style={{ cursor: 'pointer', color: '#722F37', fontSize: 13, fontWeight: 800 }}>Daily metric table</summary>

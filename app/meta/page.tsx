@@ -3,13 +3,14 @@ import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { MetaAdsDashboardClient } from '@/components/MetaAdsDashboardClient';
 import { TopBar } from '@/components/TopBar';
-import { getMetaAdsPerformance } from '@/lib/db';
+import { getCachedMetaAdsPerformance } from '@/lib/cachedDb';
+import { timeAsync } from '@/lib/performance';
 
 export const runtime = 'nodejs';
 
 export default async function MetaPage() {
   await connection();
-  const result = await getMetaAdsPerformance();
+  const result = await timeAsync('page:/meta getMetaAdsPerformance', () => getCachedMetaAdsPerformance());
   const metrics = result.ok ? result.metrics : null;
 
   return (

@@ -3,13 +3,14 @@ import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { SalesFunnelClient } from '@/components/SalesFunnelClient';
 import { TopBar } from '@/components/TopBar';
-import { getCustomerIntelligence } from '@/lib/db';
+import { getCachedCustomerIntelligence } from '@/lib/cachedDb';
+import { timeAsync } from '@/lib/performance';
 
 export const runtime = 'nodejs';
 
 export default async function SalesFunnelPage() {
   await connection();
-  const result = await getCustomerIntelligence();
+  const result = await timeAsync('page:/sales-funnel getCustomerIntelligence', () => getCachedCustomerIntelligence());
 
   return (
     <DashboardLayout>

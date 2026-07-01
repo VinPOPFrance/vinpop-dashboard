@@ -17,6 +17,7 @@ const navItems = [
   { href: '/customers', label: 'Customers', icon: '◪' },
   { href: '/tracking-readiness', label: 'Tracking Readiness', icon: '?' },
   { href: '/attribution-readiness', label: 'Attribution Readiness', icon: '↔' },
+  { href: '/performance-diagnostics', label: 'Performance', icon: '◷' },
 ];
 
 export function Sidebar() {

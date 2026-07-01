@@ -8,13 +8,15 @@ const options = [
   ['last_30_days', 'Last 30 days'],
   ['this_month', 'This month'],
   ['last_month', 'Last month'],
+  ['all', 'All time'],
 ];
 
 export function DateRangePicker() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const current = searchParams.get('period') ?? 'last_7_days';
+  const range = searchParams.get('range');
+  const current = range === '7d' ? 'last_7_days' : range === '30d' ? 'last_30_days' : range === 'all' ? 'all' : searchParams.get('period') ?? 'last_7_days';
 
   return (
     <select
