@@ -123,6 +123,7 @@ export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSum
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [ratingStatusFilter, setRatingStatusFilter] = useState('All');
   const [repeatFilter, setRepeatFilter] = useState('All');
+  const [orderStatusFilter, setOrderStatusFilter] = useState('All');
 
   const stageCounts = useMemo(
     () =>
@@ -140,6 +141,8 @@ export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSum
     if (ratingStatusFilter === 'Needs ratings' && customer.unratedBottlesRemaining <= 0) return false;
     if (ratingStatusFilter === 'Has ratings' && customer.bottlesRated === 0) return false;
     if (repeatFilter === 'Repeat only' && !customer.repeatCustomer) return false;
+    if (orderStatusFilter === 'Already ordered' && customer.ordersCount <= 0) return false;
+    if (orderStatusFilter === 'Never ordered' && customer.ordersCount > 0) return false;
     return true;
   });
   const selectedCustomer = filteredCustomers.find((customer) => customer.customerId === selectedCustomerId) ?? filteredCustomers[0] ?? null;
@@ -213,6 +216,11 @@ export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSum
                   <option>All</option>
                   <option>Needs ratings</option>
                   <option>Has ratings</option>
+                </select>
+                <select value={orderStatusFilter} onChange={(event) => setOrderStatusFilter(event.target.value)} style={selectStyle}>
+                  <option>All</option>
+                  <option>Already ordered</option>
+                  <option>Never ordered</option>
                 </select>
                 <select value={repeatFilter} onChange={(event) => setRepeatFilter(event.target.value)} style={selectStyle}>
                   <option>All</option>
