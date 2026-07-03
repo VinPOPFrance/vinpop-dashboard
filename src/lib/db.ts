@@ -3707,13 +3707,280 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
 }
 
 export async function getCustomerIntelligence(): Promise<CustomerIntelligenceResult> {
-  const result = await getRatingsIntelligence();
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
 
-  if (!result.ok) {
-    return result;
+  try {
+    const pool = getPool(databaseUrl);
+    const [customerResult, customerProductResult, customerRatedWineResult] = await Promise.all([
+      pool.query<Record<string, string | Date | null>>(`
+        WITH rating_rollups AS (
+          SELECT
+            customer_id,
+            COUNT(*)::text AS total_ratings,
+            COUNT(*) FILTER (WHERE rating = 3)::text AS love_count,
+            COUNT(*) FILTER (WHERE rating = 2)::text AS like_count,
+            COUNT(*) FILTER (WHERE rating = 1)::text AS dislike_count,
+            COUNT(DISTINCT id)::text AS bottles_rated,
+            MAX(created_at) AS last_rating_date
+          FROM public.ratings
+          GROUP BY customer_id
+        ),
+        order_rollups AS (
+          SELECT
+            lower(email) AS email,
+            COUNT(DISTINCT id)::text AS orders_count,
+            COUNT(DISTINCT id) FILTER (WHERE cancelled_at IS NULL)::text AS non_cancelled_orders_count,
+            COALESCE(SUM(total_price), 0)::text AS total_spent,
+            MIN(created_at) AS first_order_date,
+            MAX(created_at) AS last_order_date
+          FROM shopify.orders
+          WHERE email IS NOT NULL
+          GROUP BY lower(email)
+        ),
+        bottle_rollups AS (
+          SELECT
+            lower(orders.email) AS email,
+            COALESCE(SUM(
+              CASE
+                WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
+                ELSE 0
+              END
+            ), 0)::text AS bottles_bought,
+            BOOL_OR(
+              COALESCE(item->>'title', item->>'name', '') ILIKE '%starter pack%'
+              OR COALESCE(item->>'title', item->>'name', '') ILIKE '%startup pack%'
+              OR COALESCE(item->>'title', item->>'name', '') ILIKE '%taste kit%'
+              OR COALESCE(item->>'title', item->>'name', '') ILIKE '%tasting kit%'
+              OR COALESCE(item->>'title', item->>'name', '') ILIKE '%calibration kit%'
+            )::text AS startup_pack_buyer,
+            BOOL_OR(
+              COALESCE(item->>'title', item->>'name', '') ILIKE '%smart box%'
+              OR COALESCE(item->>'title', item->>'name', '') ILIKE '%box%'
+            )::text AS smart_box_buyer,
+            BOOL_OR(COALESCE(item->>'title', item->>'name', '') ILIKE '%subscription%')::text AS subscriber
+          FROM shopify.orders AS orders
+          CROSS JOIN LATERAL jsonb_array_elements(
+            CASE
+              WHEN line_items IS NULL THEN '[]'::jsonb
+              WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN line_items::jsonb
+              ELSE '[]'::jsonb
+            END
+          ) AS item
+          WHERE orders.email IS NOT NULL
+          GROUP BY lower(orders.email)
+        ),
+        quiz_rollups AS (
+          SELECT customer_id, COUNT(*)::text AS quiz_count
+          FROM public.quizz
+          GROUP BY customer_id
+        )
+        SELECT
+          users.id AS customer_id,
+          users.email,
+          COALESCE(order_rollups.total_spent, '0') AS total_spent,
+          COALESCE(order_rollups.orders_count, '0') AS orders_count,
+          COALESCE(order_rollups.non_cancelled_orders_count, '0') AS non_cancelled_orders_count,
+          COALESCE(bottle_rollups.bottles_bought, '0') AS bottles_bought,
+          COALESCE(bottle_rollups.startup_pack_buyer, 'false') AS startup_pack_buyer,
+          COALESCE(bottle_rollups.smart_box_buyer, 'false') AS smart_box_buyer,
+          COALESCE(bottle_rollups.subscriber, 'false') AS subscriber,
+          COALESCE(rating_rollups.bottles_rated, '0') AS bottles_rated,
+          COALESCE(rating_rollups.total_ratings, '0') AS total_ratings,
+          COALESCE(rating_rollups.love_count, '0') AS love_count,
+          COALESCE(rating_rollups.like_count, '0') AS like_count,
+          COALESCE(rating_rollups.dislike_count, '0') AS dislike_count,
+          order_rollups.first_order_date,
+          order_rollups.last_order_date,
+          rating_rollups.last_rating_date,
+          COALESCE(quiz_rollups.quiz_count, '0') AS quiz_count
+        FROM public.users AS users
+        LEFT JOIN order_rollups ON order_rollups.email = lower(users.email)
+        LEFT JOIN bottle_rollups ON bottle_rollups.email = lower(users.email)
+        LEFT JOIN rating_rollups ON rating_rollups.customer_id = users.id
+        LEFT JOIN quiz_rollups ON quiz_rollups.customer_id = users.id
+        WHERE users.email IS NOT NULL
+          AND (
+            COALESCE(order_rollups.orders_count, '0') <> '0'
+            OR COALESCE(rating_rollups.total_ratings, '0') <> '0'
+            OR COALESCE(quiz_rollups.quiz_count, '0') <> '0'
+          )
+        ORDER BY COALESCE(order_rollups.total_spent, '0')::numeric DESC, users.email
+        LIMIT 200
+      `),
+      pool.query<Record<string, string | null>>(`
+        WITH order_items AS (
+          SELECT
+            users.id AS customer_id,
+            COALESCE(NULLIF(item->>'product_id', ''), 'Unmapped') AS shopify_product_id,
+            COALESCE(NULLIF(item->>'title', ''), NULLIF(item->>'name', ''), 'Unknown product') AS product_name,
+            CASE WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric ELSE 0 END AS quantity_value,
+            CASE WHEN item->>'price' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'price')::numeric ELSE 0 END AS price_value,
+            CASE
+              WHEN item->>'total_discount' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'total_discount')::numeric
+              ELSE 0
+            END AS discount_value
+          FROM shopify.orders AS orders
+          JOIN public.users AS users ON lower(users.email) = lower(orders.email)
+          CROSS JOIN LATERAL jsonb_array_elements(
+            CASE
+              WHEN line_items IS NULL THEN '[]'::jsonb
+              WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN line_items::jsonb
+              ELSE '[]'::jsonb
+            END
+          ) AS item
+        ),
+        rated_products AS (
+          SELECT
+            customer_id,
+            id::text AS shopify_product_id,
+            COUNT(*) AS rated_count
+          FROM public.ratings
+          GROUP BY customer_id, id
+        )
+        SELECT
+          order_items.customer_id,
+          order_items.shopify_product_id,
+          order_items.product_name,
+          COALESCE(SUM(quantity_value), 0)::text AS quantity_bought,
+          COALESCE(SUM(quantity_value * price_value), 0)::text AS gross_revenue,
+          COALESCE(SUM(discount_value), 0)::text AS discount,
+          COALESCE(SUM(GREATEST(quantity_value * price_value - discount_value, 0)), 0)::text AS net_revenue,
+          COALESCE(MAX(rated_products.rated_count), 0)::text AS rated_count
+        FROM order_items
+        LEFT JOIN rated_products ON rated_products.customer_id = order_items.customer_id
+          AND rated_products.shopify_product_id = order_items.shopify_product_id
+        GROUP BY order_items.customer_id, order_items.shopify_product_id, order_items.product_name
+        ORDER BY order_items.customer_id, SUM(quantity_value) DESC
+      `),
+      pool.query<Record<string, string | Date | null>>(`
+        SELECT
+          customer_id,
+          COALESCE(NULLIF(id, ''), 'Unmapped') AS shopify_product_id,
+          COALESCE(NULLIF(id, ''), 'Unknown product') AS wine_name,
+          'Unknown color' AS color,
+          CASE
+            WHEN rating = 3 THEN 'Love'
+            WHEN rating = 2 THEN 'Like'
+            WHEN rating = 1 THEN 'Dislike'
+            ELSE 'Love'
+          END AS rating_label,
+          created_at AS rating_date
+        FROM public.ratings
+        WHERE customer_id IS NOT NULL
+        ORDER BY created_at DESC
+        LIMIT 1000
+      `),
+    ]);
+    const productsByCustomer = new Map<string, CustomerProductSummary[]>();
+    for (const productRow of customerProductResult.rows) {
+      const customerId = productRow.customer_id || '';
+      const quantityBought = numberFromPg(productRow.quantity_bought);
+      const ratedCount = numberFromPg(productRow.rated_count);
+      const unratedCount = Math.max(quantityBought - ratedCount, 0);
+      const product: CustomerProductSummary = {
+        productName: productRow.product_name || 'Unknown product',
+        shopifyProductId: productRow.shopify_product_id || 'Unmapped',
+        quantityBought,
+        grossRevenue: numberFromPg(productRow.gross_revenue),
+        discount: numberFromPg(productRow.discount),
+        netRevenue: numberFromPg(productRow.net_revenue),
+        ratedCount,
+        unratedCount,
+        ratingStatus: ratedCount === 0 ? 'Not rated' : unratedCount > 0 ? 'Partially rated' : 'Rated',
+      };
+      productsByCustomer.set(customerId, [...(productsByCustomer.get(customerId) ?? []), product]);
+    }
+    const ratedWinesByCustomer = new Map<string, RatedWineDetail[]>();
+    for (const ratedWineRow of customerRatedWineResult.rows) {
+      const customerId = ratedWineRow.customer_id as string;
+      const detail: RatedWineDetail = {
+        wineName: (ratedWineRow.wine_name as string | null) || 'Unknown product',
+        shopifyProductId: (ratedWineRow.shopify_product_id as string | null) || 'Unmapped',
+        color: (ratedWineRow.color as string | null) || 'Unknown color',
+        ratingLabel:
+          ratedWineRow.rating_label === 'Like'
+            ? 'Like'
+            : ratedWineRow.rating_label === 'Dislike'
+              ? 'Dislike'
+              : 'Love',
+        ratingDate: dateFromPg((ratedWineRow.rating_date as Date | string | null) ?? null),
+      };
+      ratedWinesByCustomer.set(customerId, [...(ratedWinesByCustomer.get(customerId) ?? []), detail]);
+    }
+    const customers: CustomerRatingsSummary[] = customerResult.rows.map((customerRow) => {
+      const customerId = (customerRow.customer_id as string | null) || '';
+      const bottlesBought = numberFromPg(customerRow.bottles_bought as string | null);
+      const bottlesRated = numberFromPg(customerRow.bottles_rated as string | null);
+      const unrated = Math.max(bottlesBought - bottlesRated, 0);
+      const ordersCount = numberFromPg(customerRow.orders_count as string | null);
+      const nonCancelledOrdersCount = numberFromPg(customerRow.non_cancelled_orders_count as string | null);
+      const ratedPercentage = rate(bottlesRated, bottlesBought);
+      const totalCustomerRatings = numberFromPg(customerRow.total_ratings as string | null);
+      const loveForCustomer = numberFromPg(customerRow.love_count as string | null);
+      const likeForCustomer = numberFromPg(customerRow.like_count as string | null);
+      const startupPackBuyer = customerRow.startup_pack_buyer === 'true';
+      const smartBoxBuyer = customerRow.smart_box_buyer === 'true';
+      const subscriber = customerRow.subscriber === 'true';
+      const repeatCustomer = nonCancelledOrdersCount >= 2;
+      const stage = classifyCustomerStage({
+        ordersCount,
+        nonCancelledOrdersCount,
+        bottlesBought,
+        bottlesRated,
+        ratingsCount: totalCustomerRatings,
+        positiveRatingsCount: loveForCustomer + likeForCustomer,
+        isStartupPackBuyer: startupPackBuyer,
+        isSmartBoxBuyer: smartBoxBuyer,
+        isSubscriber: subscriber,
+        hasEmail: Boolean(customerRow.email),
+        hasQuiz: numberFromPg(customerRow.quiz_count as string | null) > 0,
+      });
+      const smartBoxReady = stage.name === 'Ready for Smart Box' || totalCustomerRatings >= 3;
+      const subscriptionReady = stage.name === 'Ready for Subscription';
+
+      return {
+        customerId,
+        email: (customerRow.email as string | null) || 'Unknown email',
+        totalSpent: numberFromPg(customerRow.total_spent as string | null),
+        ordersCount,
+        bottlesBought,
+        bottlesRated,
+        ratedPercentage,
+        unratedBottlesRemaining: unrated,
+        firstOrderDate: dateFromPg((customerRow.first_order_date as Date | string | null) ?? null),
+        lastOrderDate: dateFromPg((customerRow.last_order_date as Date | string | null) ?? null),
+        lastRatingDate: dateFromPg((customerRow.last_rating_date as Date | string | null) ?? null),
+        repeatCustomer,
+        startupPackBuyer,
+        smartBoxReady,
+        smartBoxBuyer,
+        subscriptionReady,
+        subscriber,
+        funnelStage: stage.name,
+        nextAction: stage.recommendedAction,
+        emailAngle: stage.emailAngle,
+        socialAngle: stage.socialAngle,
+        suggestedOffer: stage.offer,
+        objectionToHandle: stage.objection,
+        dataConfidence: stage.confidence,
+        stageHealth: stage.health,
+        stageExplanation: stage.explanation,
+        loveCount: loveForCustomer,
+        likeCount: likeForCustomer,
+        dislikeCount: numberFromPg(customerRow.dislike_count as string | null),
+        wineColorsRated: 'Unknown color',
+        ratedWines: ratedWinesByCustomer.get(customerId) ?? [],
+        purchasedProducts: productsByCustomer.get(customerId) ?? [],
+      };
+    });
+
+    return { ok: true, metrics: { customers } };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Customer intelligence failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
   }
-
-  return { ok: true, metrics: { customers: result.metrics.customers } };
 }
 
 export async function getFoodPairingIntelligence(): Promise<FoodPairingIntelligenceResult> {
