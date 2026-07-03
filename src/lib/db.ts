@@ -3832,11 +3832,12 @@ export async function getCustomerIntelligence(): Promise<CustomerIntelligenceRes
         ),
         rated_products AS (
           SELECT
-            customer_id,
-            id::text AS shopify_product_id,
+            ratings.customer_id,
+            public.mapping.vp_id::text AS shopify_product_id,
             COUNT(*) AS rated_count
-          FROM public.ratings
-          GROUP BY customer_id, id
+          FROM public.ratings AS ratings
+          JOIN public.mapping ON public.mapping.vp_id::text = ratings.id::text
+          GROUP BY ratings.customer_id, public.mapping.vp_id
         )
         SELECT
           order_items.customer_id,
@@ -3855,20 +3856,22 @@ export async function getCustomerIntelligence(): Promise<CustomerIntelligenceRes
       `),
       pool.query<Record<string, string | Date | null>>(`
         SELECT
-          customer_id,
-          COALESCE(NULLIF(id, ''), 'Unmapped') AS shopify_product_id,
-          COALESCE(NULLIF(id, ''), 'Unknown product') AS wine_name,
-          'Unknown color' AS color,
+          ratings.customer_id,
+          COALESCE(public.mapping.vp_id::text, 'Unmapped') AS shopify_product_id,
+          COALESCE(wines.name, public.mapping.name, 'Unknown wine') AS wine_name,
+          COALESCE(NULLIF(wines.wine->>'colour', ''), 'Unknown color') AS color,
           CASE
-            WHEN rating = 3 THEN 'Love'
-            WHEN rating = 2 THEN 'Like'
-            WHEN rating = 1 THEN 'Dislike'
+            WHEN ratings.rating = 3 THEN 'Love'
+            WHEN ratings.rating = 2 THEN 'Like'
+            WHEN ratings.rating = 1 THEN 'Dislike'
             ELSE 'Love'
           END AS rating_label,
-          created_at AS rating_date
-        FROM public.ratings
-        WHERE customer_id IS NOT NULL
-        ORDER BY created_at DESC
+          ratings.created_at AS rating_date
+        FROM public.ratings AS ratings
+        LEFT JOIN public.mapping ON public.mapping.vp_id::text = ratings.id::text
+        LEFT JOIN public.wines AS wines ON wines.id::text = public.mapping.wl_id::text
+        WHERE ratings.customer_id IS NOT NULL
+        ORDER BY ratings.created_at DESC
         LIMIT 1000
       `),
     ]);
@@ -3938,6 +3941,11 @@ export async function getCustomerIntelligence(): Promise<CustomerIntelligenceRes
       });
       const smartBoxReady = stage.name === 'Ready for Smart Box' || totalCustomerRatings >= 3;
       const subscriptionReady = stage.name === 'Ready for Subscription';
+      const ratedWines = ratedWinesByCustomer.get(customerId) ?? [];
+      const wineColorsRated =
+        Array.from(new Set(ratedWines.map((wine) => wine.color).filter((color) => color !== 'Unknown color')))
+          .sort()
+          .join(', ') || 'Unknown color';
 
       return {
         customerId,
@@ -3969,8 +3977,8 @@ export async function getCustomerIntelligence(): Promise<CustomerIntelligenceRes
         loveCount: loveForCustomer,
         likeCount: likeForCustomer,
         dislikeCount: numberFromPg(customerRow.dislike_count as string | null),
-        wineColorsRated: 'Unknown color',
-        ratedWines: ratedWinesByCustomer.get(customerId) ?? [],
+        wineColorsRated,
+        ratedWines,
         purchasedProducts: productsByCustomer.get(customerId) ?? [],
       };
     });

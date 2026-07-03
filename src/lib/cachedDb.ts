@@ -33,7 +33,7 @@ export const getCachedCustomerIntelligence = unstable_cache(
       cacheStatus: 'unknown',
       rowCount: (result) => (result.ok ? result.metrics.customers.length : null),
     }),
-  ['customer-intelligence'],
+  ['customer-intelligence-v2'],
   { revalidate: SHORT_REVALIDATE_SECONDS },
 );
 
