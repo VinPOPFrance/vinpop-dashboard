@@ -186,6 +186,9 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [minSpend, setMinSpend] = useState(DEFAULT_MIN_SPEND);
+  const [campaignMinSpend, setCampaignMinSpend] = useState(0);
+  const [adSetMinSpend, setAdSetMinSpend] = useState(0);
+  const [adMinSpend, setAdMinSpend] = useState(0);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
   const [selectedCampaignId, setSelectedCampaignId] = useState('');
   const [selectedAdSetId, setSelectedAdSetId] = useState('');
@@ -205,17 +208,20 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
   const campaigns = metrics.campaigns
     .filter((row) => dateMatches(row.firstDate, row.latestDate))
     .filter((row) => row.spend >= minSpend || statusFilter === 'All')
-    .filter((row) => statusFilter === 'All' || campaignIdsFromStatus.has(row.id));
+    .filter((row) => statusFilter === 'All' || campaignIdsFromStatus.has(row.id))
+    .filter((row) => row.spend >= campaignMinSpend);
   const adSets = metrics.adSets
     .filter((row) => dateMatches(row.firstDate, row.latestDate))
     .filter((row) => row.spend >= minSpend || statusFilter === 'All')
     .filter((row) => !selectedCampaignId || row.campaignId === selectedCampaignId)
-    .filter((row) => statusFilter === 'All' || adSetIdsFromStatus.has(row.id));
+    .filter((row) => statusFilter === 'All' || adSetIdsFromStatus.has(row.id))
+    .filter((row) => row.spend >= adSetMinSpend);
   const ads = metrics.ads
     .filter((row) => dateMatches(row.firstDate, row.latestDate))
     .filter((row) => !selectedCampaignId || row.campaignId === selectedCampaignId)
     .filter((row) => !selectedAdSetId || row.adSetId === selectedAdSetId)
-    .filter((row) => statusMatches(row, statusFilter, minSpend));
+    .filter((row) => statusMatches(row, statusFilter, minSpend))
+    .filter((row) => row.spend >= adMinSpend);
   const selectedAd = metrics.ads.find((row) => row.id === selectedAdId);
   const selectedAdSet = metrics.adSets.find((row) => row.id === selectedAdSetId);
   const selectedCampaign = metrics.campaigns.find((row) => row.id === selectedCampaignId);
@@ -317,15 +323,54 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
         </Card>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
           <Card style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}><SectionTitle>Campaigns</SectionTitle></div>
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}>
+              <SectionTitle>Campaigns</SectionTitle>
+              <label style={{ color: '#6B6B6B', fontSize: 12, display: 'inline-block', marginTop: 10 }}>
+                Min spend (campaigns)
+                <input
+                  type="number"
+                  value={campaignMinSpend}
+                  min={0}
+                  step={1}
+                  onChange={(event) => setCampaignMinSpend(Number(event.target.value) || 0)}
+                  style={{ display: 'block', width: 120, marginTop: 4, padding: 8, border: '1px solid #E8E6E1', borderRadius: 7 }}
+                />
+              </label>
+            </div>
             <SortableDataTable columns={drillColumns} rows={campaigns as MetaRow[]} initialSortKey="spend" selectedRowKey={selectedCampaignId} getRowKey={(row) => row.id} onRowClick={(row) => { setSelectedCampaignId(String(row.id)); setSelectedAdSetId(''); setSelectedAdId(''); }} searchPlaceholder="Search campaigns..." />
           </Card>
           <Card style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}><SectionTitle>Ad Sets</SectionTitle></div>
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}>
+              <SectionTitle>Ad Sets</SectionTitle>
+              <label style={{ color: '#6B6B6B', fontSize: 12, display: 'inline-block', marginTop: 10 }}>
+                Min spend (ad sets)
+                <input
+                  type="number"
+                  value={adSetMinSpend}
+                  min={0}
+                  step={1}
+                  onChange={(event) => setAdSetMinSpend(Number(event.target.value) || 0)}
+                  style={{ display: 'block', width: 120, marginTop: 4, padding: 8, border: '1px solid #E8E6E1', borderRadius: 7 }}
+                />
+              </label>
+            </div>
             <SortableDataTable columns={drillColumns} rows={adSets as MetaRow[]} initialSortKey="spend" selectedRowKey={selectedAdSetId} getRowKey={(row) => row.id} onRowClick={(row) => { setSelectedCampaignId(String(row.campaignId)); setSelectedAdSetId(String(row.id)); setSelectedAdId(''); }} searchPlaceholder="Search ad sets..." />
           </Card>
           <Card style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}><SectionTitle>Ads</SectionTitle></div>
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}>
+              <SectionTitle>Ads</SectionTitle>
+              <label style={{ color: '#6B6B6B', fontSize: 12, display: 'inline-block', marginTop: 10 }}>
+                Min spend (ads)
+                <input
+                  type="number"
+                  value={adMinSpend}
+                  min={0}
+                  step={1}
+                  onChange={(event) => setAdMinSpend(Number(event.target.value) || 0)}
+                  style={{ display: 'block', width: 120, marginTop: 4, padding: 8, border: '1px solid #E8E6E1', borderRadius: 7 }}
+                />
+              </label>
+            </div>
             <SortableDataTable columns={drillColumns} rows={ads as MetaRow[]} initialSortKey="spend" selectedRowKey={selectedAdId} getRowKey={(row) => row.id} onRowClick={(row) => { setSelectedCampaignId(String(row.campaignId)); setSelectedAdSetId(String(row.adSetId)); setSelectedAdId(String(row.id)); }} searchPlaceholder="Search ads..." />
           </Card>
         </div>
