@@ -19,6 +19,7 @@ const drillColumns: SortableColumn<MetaRow>[] = [
   { key: 'spend', label: 'Spend', type: 'money' },
   { key: 'ctr', label: 'CTR', type: 'percent' },
   { key: 'cpc', label: 'CPC', type: 'money' },
+  { key: 'costPerLandingPageView', label: 'Cost per LPV', type: 'money' },
   { key: 'purchases', label: 'Meta purchases', type: 'number' },
   { key: 'performanceLabel', label: 'Status', type: 'text' },
 ];

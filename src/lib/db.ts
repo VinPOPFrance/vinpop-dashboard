@@ -527,6 +527,8 @@ export type MetaPerformanceRow = {
   ctr: number | null;
   cpc: number | null;
   cpm: number | null;
+  landingPageViews: number | null;
+  costPerLandingPageView: number | null;
   hookRate: number | null;
   hookMetric: string;
   purchases: number | null;
@@ -4350,6 +4352,13 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
             COALESCE((
               SELECT SUM(NULLIF(elem->>'value', '')::numeric)
               FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('landing_page_view', 'landing_page_viewed', 'landing_page')
+            ), 0)
+          ), 0)::text AS landing_page_views,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
               WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
             ), 0)
           ), 0)::text AS purchases,
@@ -4386,6 +4395,13 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
           COALESCE(SUM(reach), 0)::text AS reach,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('landing_page_view', 'landing_page_viewed', 'landing_page')
+            ), 0)
+          ), 0)::text AS landing_page_views,
           COALESCE(SUM(
             COALESCE((
               SELECT SUM(NULLIF(elem->>'value', '')::numeric)
@@ -4433,6 +4449,13 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
             COALESCE((
               SELECT SUM(NULLIF(elem->>'value', '')::numeric)
               FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('landing_page_view', 'landing_page_viewed', 'landing_page')
+            ), 0)
+          ), 0)::text AS landing_page_views,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
               WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
             ), 0)
           ), 0)::text AS purchases,
@@ -4463,6 +4486,8 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       const impressions = numberFromPg(row.impressions);
       const clicks = numberFromPg(row.clicks);
       const reach = numberFromPg(row.reach);
+      const landingPageViewsRaw = numberFromPg(row.landing_page_views);
+      const landingPageViews = landingPageViewsRaw > 0 ? landingPageViewsRaw : null;
       const purchasesRaw = numberFromPg(row.purchases);
       const purchaseValueRaw = numberFromPg(row.purchase_value);
       const purchases = purchasesRaw > 0 ? purchasesRaw : null;
@@ -4493,6 +4518,8 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         ctr: ctrValue,
         cpc: cpcValue,
         cpm: cpmValue,
+        landingPageViews,
+        costPerLandingPageView: landingPageViews === null ? null : ratio(spend, landingPageViews),
         hookRate,
         hookMetric: hookRate === null ? 'Unavailable' : 'Video action proxy / impressions',
         purchases,
