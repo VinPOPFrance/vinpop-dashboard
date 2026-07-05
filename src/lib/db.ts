@@ -4352,7 +4352,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
             COALESCE((
               SELECT SUM(NULLIF(elem->>'value', '')::numeric)
               FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('landing_page_view', 'landing_page_viewed', 'landing_page')
+              WHERE elem->>'action_type' IN ('landing_page_view', 'omni_landing_page_view', 'landing_page_viewed', 'landing_page')
             ), 0)
           ), 0)::text AS landing_page_views,
           COALESCE(SUM(
@@ -4399,7 +4399,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
             COALESCE((
               SELECT SUM(NULLIF(elem->>'value', '')::numeric)
               FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('landing_page_view', 'landing_page_viewed', 'landing_page')
+              WHERE elem->>'action_type' IN ('landing_page_view', 'omni_landing_page_view', 'landing_page_viewed', 'landing_page')
             ), 0)
           ), 0)::text AS landing_page_views,
           COALESCE(SUM(
@@ -4449,7 +4449,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
             COALESCE((
               SELECT SUM(NULLIF(elem->>'value', '')::numeric)
               FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('landing_page_view', 'landing_page_viewed', 'landing_page')
+              WHERE elem->>'action_type' IN ('landing_page_view', 'omni_landing_page_view', 'landing_page_viewed', 'landing_page')
             ), 0)
           ), 0)::text AS landing_page_views,
           COALESCE(SUM(
