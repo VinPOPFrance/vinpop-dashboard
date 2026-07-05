@@ -20,6 +20,7 @@ const drillColumns: SortableColumn<MetaRow>[] = [
   { key: 'ctr', label: 'CTR', type: 'percent' },
   { key: 'cpc', label: 'CPC', type: 'money' },
   { key: 'costPerLandingPageView', label: 'Cost per LPV', type: 'money' },
+  { key: 'cpa', label: 'Cost per purchase', type: 'money' },
   { key: 'purchases', label: 'Meta purchases', type: 'number' },
   { key: 'performanceLabel', label: 'Status', type: 'text' },
 ];
@@ -29,6 +30,7 @@ const decisionColumns: SortableColumn<MetaRow>[] = [
   { key: 'spend', label: 'Spend', type: 'money' },
   { key: 'ctr', label: 'CTR', type: 'percent' },
   { key: 'cpc', label: 'CPC', type: 'money' },
+  { key: 'cpa', label: 'Cost per purchase', type: 'money' },
   { key: 'hookRate', label: 'Hook', type: 'percent' },
   { key: 'purchases', label: 'Meta purchases', type: 'number' },
   { key: 'recommendedAction', label: 'Action', type: 'text', width: 260 },

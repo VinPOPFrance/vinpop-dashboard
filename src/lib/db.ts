@@ -4347,6 +4347,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(spend), 0)::text AS spend,
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
+          COALESCE(SUM(inline_link_clicks), 0)::text AS inline_link_clicks,
           COALESCE(SUM(reach), 0)::text AS reach,
           COALESCE(SUM(
             COALESCE((
@@ -4394,6 +4395,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(spend), 0)::text AS spend,
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
+          COALESCE(SUM(inline_link_clicks), 0)::text AS inline_link_clicks,
           COALESCE(SUM(reach), 0)::text AS reach,
           COALESCE(SUM(
             COALESCE((
@@ -4444,6 +4446,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(spend), 0)::text AS spend,
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
+          COALESCE(SUM(inline_link_clicks), 0)::text AS inline_link_clicks,
           COALESCE(SUM(reach), 0)::text AS reach,
           COALESCE(SUM(
             COALESCE((
@@ -4487,7 +4490,8 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       const clicks = numberFromPg(row.clicks);
       const reach = numberFromPg(row.reach);
       const landingPageViewsRaw = numberFromPg(row.landing_page_views);
-      const landingPageViews = landingPageViewsRaw > 0 ? landingPageViewsRaw : null;
+      const inlineLinkClicksRaw = numberFromPg(row.inline_link_clicks);
+      const landingPageViews = landingPageViewsRaw > 0 ? landingPageViewsRaw : (inlineLinkClicksRaw > 0 ? inlineLinkClicksRaw : null);
       const purchasesRaw = numberFromPg(row.purchases);
       const purchaseValueRaw = numberFromPg(row.purchase_value);
       const purchases = purchasesRaw > 0 ? purchasesRaw : null;
