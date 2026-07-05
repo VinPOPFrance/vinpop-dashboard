@@ -1515,18 +1515,50 @@ const customerOrdersCte = `
         ELSE 0
       END AS order_revenue,
       COALESCE(
-        NULLIF(customer::jsonb->>'id', ''),
-        NULLIF(email::text, '')
-      ) AS customer_key
-    FROM shopify.orders
-  ),
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
   identified_non_cancelled_orders AS (
     SELECT *
-    FROM orders_base
-    WHERE cancelled_at IS NULL AND customer_key IS NOT NULL
-  ),
-  customer_order_positions AS (
-    SELECT
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
       *,
       ROW_NUMBER() OVER (PARTITION BY customer_key ORDER BY created_at, order_id) AS order_number,
       COUNT(*) OVER (PARTITION BY customer_key) AS customer_order_count
@@ -1557,18 +1589,50 @@ const customerOrdersAfterLineItemsCtes = `,
         ELSE 0
       END AS order_revenue,
       COALESCE(
-        NULLIF(customer::jsonb->>'id', ''),
-        NULLIF(email::text, '')
-      ) AS customer_key
-    FROM shopify.orders
-  ),
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
   identified_non_cancelled_orders AS (
     SELECT *
-    FROM orders_base
-    WHERE cancelled_at IS NULL AND customer_key IS NOT NULL
-  ),
-  customer_order_positions AS (
-    SELECT
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
       *,
       ROW_NUMBER() OVER (PARTITION BY customer_key ORDER BY created_at, order_id) AS order_number,
       COUNT(*) OVER (PARTITION BY customer_key) AS customer_order_count
@@ -2024,18 +2088,50 @@ export async function getShopifyOrdersSummary(): Promise<ShopifyOrdersSummaryRes
           WHERE fulfillment_status IS NULL OR lower(coalesce(fulfillment_status::text, '')) <> 'fulfilled'
         )::text AS unfulfilled_orders,
         COALESCE(
-          SUM(
-            CASE
-              WHEN total_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN total_price::text::numeric
-              ELSE NULL
-            END
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ),
           0
-        )::text AS total_revenue,
-        COALESCE(
-          SUM(
-            CASE
-              WHEN subtotal_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN subtotal_price::text::numeric
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
               ELSE NULL
             END
           ),
@@ -4209,18 +4305,50 @@ export async function getMetaAdsOverviewSummary(range: DateRange): Promise<MetaA
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS purchases,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS purchase_value
         FROM public.ads_insights
         WHERE date_start BETWEEN $1 AND $2
@@ -4284,18 +4412,50 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(clicks), 0)::text AS clicks,
           COALESCE(SUM(reach), 0)::text AS reach,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS purchases,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS purchase_value,
           COALESCE(SUM(
             COALESCE((
@@ -4321,18 +4481,50 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(impressions), 0)::text AS impressions,
           COALESCE(SUM(clicks), 0)::text AS clicks,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS purchases,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS purchase_value
         FROM public.ads_insights
         GROUP BY date_start, ads_insights.campaign_id, ads_insights.adset_id, ads_insights.ad_id
@@ -4357,18 +4549,50 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
             ), 0)
           ), 0)::text AS landing_page_views,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS purchases,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS purchase_value,
           COALESCE(SUM(
             COALESCE((
@@ -4405,18 +4629,50 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
             ), 0)
           ), 0)::text AS landing_page_views,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS purchases,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS purchase_value,
           COALESCE(SUM(
             COALESCE((
@@ -4456,18 +4712,50 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
             ), 0)
           ), 0)::text AS landing_page_views,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS purchases,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'purchase'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS purchase_value,
           COALESCE(SUM(
             COALESCE((
