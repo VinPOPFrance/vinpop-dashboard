@@ -44,7 +44,7 @@ export const getCachedMetaAdsPerformance = unstable_cache(
       cacheStatus: 'unknown',
       rowCount: (result) => (result.ok ? result.metrics.daily.length : null),
     }),
-  ['meta-ads-performance'],
+  ['meta-ads-performance-v2'],
   { revalidate: SHORT_REVALIDATE_SECONDS },
 );
 
@@ -65,7 +65,7 @@ export const getCachedMetaAdsOverviewSummary = unstable_cache(
         rowCount: (result) => (result.ok ? result.metrics.daily.length : null),
       },
     ),
-  ['meta-ads-overview-summary'],
+  ['meta-ads-overview-summary-v2'],
   { revalidate: SHORT_REVALIDATE_SECONDS },
 );
 
