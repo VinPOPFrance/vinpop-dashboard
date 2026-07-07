@@ -513,6 +513,7 @@ export type MetaPerformanceRow = {
   parentId: string;
   campaignId: string;
   adSetId: string;
+  campaignObjective: string | null;
   name: string;
   parentName: string;
   campaignName: string;
@@ -4431,6 +4432,20 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
 
   try {
     const pool = getPool(databaseUrl);
+    const objectiveCandidates = ['objective', 'effective_objective', 'campaign_objective', 'marketing_objective', 'outcome'];
+    const campaignObjectiveColumnResult = await pool.query<{ column_name: string }>(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'campaigns'
+        AND column_name = ANY($1::text[])
+    `, [objectiveCandidates]);
+    const availableObjectiveColumns = new Set(campaignObjectiveColumnResult.rows.map((row) => row.column_name));
+    const selectedObjectiveColumn = objectiveCandidates.find((column) => availableObjectiveColumns.has(column)) ?? null;
+    const campaignObjectiveSql = selectedObjectiveColumn
+      ? `MAX(campaigns.${selectedObjectiveColumn})::text`
+      : 'NULL::text';
+
     const [summaryResult, dailyResult, campaignsResult, adSetsResult, adsResult] = await Promise.all([
       pool.query<Record<string, string | null>>(`
         SELECT
@@ -4643,6 +4658,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       pool.query<Record<string, string | null>>(`
         SELECT
           COALESCE(ads_insights.campaign_id, '') AS id,
+          ${campaignObjectiveSql} AS campaign_objective,
           COALESCE(MAX(campaign_name), 'Unknown campaign') AS name,
           MIN(date_start)::text AS first_date,
           MAX(date_stop)::text AS latest_date,
@@ -4743,6 +4759,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         SELECT
           COALESCE(ads_insights.adset_id, '') AS id,
           COALESCE(ads_insights.campaign_id, '') AS campaign_id,
+          ${campaignObjectiveSql} AS campaign_objective,
           COALESCE(MAX(adset_name), 'Unknown ad set') AS name,
           COALESCE(MAX(campaign_name), 'Unknown campaign') AS parent_name,
           MIN(date_start)::text AS first_date,
@@ -4837,6 +4854,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(MAX(ad_sets.effective_status), 'Unknown') AS status
         FROM public.ads_insights
         LEFT JOIN public.ad_sets ON ad_sets.id = ads_insights.adset_id
+        LEFT JOIN public.campaigns ON campaigns.id = ads_insights.campaign_id
         GROUP BY ads_insights.adset_id, ads_insights.campaign_id
         ORDER BY SUM(spend) DESC NULLS LAST
       `),
@@ -4845,6 +4863,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(ads_insights.ad_id, '') AS id,
           COALESCE(ads_insights.adset_id, '') AS adset_id,
           COALESCE(ads_insights.campaign_id, '') AS campaign_id,
+          ${campaignObjectiveSql} AS campaign_objective,
           COALESCE(MAX(ad_name), 'Unknown ad') AS name,
           COALESCE(MAX(ads.name), MAX(ad_name), 'Unknown creative') AS creative_label,
           COALESCE(MAX(adset_name), 'Unknown ad set') AS parent_name,
@@ -4941,6 +4960,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(MAX(ads.effective_status), MAX(ads.status), 'Unknown') AS status
         FROM public.ads_insights
         LEFT JOIN public.ads ON ads.id = ads_insights.ad_id
+        LEFT JOIN public.campaigns ON campaigns.id = ads_insights.campaign_id
         GROUP BY ads_insights.ad_id, ads_insights.adset_id, ads_insights.campaign_id
         ORDER BY SUM(spend) DESC NULLS LAST
       `),
@@ -4973,6 +4993,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         parentId: row.adset_id || row.campaign_id || '',
         campaignId: row.campaign_id || row.id || '',
         adSetId: row.adset_id || '',
+        campaignObjective: row.campaign_objective || null,
         name: row.name || 'Unknown',
         parentName: row.parent_name || row.campaign_name || '',
         campaignName: row.campaign_name || row.parent_name || row.name || 'Unknown',

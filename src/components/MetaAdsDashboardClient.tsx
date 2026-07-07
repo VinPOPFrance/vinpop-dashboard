@@ -42,6 +42,18 @@ const decisionColumns: SortableColumn<MetaRow>[] = [
   { key: 'recommendedAction', label: 'Action', type: 'text', width: 260 },
 ];
 
+const bestAdsColumns: SortableColumn<MetaRow>[] = [
+  { key: 'name', label: 'Ad', type: 'text', width: 220 },
+  { key: 'spend', label: 'Spend', type: 'money' },
+  { key: 'landingPageViews', label: 'LPV', type: 'number', description: 'Landing page views after ad click.' },
+  { key: 'costPerLandingPageView', label: 'Cost per LPV', type: 'money', description: 'Spend / landing page views. Lower is better.' },
+  { key: 'activeClickRate', label: 'Active clickers %', type: 'percent', description: 'Landing page views / clicks.' },
+  { key: 'videoPlayToLandingRate', label: 'Video play to LPV %', type: 'percent', description: 'Landing page views / video plays.' },
+  { key: 'costPerAddToCart', label: 'Cost per add to cart', type: 'money', description: 'Spend / add to cart events.' },
+  { key: 'cpa', label: 'Cost per purchase', type: 'money', description: 'Spend / purchases.' },
+  { key: 'purchases', label: 'Purchases', type: 'number', description: 'Purchases reported by Meta.' },
+];
+
 const dailyColumns: SortableColumn<DailyRow>[] = [
   { key: 'date', label: 'Date', type: 'date' },
   { key: 'spend', label: 'Spend', type: 'money' },
@@ -65,6 +77,13 @@ const selectStyle = {
   background: '#FFFFFF',
   fontSize: 13,
 };
+
+const awarenessObjectivePattern = /(awareness|reach|brand|impression|video[_\s-]*view|outcome_awareness|outcome_engagement|visibility)/i;
+
+function isAwarenessObjective(row: MetaPerformanceRow): boolean {
+  const objective = row.campaignObjective ?? '';
+  return awarenessObjectivePattern.test(objective);
+}
 
 function sumRows(rows: MetaPerformanceRow[]) {
   const spend = rows.reduce((sum, row) => sum + row.spend, 0);
@@ -310,7 +329,10 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
       .sort((a, b) => b.spend - a.spend)
       .slice(0, 6),
   );
+  const objectiveMismatchAds = enoughSpendAds.filter((row) => isAwarenessObjective(row));
+  const unknownObjectiveAds = enoughSpendAds.filter((row) => !row.campaignObjective);
   const bestAds = [...enoughSpendAds]
+    .filter((row) => !isAwarenessObjective(row))
     .filter((row) => (row.landingPageViews ?? 0) > 0)
     .sort((a, b) => {
       const aCost = a.costPerLandingPageView ?? Number.POSITIVE_INFINITY;
@@ -368,10 +390,24 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
 
       <PageSection>
         <SectionTitle sub="Ranked by Cost per LPV, then Active clickers %, then Purchases">Best Ads Right Now</SectionTitle>
+        {objectiveMismatchAds.length ? (
+          <Card style={{ marginBottom: 10, borderColor: '#F2C94C', background: '#FFFCF0' }}>
+            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
+              {formatNumber(objectiveMismatchAds.length)} ad(s) excluded from this ranking because campaign objective is awareness/visibility (including {objectiveMismatchAds.slice(0, 3).map((row) => row.name).join(', ')}{objectiveMismatchAds.length > 3 ? ', ...' : ''}).
+            </p>
+          </Card>
+        ) : null}
+        {unknownObjectiveAds.length ? (
+          <Card style={{ marginBottom: 10, borderColor: '#E8E6E1', background: '#F8F7F4' }}>
+            <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>
+              {formatNumber(unknownObjectiveAds.length)} ad(s) have no objective available in the campaigns table and are still included in ranking.
+            </p>
+          </Card>
+        ) : null}
         <Card style={{ padding: 0, overflow: 'hidden' }}>
           {bestAds.length ? (
             <SortableDataTable
-              columns={decisionColumns}
+              columns={bestAdsColumns}
               rows={bestAds as MetaRow[]}
               initialSortKey="costPerLandingPageView"
               initialSortDirection="asc"
