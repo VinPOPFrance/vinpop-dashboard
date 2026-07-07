@@ -16,29 +16,29 @@ type StatusFilter = 'All' | 'Scale candidate' | 'Keep testing' | 'Watch' | 'Weak
 
 const drillColumns: SortableColumn<MetaRow>[] = [
   { key: 'name', label: 'Name', type: 'text', width: 220 },
-  { key: 'postClickQuality', label: 'Traffic quality post-click', type: 'text' },
+  { key: 'postClickQuality', label: 'Traffic quality post-click', type: 'text', description: 'Simple score based on active clickers %, cost per add to cart, and purchases.' },
   { key: 'spend', label: 'Spend', type: 'money' },
-  { key: 'landingPageViews', label: 'Landing page views', type: 'number' },
-  { key: 'activeClickRate', label: 'Active clickers %', type: 'percent' },
-  { key: 'videoPlayToLandingRate', label: 'Video play to LPV %', type: 'percent' },
-  { key: 'costPerLandingPageView', label: 'Cost per LPV', type: 'money' },
-  { key: 'costPerAddToCart', label: 'Cost per add to cart', type: 'money' },
-  { key: 'addToCart', label: 'Add to cart', type: 'number' },
-  { key: 'cpa', label: 'Cost per purchase', type: 'money' },
-  { key: 'purchases', label: 'Purchases', type: 'number' },
+  { key: 'landingPageViews', label: 'Landing page views', type: 'number', description: 'Users who reached your landing page after clicking the ad.' },
+  { key: 'activeClickRate', label: 'Active clickers %', type: 'percent', description: 'Landing page views / clicks. Percent of clickers that really arrived on site.' },
+  { key: 'videoPlayToLandingRate', label: 'Video play to LPV %', type: 'percent', description: 'Landing page views / video plays. Shows transfer from video attention to site visit.' },
+  { key: 'costPerLandingPageView', label: 'Cost per LPV', type: 'money', description: 'Spend / landing page views. Lower is better.' },
+  { key: 'costPerAddToCart', label: 'Cost per add to cart', type: 'money', description: 'Spend / add to cart events. Lower is better.' },
+  { key: 'addToCart', label: 'Add to cart', type: 'number', description: 'Add to cart events reported by Meta.' },
+  { key: 'cpa', label: 'Cost per purchase', type: 'money', description: 'Spend / purchases. Lower is better.' },
+  { key: 'purchases', label: 'Purchases', type: 'number', description: 'Purchases reported by Meta.' },
   { key: 'performanceLabel', label: 'Status', type: 'text' },
 ];
 
 const decisionColumns: SortableColumn<MetaRow>[] = [
   { key: 'name', label: 'Ad', type: 'text', width: 220 },
-  { key: 'postClickQuality', label: 'Traffic quality post-click', type: 'text' },
+  { key: 'postClickQuality', label: 'Traffic quality post-click', type: 'text', description: 'Simple score based on active clickers %, cost per add to cart, and purchases.' },
   { key: 'spend', label: 'Spend', type: 'money' },
-  { key: 'landingPageViews', label: 'LPV', type: 'number' },
-  { key: 'activeClickRate', label: 'Active clickers %', type: 'percent' },
-  { key: 'videoPlayToLandingRate', label: 'Video play to LPV %', type: 'percent' },
-  { key: 'costPerAddToCart', label: 'Cost per add to cart', type: 'money' },
-  { key: 'cpa', label: 'Cost per purchase', type: 'money' },
-  { key: 'purchases', label: 'Purchases', type: 'number' },
+  { key: 'landingPageViews', label: 'LPV', type: 'number', description: 'Landing page views after ad click.' },
+  { key: 'activeClickRate', label: 'Active clickers %', type: 'percent', description: 'Landing page views / clicks.' },
+  { key: 'videoPlayToLandingRate', label: 'Video play to LPV %', type: 'percent', description: 'Landing page views / video plays.' },
+  { key: 'costPerAddToCart', label: 'Cost per add to cart', type: 'money', description: 'Spend / add to cart events.' },
+  { key: 'cpa', label: 'Cost per purchase', type: 'money', description: 'Spend / purchases.' },
+  { key: 'purchases', label: 'Purchases', type: 'number', description: 'Purchases reported by Meta.' },
   { key: 'recommendedAction', label: 'Action', type: 'text', width: 260 },
 ];
 
@@ -46,15 +46,15 @@ const dailyColumns: SortableColumn<DailyRow>[] = [
   { key: 'date', label: 'Date', type: 'date' },
   { key: 'spend', label: 'Spend', type: 'money' },
   { key: 'clicks', label: 'Clicks', type: 'number' },
-  { key: 'landingPageViews', label: 'Landing page views', type: 'number' },
-  { key: 'activeClickRate', label: 'Active clickers %', type: 'percent' },
-  { key: 'videoPlays', label: 'Video plays', type: 'number' },
-  { key: 'videoPlayToLandingRate', label: 'Video play to LPV %', type: 'percent' },
-  { key: 'addToCart', label: 'Add to cart', type: 'number' },
-  { key: 'costPerLandingPageView', label: 'Cost per LPV', type: 'money' },
-  { key: 'costPerAddToCart', label: 'Cost per add to cart', type: 'money' },
-  { key: 'purchases', label: 'Purchases', type: 'number' },
-  { key: 'cpa', label: 'Cost per purchase', type: 'money' },
+  { key: 'landingPageViews', label: 'Landing page views', type: 'number', description: 'Users who reached your landing page on this date.' },
+  { key: 'activeClickRate', label: 'Active clickers %', type: 'percent', description: 'Landing page views / clicks on this date.' },
+  { key: 'videoPlays', label: 'Video plays', type: 'number', description: 'Video play actions used as engagement proxy.' },
+  { key: 'videoPlayToLandingRate', label: 'Video play to LPV %', type: 'percent', description: 'Landing page views / video plays on this date.' },
+  { key: 'addToCart', label: 'Add to cart', type: 'number', description: 'Add to cart events on this date.' },
+  { key: 'costPerLandingPageView', label: 'Cost per LPV', type: 'money', description: 'Spend / landing page views.' },
+  { key: 'costPerAddToCart', label: 'Cost per add to cart', type: 'money', description: 'Spend / add to cart.' },
+  { key: 'purchases', label: 'Purchases', type: 'number', description: 'Purchases reported on this date.' },
+  { key: 'cpa', label: 'Cost per purchase', type: 'money', description: 'Spend / purchases.' },
 ];
 
 const selectStyle = {
@@ -310,6 +310,26 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
       .sort((a, b) => b.spend - a.spend)
       .slice(0, 6),
   );
+  const bestAds = [...enoughSpendAds]
+    .filter((row) => (row.landingPageViews ?? 0) > 0)
+    .sort((a, b) => {
+      const aCost = a.costPerLandingPageView ?? Number.POSITIVE_INFINITY;
+      const bCost = b.costPerLandingPageView ?? Number.POSITIVE_INFINITY;
+      if (aCost !== bCost) return aCost - bCost;
+
+      const aActive = a.activeClickRate ?? 0;
+      const bActive = b.activeClickRate ?? 0;
+      if (aActive !== bActive) return bActive - aActive;
+
+      const aPurchases = a.purchases ?? 0;
+      const bPurchases = b.purchases ?? 0;
+      if (aPurchases !== bPurchases) return bPurchases - aPurchases;
+
+      const aAtc = a.addToCart ?? 0;
+      const bAtc = b.addToCart ?? 0;
+      return bAtc - aAtc;
+    })
+    .slice(0, 5);
   const insufficientSpendSummary = withActions([...insufficientSpendAds].sort((a, b) => b.spend - a.spend).slice(0, 6));
   const clearSelection = () => {
     setSelectedCampaignId('');
@@ -344,6 +364,25 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
           <MetricCard label="Cost per purchase" value={formatEuro(kpis.cpa)} />
           <MetricCard label="Shopify attribution" value="True CAC/ROAS unavailable" tone="warning" />
         </div>
+      </PageSection>
+
+      <PageSection>
+        <SectionTitle sub="Ranked by Cost per LPV, then Active clickers %, then Purchases">Best Ads Right Now</SectionTitle>
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          {bestAds.length ? (
+            <SortableDataTable
+              columns={decisionColumns}
+              rows={bestAds as MetaRow[]}
+              initialSortKey="costPerLandingPageView"
+              initialSortDirection="asc"
+              searchPlaceholder="Search best ads..."
+            />
+          ) : (
+            <p style={{ margin: 0, padding: 16, color: '#6B6B6B', fontSize: 13 }}>
+              No ad has enough post-click data yet for this ranking.
+            </p>
+          )}
+        </Card>
       </PageSection>
 
       <PageSection>

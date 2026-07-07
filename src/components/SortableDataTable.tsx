@@ -6,6 +6,7 @@ import { formatDate, formatEuro, formatNumber, formatPercent } from '@/lib/forma
 export type SortableColumn<T extends Record<string, unknown>> = {
   key: keyof T & string;
   label: string;
+  description?: string;
   type?: 'text' | 'number' | 'money' | 'percent' | 'date';
   align?: 'left' | 'right' | 'center';
   width?: number;
@@ -102,6 +103,7 @@ export function SortableDataTable<T extends Record<string, unknown>>({
                 return (
                   <th
                     key={column.key}
+                    title={column.description}
                     onClick={() => {
                       if (isSorted) {
                         setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
