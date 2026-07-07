@@ -528,13 +528,19 @@ export type MetaPerformanceRow = {
   cpc: number | null;
   cpm: number | null;
   landingPageViews: number | null;
+  activeClickRate: number | null;
+  videoPlays: number | null;
+  videoPlayToLandingRate: number | null;
   costPerLandingPageView: number | null;
+  addToCart: number | null;
+  costPerAddToCart: number | null;
   hookRate: number | null;
   hookMetric: string;
   purchases: number | null;
   purchaseValue: number | null;
   cpa: number | null;
   roas: number | null;
+  postClickQuality: 'Good' | 'Medium' | 'Weak';
   status: string;
   performanceLabel: string;
   recommendedAction: string;
@@ -549,6 +555,13 @@ export type MetaDailyPerformancePoint = {
   spend: number;
   impressions: number;
   clicks: number;
+  landingPageViews: number | null;
+  activeClickRate: number | null;
+  videoPlays: number | null;
+  videoPlayToLandingRate: number | null;
+  costPerLandingPageView: number | null;
+  addToCart: number | null;
+  costPerAddToCart: number | null;
   ctr: number | null;
   cpc: number | null;
   cpm: number | null;
@@ -4289,6 +4302,20 @@ function metaRecommendedAction(label: string, ctrValue: number | null, cpcValue:
   return 'Add UTM/meta click tracking before scaling.';
 }
 
+function metaPostClickQuality(
+  activeClickRate: number | null,
+  costPerAddToCart: number | null,
+  purchases: number | null,
+): 'Good' | 'Medium' | 'Weak' {
+  if ((activeClickRate ?? 0) >= 55 && (costPerAddToCart ?? 999) <= 25 && (purchases ?? 0) >= 2) {
+    return 'Good';
+  }
+  if ((activeClickRate ?? 0) >= 35 && ((costPerAddToCart ?? 999) <= 45 || (purchases ?? 0) >= 1)) {
+    return 'Medium';
+  }
+  return 'Weak';
+}
+
 export async function getMetaAdsOverviewSummary(range: DateRange): Promise<MetaAdsOverviewSummaryResult> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) return { ok: false, reason: 'missing-url' };
@@ -4416,6 +4443,29 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
               (
                 SELECT NULLIF(elem->>'value', '')::numeric
                 FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_add_to_cart'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'add_to_cart'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_add_to_cart'
+                LIMIT 1
+              ),
+              0
+            )
+          ), 0)::text AS add_to_cart,
+          COALESCE(SUM(
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
                 WHERE elem->>'action_type' = 'omni_purchase'
                 LIMIT 1
               ),
@@ -4485,6 +4535,58 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
               (
                 SELECT NULLIF(elem->>'value', '')::numeric
                 FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'landing_page_view'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_landing_page_view'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'landing_page_viewed'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'landing_page'
+                LIMIT 1
+              ),
+              0
+            )
+          ), 0)::text AS landing_page_views,
+          COALESCE(SUM(
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_add_to_cart'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'add_to_cart'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_add_to_cart'
+                LIMIT 1
+              ),
+              0
+            )
+          ), 0)::text AS add_to_cart,
+          COALESCE(SUM(
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
                 WHERE elem->>'action_type' = 'omni_purchase'
                 LIMIT 1
               ),
@@ -4526,6 +4628,14 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
               0
             )
           ), 0)::text AS purchase_value
+          ,
+          COALESCE(SUM(
+            COALESCE((
+              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
+              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+              WHERE elem->>'action_type' IN ('video_view', 'video_play', 'video_3_sec_watched_actions', 'thruplay')
+            ), 0)
+          ), 0)::text AS hook_events
         FROM public.ads_insights
         GROUP BY date_start, ads_insights.campaign_id, ads_insights.adset_id, ads_insights.ad_id
         ORDER BY date_start
@@ -4842,11 +4952,16 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       const reach = numberFromPg(row.reach);
       const landingPageViewsRaw = numberFromPg(row.landing_page_views);
       const landingPageViews = landingPageViewsRaw > 0 ? landingPageViewsRaw : null;
+      const addToCartRaw = numberFromPg(row.add_to_cart);
+      const addToCart = addToCartRaw > 0 ? addToCartRaw : null;
       const purchasesRaw = numberFromPg(row.purchases);
       const purchaseValueRaw = numberFromPg(row.purchase_value);
       const purchases = purchasesRaw > 0 ? purchasesRaw : null;
       const purchaseValue = purchaseValueRaw > 0 ? purchaseValueRaw : null;
       const hookEvents = numberFromPg(row.hook_events);
+      const videoPlays = hookEvents > 0 ? hookEvents : null;
+      const activeClickRate = landingPageViews === null ? null : rate(landingPageViews, clicks);
+      const costPerAddToCart = addToCart === null ? null : ratio(spend, addToCart);
       const ctrValue = rate(clicks, impressions);
       const cpcValue = ratio(spend, clicks);
       const cpmValue = impressions === 0 ? null : (spend / impressions) * 1000;
@@ -4873,13 +4988,19 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         cpc: cpcValue,
         cpm: cpmValue,
         landingPageViews,
+        activeClickRate,
+        videoPlays,
+        videoPlayToLandingRate: landingPageViews === null || videoPlays === null ? null : rate(landingPageViews, videoPlays),
         costPerLandingPageView: landingPageViews === null ? null : ratio(spend, landingPageViews),
+        addToCart,
+        costPerAddToCart,
         hookRate,
         hookMetric: hookRate === null ? 'Unavailable' : 'Video action proxy / impressions',
         purchases,
         purchaseValue,
         cpa: purchases === null ? null : ratio(spend, purchases),
         roas: roasValue,
+        postClickQuality: metaPostClickQuality(activeClickRate, costPerAddToCart, purchases),
         status: row.status || 'Unknown',
         performanceLabel,
         recommendedAction: metaRecommendedAction(performanceLabel, ctrValue, cpcValue, hookRate),
@@ -4899,6 +5020,12 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       const spend = numberFromPg(row.spend);
       const impressionsValue = numberFromPg(row.impressions);
       const clicksValue = numberFromPg(row.clicks);
+      const landingPageViewsValueRaw = numberFromPg(row.landing_page_views);
+      const landingPageViewsValue = landingPageViewsValueRaw > 0 ? landingPageViewsValueRaw : null;
+      const addToCartValueRaw = numberFromPg(row.add_to_cart);
+      const addToCartValue = addToCartValueRaw > 0 ? addToCartValueRaw : null;
+      const videoPlaysRaw = numberFromPg(row.hook_events);
+      const videoPlaysValue = videoPlaysRaw > 0 ? videoPlaysRaw : null;
       const purchasesValue = numberFromPg(row.purchases);
       const purchaseValue = numberFromPg(row.purchase_value);
       const purchasesOrNull = purchasesValue > 0 ? purchasesValue : null;
@@ -4911,6 +5038,13 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         spend,
         impressions: impressionsValue,
         clicks: clicksValue,
+        landingPageViews: landingPageViewsValue,
+        activeClickRate: landingPageViewsValue === null ? null : rate(landingPageViewsValue, clicksValue),
+        videoPlays: videoPlaysValue,
+        videoPlayToLandingRate: landingPageViewsValue === null || videoPlaysValue === null ? null : rate(landingPageViewsValue, videoPlaysValue),
+        costPerLandingPageView: landingPageViewsValue === null ? null : ratio(spend, landingPageViewsValue),
+        addToCart: addToCartValue,
+        costPerAddToCart: addToCartValue === null ? null : ratio(spend, addToCartValue),
         ctr: rate(clicksValue, impressionsValue),
         cpc: ratio(spend, clicksValue),
         cpm: impressionsValue === 0 ? null : (spend / impressionsValue) * 1000,

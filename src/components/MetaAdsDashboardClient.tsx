@@ -16,37 +16,45 @@ type StatusFilter = 'All' | 'Scale candidate' | 'Keep testing' | 'Watch' | 'Weak
 
 const drillColumns: SortableColumn<MetaRow>[] = [
   { key: 'name', label: 'Name', type: 'text', width: 220 },
+  { key: 'postClickQuality', label: 'Traffic quality post-click', type: 'text' },
   { key: 'spend', label: 'Spend', type: 'money' },
-  { key: 'ctr', label: 'CTR', type: 'percent' },
-  { key: 'cpc', label: 'CPC', type: 'money' },
+  { key: 'landingPageViews', label: 'Landing page views', type: 'number' },
+  { key: 'activeClickRate', label: 'Active clickers %', type: 'percent' },
+  { key: 'videoPlayToLandingRate', label: 'Video play to LPV %', type: 'percent' },
   { key: 'costPerLandingPageView', label: 'Cost per LPV', type: 'money' },
+  { key: 'costPerAddToCart', label: 'Cost per add to cart', type: 'money' },
+  { key: 'addToCart', label: 'Add to cart', type: 'number' },
   { key: 'cpa', label: 'Cost per purchase', type: 'money' },
-  { key: 'purchases', label: 'Meta purchases', type: 'number' },
+  { key: 'purchases', label: 'Purchases', type: 'number' },
   { key: 'performanceLabel', label: 'Status', type: 'text' },
 ];
 
 const decisionColumns: SortableColumn<MetaRow>[] = [
   { key: 'name', label: 'Ad', type: 'text', width: 220 },
+  { key: 'postClickQuality', label: 'Traffic quality post-click', type: 'text' },
   { key: 'spend', label: 'Spend', type: 'money' },
-  { key: 'ctr', label: 'CTR', type: 'percent' },
-  { key: 'cpc', label: 'CPC', type: 'money' },
+  { key: 'landingPageViews', label: 'LPV', type: 'number' },
+  { key: 'activeClickRate', label: 'Active clickers %', type: 'percent' },
+  { key: 'videoPlayToLandingRate', label: 'Video play to LPV %', type: 'percent' },
+  { key: 'costPerAddToCart', label: 'Cost per add to cart', type: 'money' },
   { key: 'cpa', label: 'Cost per purchase', type: 'money' },
-  { key: 'hookRate', label: 'Hook', type: 'percent' },
-  { key: 'purchases', label: 'Meta purchases', type: 'number' },
+  { key: 'purchases', label: 'Purchases', type: 'number' },
   { key: 'recommendedAction', label: 'Action', type: 'text', width: 260 },
 ];
 
 const dailyColumns: SortableColumn<DailyRow>[] = [
   { key: 'date', label: 'Date', type: 'date' },
   { key: 'spend', label: 'Spend', type: 'money' },
-  { key: 'impressions', label: 'Impressions', type: 'number' },
   { key: 'clicks', label: 'Clicks', type: 'number' },
-  { key: 'ctr', label: 'CTR', type: 'percent' },
-  { key: 'cpc', label: 'CPC', type: 'money' },
-  { key: 'cpm', label: 'CPM', type: 'money' },
-  { key: 'purchases', label: 'Meta purchases', type: 'number' },
-  { key: 'cpa', label: 'Meta CPA', type: 'money' },
-  { key: 'roas', label: 'Meta ROAS', type: 'number' },
+  { key: 'landingPageViews', label: 'Landing page views', type: 'number' },
+  { key: 'activeClickRate', label: 'Active clickers %', type: 'percent' },
+  { key: 'videoPlays', label: 'Video plays', type: 'number' },
+  { key: 'videoPlayToLandingRate', label: 'Video play to LPV %', type: 'percent' },
+  { key: 'addToCart', label: 'Add to cart', type: 'number' },
+  { key: 'costPerLandingPageView', label: 'Cost per LPV', type: 'money' },
+  { key: 'costPerAddToCart', label: 'Cost per add to cart', type: 'money' },
+  { key: 'purchases', label: 'Purchases', type: 'number' },
+  { key: 'cpa', label: 'Cost per purchase', type: 'money' },
 ];
 
 const selectStyle = {
@@ -62,6 +70,9 @@ function sumRows(rows: MetaPerformanceRow[]) {
   const spend = rows.reduce((sum, row) => sum + row.spend, 0);
   const impressions = rows.reduce((sum, row) => sum + row.impressions, 0);
   const clicks = rows.reduce((sum, row) => sum + row.clicks, 0);
+  const landingPageViews = rows.reduce((sum, row) => sum + (row.landingPageViews ?? 0), 0);
+  const addToCart = rows.reduce((sum, row) => sum + (row.addToCart ?? 0), 0);
+  const videoPlays = rows.reduce((sum, row) => sum + (row.videoPlays ?? 0), 0);
   const purchases = rows.reduce((sum, row) => sum + (row.purchases ?? 0), 0);
   const purchaseValue = rows.reduce((sum, row) => sum + (row.purchaseValue ?? 0), 0);
 
@@ -72,6 +83,13 @@ function sumRows(rows: MetaPerformanceRow[]) {
     ctr: impressions ? (clicks / impressions) * 100 : null,
     cpc: clicks ? spend / clicks : null,
     cpm: impressions ? (spend / impressions) * 1000 : null,
+    landingPageViews: landingPageViews > 0 ? landingPageViews : null,
+    activeClickRate: clicks > 0 && landingPageViews > 0 ? (landingPageViews / clicks) * 100 : null,
+    videoPlays: videoPlays > 0 ? videoPlays : null,
+    videoPlayToLandingRate: videoPlays > 0 && landingPageViews > 0 ? (landingPageViews / videoPlays) * 100 : null,
+    costPerLandingPageView: landingPageViews > 0 ? spend / landingPageViews : null,
+    addToCart: addToCart > 0 ? addToCart : null,
+    costPerAddToCart: addToCart > 0 ? spend / addToCart : null,
     purchases: purchases > 0 ? purchases : null,
     cpa: purchases > 0 ? spend / purchases : null,
     roas: purchaseValue > 0 && spend > 0 ? purchaseValue / spend : null,
@@ -79,12 +97,33 @@ function sumRows(rows: MetaPerformanceRow[]) {
 }
 
 function aggregateDaily(rows: MetaDailyPerformancePoint[]) {
-  const byDate = new Map<string, { spend: number; impressions: number; clicks: number; purchases: number; purchaseValue: number }>();
+  const byDate = new Map<string, {
+    spend: number;
+    impressions: number;
+    clicks: number;
+    landingPageViews: number;
+    videoPlays: number;
+    addToCart: number;
+    purchases: number;
+    purchaseValue: number;
+  }>();
   for (const row of rows) {
-    const current = byDate.get(row.date) ?? { spend: 0, impressions: 0, clicks: 0, purchases: 0, purchaseValue: 0 };
+    const current = byDate.get(row.date) ?? {
+      spend: 0,
+      impressions: 0,
+      clicks: 0,
+      landingPageViews: 0,
+      videoPlays: 0,
+      addToCart: 0,
+      purchases: 0,
+      purchaseValue: 0,
+    };
     current.spend += row.spend;
     current.impressions += row.impressions;
     current.clicks += row.clicks;
+    current.landingPageViews += row.landingPageViews ?? 0;
+    current.videoPlays += row.videoPlays ?? 0;
+    current.addToCart += row.addToCart ?? 0;
     current.purchases += row.purchases ?? 0;
     if (row.roas !== null && row.spend > 0) current.purchaseValue += row.roas * row.spend;
     byDate.set(row.date, current);
@@ -98,6 +137,13 @@ function aggregateDaily(rows: MetaDailyPerformancePoint[]) {
     spend: row.spend,
     impressions: row.impressions,
     clicks: row.clicks,
+    landingPageViews: row.landingPageViews > 0 ? row.landingPageViews : null,
+    activeClickRate: row.clicks > 0 && row.landingPageViews > 0 ? (row.landingPageViews / row.clicks) * 100 : null,
+    videoPlays: row.videoPlays > 0 ? row.videoPlays : null,
+    videoPlayToLandingRate: row.videoPlays > 0 && row.landingPageViews > 0 ? (row.landingPageViews / row.videoPlays) * 100 : null,
+    costPerLandingPageView: row.landingPageViews > 0 ? row.spend / row.landingPageViews : null,
+    addToCart: row.addToCart > 0 ? row.addToCart : null,
+    costPerAddToCart: row.addToCart > 0 ? row.spend / row.addToCart : null,
     ctr: row.impressions ? (row.clicks / row.impressions) * 100 : null,
     cpc: row.clicks ? row.spend / row.clicks : null,
     cpm: row.impressions ? (row.spend / row.impressions) * 1000 : null,
@@ -153,12 +199,15 @@ function tooltip(row: DailyRow) {
   return [
     row.date,
     `Spend: ${formatEuro(row.spend)}`,
-    `Impressions: ${formatNumber(row.impressions)}`,
     `Clicks: ${formatNumber(row.clicks)}`,
-    `CTR: ${formatPercent(row.ctr)}`,
-    `CPC: ${formatEuro(row.cpc)}`,
-    row.purchases ? `Meta purchases: ${formatNumber(row.purchases)}` : '',
-    row.cpa ? `Meta CPA: ${formatEuro(row.cpa)}` : '',
+    `Landing page views: ${formatNumber(row.landingPageViews)}`,
+    `Active clickers: ${formatPercent(row.activeClickRate)}`,
+    `Video plays: ${formatNumber(row.videoPlays)}`,
+    `Video play to LPV: ${formatPercent(row.videoPlayToLandingRate)}`,
+    row.addToCart ? `Add to cart: ${formatNumber(row.addToCart)}` : '',
+    row.costPerAddToCart ? `Cost per add to cart: ${formatEuro(row.costPerAddToCart)}` : '',
+    row.purchases ? `Purchases: ${formatNumber(row.purchases)}` : '',
+    row.cpa ? `Cost per purchase: ${formatEuro(row.cpa)}` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -232,7 +281,6 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
   const selectedType = selectedAd ? 'Ad' : selectedAdSet ? 'Ad set' : selectedCampaign ? 'Campaign' : 'All Meta ads';
   const selectedRows = selectedAd ? [selectedAd] : selectedAdSet ? ads : selectedCampaign ? ads : ads;
   const kpis = sumRows(selectedRows.length ? selectedRows : metrics.ads);
-  const quality = trafficQuality(kpis.ctr, kpis.cpc);
   const enoughSpendAds = ads.filter((row) => row.spend >= minSpend);
   const insufficientSpendAds = ads.filter((row) => row.spend < minSpend);
   const dailyRows = aggregateDaily(
@@ -276,7 +324,7 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
           Use this page to decide which creatives to scale, watch, or pause.
         </p>
         <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>
-          Ads under {formatEuro(minSpend)} spend are not judged. Meta-reported purchases are not true Shopify-attributed sales. True CAC/ROAS requires UTM + session + order attribution.
+          Focus is on clickers who become active on site (landing page views), then add to cart and purchases. Ads under {formatEuro(minSpend)} spend are not judged.
         </p>
       </Card>
 
@@ -285,11 +333,15 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
           <MetricCard label="Spend" value={formatEuro(kpis.spend)} />
           <MetricCard label="Clicks" value={formatNumber(kpis.clicks)} />
-          <MetricCard label="CTR" value={formatPercent(kpis.ctr)} tone={metricTone(quality)} />
-          <MetricCard label="CPC" value={formatEuro(kpis.cpc)} tone={metricTone(quality)} />
-          <MetricCard label="Hook rate" value={formatPercent(selectedItem?.hookRate ?? metrics.hookRate)} />
-          <MetricCard label="Meta purchases" value={formatNumber(kpis.purchases)} />
-          <MetricCard label="Meta CPA" value={formatEuro(kpis.cpa)} />
+          <MetricCard label="Landing page views" value={formatNumber(kpis.landingPageViews)} />
+          <MetricCard label="Active clickers %" value={formatPercent(kpis.activeClickRate)} />
+          <MetricCard label="Video plays" value={formatNumber(kpis.videoPlays)} />
+          <MetricCard label="Video play to LPV %" value={formatPercent(kpis.videoPlayToLandingRate)} />
+          <MetricCard label="Cost per LPV" value={formatEuro(kpis.costPerLandingPageView)} />
+          <MetricCard label="Add to cart" value={formatNumber(kpis.addToCart)} />
+          <MetricCard label="Cost per add to cart" value={formatEuro(kpis.costPerAddToCart)} />
+          <MetricCard label="Number of purchases" value={formatNumber(kpis.purchases)} />
+          <MetricCard label="Cost per purchase" value={formatEuro(kpis.cpa)} />
           <MetricCard label="Shopify attribution" value="True CAC/ROAS unavailable" tone="warning" />
         </div>
       </PageSection>
@@ -387,14 +439,16 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
                 <MetricCard label="Selected type" value={selectedType} />
                 <MetricCard label="Spend" value={formatEuro(selectedItem.spend)} />
-                <MetricCard label="Impressions" value={formatNumber(selectedItem.impressions)} />
                 <MetricCard label="Clicks" value={formatNumber(selectedItem.clicks)} />
-                <MetricCard label="CTR" value={formatPercent(selectedItem.ctr)} />
-                <MetricCard label="CPC" value={formatEuro(selectedItem.cpc)} />
-                <MetricCard label="CPM" value={formatEuro(selectedItem.cpm)} />
-                <MetricCard label="Hook rate" value={formatPercent(selectedItem.hookRate)} />
-                <MetricCard label="Meta purchases" value={formatNumber(selectedItem.purchases)} />
-                <MetricCard label="Meta CPA" value={formatEuro(selectedItem.cpa)} />
+                <MetricCard label="Landing page views" value={formatNumber(selectedItem.landingPageViews)} />
+                <MetricCard label="Active clickers %" value={formatPercent(selectedItem.activeClickRate)} />
+                <MetricCard label="Video plays" value={formatNumber(selectedItem.videoPlays)} />
+                <MetricCard label="Video play to LPV %" value={formatPercent(selectedItem.videoPlayToLandingRate)} />
+                <MetricCard label="Cost per LPV" value={formatEuro(selectedItem.costPerLandingPageView)} />
+                <MetricCard label="Add to cart" value={formatNumber(selectedItem.addToCart)} />
+                <MetricCard label="Cost per add to cart" value={formatEuro(selectedItem.costPerAddToCart)} />
+                <MetricCard label="Number of purchases" value={formatNumber(selectedItem.purchases)} />
+                <MetricCard label="Cost per purchase" value={formatEuro(selectedItem.cpa)} />
                 <MetricCard label="Meta ROAS" value={formatNumber(selectedItem.roas, 2)} />
               </div>
               <div style={{ marginTop: 16, color: '#1A1A1A', fontSize: 14, fontWeight: 800 }}>{selectedItem.name}</div>
@@ -418,7 +472,7 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
         <SectionTitle sub={`Creative decisions. Only ads with spend >= ${formatEuro(minSpend)} are judged.`}>Creative Decision Summary</SectionTitle>
         <Card style={{ marginBottom: 12, borderColor: '#F2C94C', background: '#FFFCF0' }}>
           <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 800, lineHeight: 1.5 }}>
-            Good hook / CTR / CPC means the creative is interesting. Good clicks but no measurable sales means attribution or landing page needs work. High spend with weak CTR means refresh or pause.
+            Prioritize creative that brings clickers to real landing page views, then add to cart and purchases. Good clicks with weak LPV or ATC means friction after click.
           </p>
         </Card>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
@@ -443,28 +497,31 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
                 <MetricCard label="Date" value={formatDate(selectedDay.date)} />
                 <MetricCard label="Spend" value={formatEuro(selectedDay.spend)} />
-                <MetricCard label="Impressions" value={formatNumber(selectedDay.impressions)} />
                 <MetricCard label="Clicks" value={formatNumber(selectedDay.clicks)} />
-                <MetricCard label="CTR" value={formatPercent(selectedDay.ctr)} />
-                <MetricCard label="CPC" value={formatEuro(selectedDay.cpc)} />
-                <MetricCard label="CPM" value={formatEuro(selectedDay.cpm)} />
-                <MetricCard label="Meta purchases" value={formatNumber(selectedDay.purchases)} />
-                <MetricCard label="Meta CPA" value={formatEuro(selectedDay.cpa)} />
-                <MetricCard label="Meta ROAS" value={formatNumber(selectedDay.roas, 2)} />
+                <MetricCard label="Landing page views" value={formatNumber(selectedDay.landingPageViews)} />
+                <MetricCard label="Active clickers %" value={formatPercent(selectedDay.activeClickRate)} />
+                <MetricCard label="Video plays" value={formatNumber(selectedDay.videoPlays)} />
+                <MetricCard label="Video play to LPV %" value={formatPercent(selectedDay.videoPlayToLandingRate)} />
+                <MetricCard label="Add to cart" value={formatNumber(selectedDay.addToCart)} />
+                <MetricCard label="Cost per LPV" value={formatEuro(selectedDay.costPerLandingPageView)} />
+                <MetricCard label="Cost per add to cart" value={formatEuro(selectedDay.costPerAddToCart)} />
+                <MetricCard label="Purchases" value={formatNumber(selectedDay.purchases)} />
+                <MetricCard label="Cost per purchase" value={formatEuro(selectedDay.cpa)} />
               </div>
             </>
           ) : (
             <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, fontWeight: 700 }}>
-              Click any daily chart point to see spend, clicks, CTR, CPC, CPM, Meta purchases, CPA, and ROAS for that date.
+              Click any daily chart point to see post-click activity quality and conversion metrics for that date.
             </p>
           )}
         </Card>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
-          <Card><SectionTitle>Spend</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.spend, tooltip: tooltip(row as DailyRow) }))} color="#722F37" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
-          <Card><SectionTitle>Clicks</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.clicks, tooltip: tooltip(row as DailyRow) }))} color="#2D6A4F" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
-          <Card><SectionTitle>CPC</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.cpc ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#B45309" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
-          <Card><SectionTitle>CTR</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.ctr ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#A67C00" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
-          {metrics.attributionAvailable ? <Card><SectionTitle>Meta Purchases</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.purchases ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#2D6A4F" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card> : null}
+          <Card><SectionTitle>Landing Page Views</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.landingPageViews ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#2D6A4F" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
+          <Card><SectionTitle>Active Clickers %</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.activeClickRate ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#A67C00" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
+          <Card><SectionTitle>Video Play to LPV %</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.videoPlayToLandingRate ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#B45309" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
+          <Card><SectionTitle>Add to Cart</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.addToCart ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#8E4B10" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
+          <Card><SectionTitle>Cost per Add to Cart</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.costPerAddToCart ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#7A1F36" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card>
+          {metrics.attributionAvailable ? <Card><SectionTitle>Purchases</SectionTitle><LineChart data={dailyRows.map((row) => ({ label: row.date, value: row.purchases ?? 0, tooltip: tooltip(row as DailyRow) }))} color="#2D6A4F" selectedLabel={selectedDate} onPointClick={(point) => setSelectedDate(point.label)} /></Card> : null}
         </div>
         <details style={{ marginTop: 12 }}>
           <summary style={{ cursor: 'pointer', color: '#722F37', fontSize: 13, fontWeight: 800 }}>Daily metric table</summary>
