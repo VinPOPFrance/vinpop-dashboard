@@ -9,6 +9,7 @@ import { formatDate, formatEuro, formatNumber, formatPercent } from '@/lib/forma
 import type { MetaAdsPerformanceMetrics, MetaDailyPerformancePoint, MetaPerformanceRow } from '@/lib/db';
 
 const DEFAULT_MIN_SPEND = 15;
+const BEST_ADS_MIN_SPEND = 20;
 
 type MetaRow = MetaPerformanceRow & Record<string, unknown>;
 type DailyRow = MetaDailyPerformancePoint & Record<string, unknown>;
@@ -79,10 +80,16 @@ const selectStyle = {
 };
 
 const awarenessObjectivePattern = /(awareness|reach|brand|impression|video[_\s-]*view|outcome_awareness|outcome_engagement|visibility)/i;
+const explicitBestAdsExclusionPattern = /(cic\s*wine\s*tasting\s*ad)/i;
 
 function isAwarenessObjective(row: MetaPerformanceRow): boolean {
   const objective = row.campaignObjective ?? '';
   return awarenessObjectivePattern.test(objective);
+}
+
+function isExplicitlyExcludedFromBestAds(row: MetaPerformanceRow): boolean {
+  const haystack = [row.name, row.campaignName, row.parentName, row.creativeLabel].filter(Boolean).join(' ');
+  return explicitBestAdsExclusionPattern.test(haystack);
 }
 
 function sumRows(rows: MetaPerformanceRow[]) {
@@ -329,10 +336,13 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
       .sort((a, b) => b.spend - a.spend)
       .slice(0, 6),
   );
-  const objectiveMismatchAds = enoughSpendAds.filter((row) => isAwarenessObjective(row));
-  const unknownObjectiveAds = enoughSpendAds.filter((row) => !row.campaignObjective);
-  const bestAds = [...enoughSpendAds]
+  const bestAdsPool = ads.filter((row) => row.spend >= BEST_ADS_MIN_SPEND);
+  const objectiveMismatchAds = bestAdsPool.filter((row) => isAwarenessObjective(row));
+  const explicitExclusionAds = bestAdsPool.filter((row) => isExplicitlyExcludedFromBestAds(row));
+  const unknownObjectiveAds = bestAdsPool.filter((row) => !row.campaignObjective);
+  const bestAds = [...bestAdsPool]
     .filter((row) => !isAwarenessObjective(row))
+    .filter((row) => !isExplicitlyExcludedFromBestAds(row))
     .filter((row) => (row.landingPageViews ?? 0) > 0)
     .sort((a, b) => {
       const aCost = a.costPerLandingPageView ?? Number.POSITIVE_INFINITY;
@@ -389,7 +399,7 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
       </PageSection>
 
       <PageSection>
-        <SectionTitle sub="Ranked by Cost per LPV, then Active clickers %, then Purchases">Best Ads Right Now</SectionTitle>
+        <SectionTitle sub={`Ranked by Cost per LPV, then Active clickers %, then Purchases. Minimum spend: ${formatEuro(BEST_ADS_MIN_SPEND)}.`}>Best Ads Right Now</SectionTitle>
         {objectiveMismatchAds.length ? (
           <Card style={{ marginBottom: 10, borderColor: '#F2C94C', background: '#FFFCF0' }}>
             <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
@@ -397,10 +407,17 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
             </p>
           </Card>
         ) : null}
+        {explicitExclusionAds.length ? (
+          <Card style={{ marginBottom: 10, borderColor: '#F2C94C', background: '#FFFCF0' }}>
+            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
+              {formatNumber(explicitExclusionAds.length)} ad(s) excluded by manual rule (including {explicitExclusionAds.slice(0, 3).map((row) => row.name).join(', ')}{explicitExclusionAds.length > 3 ? ', ...' : ''}).
+            </p>
+          </Card>
+        ) : null}
         {unknownObjectiveAds.length ? (
           <Card style={{ marginBottom: 10, borderColor: '#E8E6E1', background: '#F8F7F4' }}>
             <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>
-              {formatNumber(unknownObjectiveAds.length)} ad(s) have no objective available in the campaigns table and are still included in ranking.
+              {formatNumber(unknownObjectiveAds.length)} ad(s) have no objective available in the campaigns table and are still included in ranking if they pass spend and LPV criteria.
             </p>
           </Card>
         ) : null}
