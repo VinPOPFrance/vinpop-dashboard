@@ -23,6 +23,7 @@
         "/^cd '/Users/adriencoutant/Downloads/VIN POP NL/VIN POP dashboard' && node \\./node_modules/eslint/bin/eslint\\.js src/components/MetaAdsDashboardClient\\.tsx src/lib/db\\.ts && git status --short$/": {
             "approve": true,
             "matchCommandLine": true
-        }
+        },
+        "/tmp/adsenv/bin/python": true
     }
 }

@@ -4533,7 +4533,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       pool.query<Record<string, string | null>>(`
         SELECT
           COALESCE(ads_insights.campaign_id, '') AS id,
-          COALESCE(campaign_name, 'Unknown campaign') AS name,
+          COALESCE(MAX(campaign_name), 'Unknown campaign') AS name,
           MIN(date_start)::text AS first_date,
           MAX(date_stop)::text AS latest_date,
           COALESCE(SUM(spend), 0)::text AS spend,
@@ -4542,11 +4542,33 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(inline_link_clicks), 0)::text AS inline_link_clicks,
           COALESCE(SUM(reach), 0)::text AS reach,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('landing_page_view', 'omni_landing_page_view', 'landing_page_viewed', 'landing_page')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'landing_page_view'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_landing_page_view'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'landing_page_viewed'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'landing_page'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS landing_page_views,
           COALESCE(SUM(
             COALESCE(
@@ -4604,16 +4626,15 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(MAX(campaigns.effective_status), MAX(campaigns.status), 'Unknown') AS status
         FROM public.ads_insights
         LEFT JOIN public.campaigns ON campaigns.id = ads_insights.campaign_id
-        GROUP BY ads_insights.campaign_id, campaign_name
+        GROUP BY ads_insights.campaign_id
         ORDER BY SUM(spend) DESC NULLS LAST
-        LIMIT 50
       `),
       pool.query<Record<string, string | null>>(`
         SELECT
           COALESCE(ads_insights.adset_id, '') AS id,
           COALESCE(ads_insights.campaign_id, '') AS campaign_id,
-          COALESCE(adset_name, 'Unknown ad set') AS name,
-          COALESCE(campaign_name, 'Unknown campaign') AS parent_name,
+          COALESCE(MAX(adset_name), 'Unknown ad set') AS name,
+          COALESCE(MAX(campaign_name), 'Unknown campaign') AS parent_name,
           MIN(date_start)::text AS first_date,
           MAX(date_stop)::text AS latest_date,
           COALESCE(SUM(spend), 0)::text AS spend,
@@ -4622,11 +4643,33 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(inline_link_clicks), 0)::text AS inline_link_clicks,
           COALESCE(SUM(reach), 0)::text AS reach,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('landing_page_view', 'omni_landing_page_view', 'landing_page_viewed', 'landing_page')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'landing_page_view'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_landing_page_view'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'landing_page_viewed'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'landing_page'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS landing_page_views,
           COALESCE(SUM(
             COALESCE(
@@ -4684,19 +4727,18 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(MAX(ad_sets.effective_status), 'Unknown') AS status
         FROM public.ads_insights
         LEFT JOIN public.ad_sets ON ad_sets.id = ads_insights.adset_id
-        GROUP BY ads_insights.adset_id, ads_insights.campaign_id, adset_name, campaign_name
+        GROUP BY ads_insights.adset_id, ads_insights.campaign_id
         ORDER BY SUM(spend) DESC NULLS LAST
-        LIMIT 50
       `),
       pool.query<Record<string, string | null>>(`
         SELECT
           COALESCE(ads_insights.ad_id, '') AS id,
           COALESCE(ads_insights.adset_id, '') AS adset_id,
           COALESCE(ads_insights.campaign_id, '') AS campaign_id,
-          COALESCE(ad_name, 'Unknown ad') AS name,
-          COALESCE(ads.name, ad_name, 'Unknown creative') AS creative_label,
-          COALESCE(adset_name, 'Unknown ad set') AS parent_name,
-          COALESCE(campaign_name, 'Unknown campaign') AS campaign_name,
+          COALESCE(MAX(ad_name), 'Unknown ad') AS name,
+          COALESCE(MAX(ads.name), MAX(ad_name), 'Unknown creative') AS creative_label,
+          COALESCE(MAX(adset_name), 'Unknown ad set') AS parent_name,
+          COALESCE(MAX(campaign_name), 'Unknown campaign') AS campaign_name,
           MIN(date_start)::text AS first_date,
           MAX(date_stop)::text AS latest_date,
           COALESCE(SUM(spend), 0)::text AS spend,
@@ -4705,11 +4747,33 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(SUM(inline_link_clicks), 0)::text AS inline_link_clicks,
           COALESCE(SUM(reach), 0)::text AS reach,
           COALESCE(SUM(
-            COALESCE((
-              SELECT SUM(NULLIF(elem->>'value', '')::numeric)
-              FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-              WHERE elem->>'action_type' IN ('landing_page_view', 'omni_landing_page_view', 'landing_page_viewed', 'landing_page')
-            ), 0)
+            COALESCE(
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'landing_page_view'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'omni_landing_page_view'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'landing_page_viewed'
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(elem->>'value', '')::numeric
+                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
+                WHERE elem->>'action_type' = 'landing_page'
+                LIMIT 1
+              ),
+              0
+            )
           ), 0)::text AS landing_page_views,
           COALESCE(SUM(
             COALESCE(
@@ -4767,9 +4831,8 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(MAX(ads.effective_status), MAX(ads.status), 'Unknown') AS status
         FROM public.ads_insights
         LEFT JOIN public.ads ON ads.id = ads_insights.ad_id
-        GROUP BY ads_insights.ad_id, ads_insights.adset_id, ads_insights.campaign_id, ad_name, ads.name, adset_name, campaign_name
+        GROUP BY ads_insights.ad_id, ads_insights.adset_id, ads_insights.campaign_id
         ORDER BY SUM(spend) DESC NULLS LAST
-        LIMIT 50
       `),
     ]);
     const toRow = (row: Record<string, string | null>): MetaPerformanceRow => {
@@ -4778,8 +4841,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
       const clicks = numberFromPg(row.clicks);
       const reach = numberFromPg(row.reach);
       const landingPageViewsRaw = numberFromPg(row.landing_page_views);
-      const inlineLinkClicksRaw = numberFromPg(row.inline_link_clicks);
-      const landingPageViews = landingPageViewsRaw > 0 ? landingPageViewsRaw : (inlineLinkClicksRaw > 0 ? inlineLinkClicksRaw : null);
+      const landingPageViews = landingPageViewsRaw > 0 ? landingPageViewsRaw : null;
       const purchasesRaw = numberFromPg(row.purchases);
       const purchaseValueRaw = numberFromPg(row.purchase_value);
       const purchases = purchasesRaw > 0 ? purchasesRaw : null;
