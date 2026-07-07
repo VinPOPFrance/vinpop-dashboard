@@ -13,6 +13,16 @@ const BEST_ADS_MIN_SPEND = 20;
 
 type MetaRow = MetaPerformanceRow & Record<string, unknown>;
 type DailyRow = MetaDailyPerformancePoint & Record<string, unknown>;
+type WeekdayRow = {
+  weekdayIndex: number;
+  weekday: string;
+  spend: number;
+  clicks: number;
+  landingPageViews: number | null;
+  activeClickRate: number | null;
+  costPerLandingPageView: number | null;
+  purchases: number | null;
+} & Record<string, unknown>;
 type StatusFilter = 'All' | 'Scale candidate' | 'Keep testing' | 'Watch' | 'Weak creative' | 'Insufficient spend' | 'Attribution missing';
 
 const drillColumns: SortableColumn<MetaRow>[] = [
@@ -68,6 +78,16 @@ const dailyColumns: SortableColumn<DailyRow>[] = [
   { key: 'costPerAddToCart', label: 'Cost per add to cart', type: 'money', description: 'Spend / add to cart.' },
   { key: 'purchases', label: 'Purchases', type: 'number', description: 'Purchases reported on this date.' },
   { key: 'cpa', label: 'Cost per purchase', type: 'money', description: 'Spend / purchases.' },
+];
+
+const weekdayColumns: SortableColumn<WeekdayRow>[] = [
+  { key: 'weekday', label: 'Weekday', type: 'text' },
+  { key: 'spend', label: 'Spend', type: 'money' },
+  { key: 'clicks', label: 'Clicks', type: 'number' },
+  { key: 'landingPageViews', label: 'Landing page views', type: 'number', description: 'Users who reached your landing page on that weekday.' },
+  { key: 'activeClickRate', label: 'Active clickers %', type: 'percent', description: 'Landing page views / clicks for that weekday.' },
+  { key: 'costPerLandingPageView', label: 'Cost per LPV', type: 'money', description: 'Spend / landing page views for that weekday.' },
+  { key: 'purchases', label: 'Purchases', type: 'number', description: 'Meta-reported purchases for that weekday.' },
 ];
 
 const selectStyle = {
@@ -177,6 +197,34 @@ function aggregateDaily(rows: MetaDailyPerformancePoint[]) {
     cpa: row.purchases > 0 ? row.spend / row.purchases : null,
     roas: row.purchaseValue > 0 && row.spend > 0 ? row.purchaseValue / row.spend : null,
   }));
+}
+
+function aggregateWeekday(rows: DailyRow[]): WeekdayRow[] {
+  const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const byWeekday = new Map<number, { spend: number; clicks: number; landingPageViews: number; purchases: number }>();
+
+  for (const row of rows) {
+    const weekdayIndex = new Date(`${row.date}T00:00:00Z`).getUTCDay();
+    const current = byWeekday.get(weekdayIndex) ?? { spend: 0, clicks: 0, landingPageViews: 0, purchases: 0 };
+    current.spend += row.spend;
+    current.clicks += row.clicks;
+    current.landingPageViews += row.landingPageViews ?? 0;
+    current.purchases += row.purchases ?? 0;
+    byWeekday.set(weekdayIndex, current);
+  }
+
+  return Array.from(byWeekday.entries())
+    .map(([weekdayIndex, values]) => ({
+      weekdayIndex,
+      weekday: weekdays[weekdayIndex] ?? 'Unknown',
+      spend: values.spend,
+      clicks: values.clicks,
+      landingPageViews: values.landingPageViews > 0 ? values.landingPageViews : null,
+      activeClickRate: values.clicks > 0 && values.landingPageViews > 0 ? (values.landingPageViews / values.clicks) * 100 : null,
+      costPerLandingPageView: values.landingPageViews > 0 ? values.spend / values.landingPageViews : null,
+      purchases: values.purchases > 0 ? values.purchases : null,
+    }))
+    .sort((a, b) => a.weekdayIndex - b.weekdayIndex);
 }
 
 function trafficQuality(ctr: number | null, cpc: number | null) {
@@ -316,6 +364,10 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
       .filter((row) => !selectedAdSetId || row.adSetId === selectedAdSetId)
       .filter((row) => !selectedAdId || row.adId === selectedAdId),
   );
+  const weekdayRows = aggregateWeekday(dailyRows as DailyRow[]);
+  const bestClickWeekday = [...weekdayRows].sort((a, b) => b.clicks - a.clicks)[0] ?? null;
+  const bestLandingWeekday = [...weekdayRows].sort((a, b) => (b.landingPageViews ?? 0) - (a.landingPageViews ?? 0))[0] ?? null;
+  const bestPurchaseWeekday = [...weekdayRows].sort((a, b) => (b.purchases ?? 0) - (a.purchases ?? 0))[0] ?? null;
   const selectedDay = dailyRows.find((row) => row.date === selectedDate) ?? null;
   const withActions = (rows: MetaPerformanceRow[]) => rows.map((row) => ({ ...row, recommendedAction: actionForAd(row, minSpend) }));
   const scaleCandidates = withActions(
@@ -433,6 +485,32 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
           ) : (
             <p style={{ margin: 0, padding: 16, color: '#6B6B6B', fontSize: 13 }}>
               No ad has enough post-click data yet for this ranking.
+            </p>
+          )}
+        </Card>
+      </PageSection>
+
+      <PageSection>
+        <SectionTitle sub="Use this to decide whether budget should run daily or focus on specific weekdays">Weekly Budget Windows</SectionTitle>
+        <Card style={{ marginBottom: 12, borderColor: '#E8E6E1', background: '#F8F7F4' }}>
+          <p style={{ margin: '0 0 8px', color: '#1A1A1A', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
+            Best click day: {bestClickWeekday ? `${bestClickWeekday.weekday} (${formatNumber(bestClickWeekday.clicks)} clicks)` : 'No data'} · Best landing page day: {bestLandingWeekday ? `${bestLandingWeekday.weekday} (${formatNumber(bestLandingWeekday.landingPageViews)})` : 'No data'} · Best purchase day: {bestPurchaseWeekday ? `${bestPurchaseWeekday.weekday} (${formatNumber(bestPurchaseWeekday.purchases)})` : 'No data'}
+          </p>
+          <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>
+            Hour-level recommendation is not reliable yet with the current GA4 tables in this dashboard. Day-level scheduling is available now; hour-of-day needs GA4 event/session hourly export.
+          </p>
+        </Card>
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          {weekdayRows.length ? (
+            <SortableDataTable
+              columns={weekdayColumns}
+              rows={weekdayRows}
+              initialSortKey="weekdayIndex"
+              searchPlaceholder="Search weekday summary..."
+            />
+          ) : (
+            <p style={{ margin: 0, padding: 16, color: '#6B6B6B', fontSize: 13 }}>
+              No weekday summary available for this date range/selection.
             </p>
           )}
         </Card>
