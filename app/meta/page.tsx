@@ -21,10 +21,15 @@ export default async function MetaPage({
 }) {
   await connection();
   const range = getDateRangeFromSearchParams(await searchParams);
-  const landingResult = await timeAsync('page:/meta getLandingPageArrivals', () => getLandingPageArrivals(range), {
-    category: 'page',
-  });
-  const landing = landingResult.ok ? landingResult.metrics : null;
+  let landing = null;
+  try {
+    const landingResult = await timeAsync('page:/meta getLandingPageArrivals', () => getLandingPageArrivals(range), {
+      category: 'page',
+    });
+    landing = landingResult.ok ? landingResult.metrics : null;
+  } catch {
+    landing = null;
+  }
   const hourlyBuckets = landing?.byHour.length
     ? landing.byHour
     : Array.from({ length: 24 }, (_, hour) => ({ hour, arrivals: 0, uniqueSessions: 0 }));
@@ -98,11 +103,17 @@ export default async function MetaPage({
 }
 
 async function MetaContent() {
-  const result = await timeAsync('page:/meta getMetaAdsPerformance', () => getCachedMetaAdsPerformance(), {
-    category: 'page',
-    rowCount: (helperResult) => (helperResult.ok ? helperResult.metrics.ads.length : null),
-  });
-  const metrics = result.ok ? result.metrics : null;
+  let metrics = null;
+
+  try {
+    const result = await timeAsync('page:/meta getMetaAdsPerformance', () => getCachedMetaAdsPerformance(), {
+      category: 'page',
+      rowCount: (helperResult) => (helperResult.ok ? helperResult.metrics.ads.length : null),
+    });
+    metrics = result.ok ? result.metrics : null;
+  } catch {
+    metrics = null;
+  }
 
   if (!metrics) {
     return (
