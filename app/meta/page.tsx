@@ -3,14 +3,21 @@ import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { MetaAdsDashboardClient } from '@/components/MetaAdsDashboardClient';
+import { MetaLandingTimingClient } from '@/components/MetaLandingTimingClient';
 import { TopBar } from '@/components/TopBar';
+import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
 import { getCachedMetaAdsPerformance } from '@/lib/cachedDb';
 import { timeAsync } from '@/lib/performance';
 
 export const runtime = 'nodejs';
 
-export default async function MetaPage() {
+export default async function MetaPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await connection();
+  const range = getDateRangeFromSearchParams(await searchParams);
 
   return (
     <DashboardLayout>
@@ -25,6 +32,8 @@ export default async function MetaPage() {
             Meta platform attribution is displayed when purchase/action values are available. True Shopify CAC/ROAS attribution still requires session/order joining.
           </p>
         </Card>
+
+        <MetaLandingTimingClient period={range.period} label={range.label} />
 
         <Suspense
           fallback={(
