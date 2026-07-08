@@ -1,10 +1,8 @@
 import { connection } from 'next/server';
-import { BarChart } from '@/components/BarChart';
 import { BusinessOverviewDailyClient } from '@/components/BusinessOverviewDailyClient';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { MetricCard } from '@/components/MetricCard';
-import { LineChart } from '@/components/dashboard/LineChart';
 import { TrendBadge } from '@/components/dashboard/TrendBadge';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
@@ -12,7 +10,6 @@ import { getCachedBusinessOverview, getCachedGa4OverviewTrends, getCachedMetaAds
 import type { Trend } from '@/lib/analytics/trends';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
 import { timeAsync } from '@/lib/performance';
-import { getLandingPageArrivals } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
@@ -69,10 +66,6 @@ export default async function BusinessOverviewPage({
   const siteBehavior = siteBehaviorResult.ok ? siteBehaviorResult.metrics : null;
   const ga4 = ga4Result.ok ? ga4Result.metrics : null;
   const meta = metaResult.ok ? metaResult.metrics : null;
-  const landingResult = await timeAsync('page:/business-overview getLandingPageArrivals', () => getLandingPageArrivals(range), {
-    category: 'page',
-  });
-  const landing = landingResult.ok ? landingResult.metrics : null;
 
   const ratingsCount = siteBehavior?.totalRatings ?? 0;
   const cards = business
@@ -120,14 +113,6 @@ export default async function BusinessOverviewPage({
           ga4?.topSourceMedium ? 'Top source / medium in selected period.' : 'No source/medium detected for this period.',
         ),
         statusCard(
-          'Landing Timing',
-          landing?.topHour ? 'Good' : 'Watch',
-          landing?.topHour ? `${landing.topHour.hour.toString().padStart(2, '0')}:00` : 'Missing data',
-          landing?.topDay && landing?.topHour
-            ? `Best day ${landing.topDay.date} · best hour ${landing.topHour.hour.toString().padStart(2, '0')}:00.`
-            : 'Landing page timing depends on page-view events in PostgreSQL.',
-        ),
-        statusCard(
           'Meta Attribution',
           meta?.attributionAvailable ? 'Good' : 'Watch',
           meta?.attributionAvailable ? 'Available' : 'Missing data',
@@ -147,45 +132,6 @@ export default async function BusinessOverviewPage({
             Business metrics only. No individual orders, phone numbers, addresses, or raw payloads are displayed here.
           </p>
         </Card>
-
-        <PageSection>
-          <SectionTitle sub="Exact landing arrivals by day and hour">Landing Page Timing</SectionTitle>
-          <Card style={{ marginBottom: 12, borderColor: '#E8E6E1', background: '#F8F7F4' }}>
-            <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>
-              Best day and best hour come from the landing page arrival stream in PostgreSQL. Use this to decide whether to run ads 24/7 or focus on high-volume windows.
-            </p>
-          </Card>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-            <MetricCard label="Best day" value={landing?.topDay ? `${landing.topDay.date} (${formatNumber(landing.topDay.arrivals)})` : 'No data'} />
-            <MetricCard label="Best hour" value={landing?.topHour ? `${landing.topHour.hour.toString().padStart(2, '0')}:00 (${formatNumber(landing.topHour.arrivals)})` : 'No data'} />
-            <MetricCard label="Total arrivals" value={landing ? formatNumber(landing.totalArrivals) : 'No data'} />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
-            <Card>
-              <SectionTitle>Arrivals by day</SectionTitle>
-              {landing?.daily.length ? (
-                <LineChart data={landing.daily.map((row) => ({ label: row.date, value: row.arrivals }))} color="#2D6A4F" />
-              ) : (
-                <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13 }}>No landing page timing data yet.</p>
-              )}
-            </Card>
-            <Card>
-              <SectionTitle>Arrivals by hour</SectionTitle>
-              {landing?.byHour.length ? (
-                <BarChart
-                  data={landing.byHour.map((row) => ({
-                    label: `${row.hour.toString().padStart(2, '0')}:00`,
-                    value: row.arrivals,
-                    color: '#722F37',
-                  }))}
-                  valueFormatter={(value) => formatNumber(value)}
-                />
-              ) : (
-                <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13 }}>No hourly data yet.</p>
-              )}
-            </Card>
-          </div>
-        </PageSection>
 
         {business ? (
           <>
@@ -262,14 +208,6 @@ export default async function BusinessOverviewPage({
             </PageSection>
           </>
         ) : (
-          <Card style={{ marginBottom: 16, borderColor: '#F2C94C', background: '#FFFCF0' }}>
-            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
-              Could not load the business overview cards, but landing timing is still shown above if available.
-            </p>
-          </Card>
-        )}
-
-        {business ? null : (
           <Card>
             <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700 }}>
               Could not load the business overview. Check the server database connection.
