@@ -7029,12 +7029,13 @@ export async function getBusinessOverview(): Promise<BusinessOverviewResult> {
   const products = productsResult.ok
     ? productsResult
     : ({
+        ok: true,
         products: [],
         totalQuantitySold: 0,
         totalProductDiscounts: 0,
         freeQuantityEstimate: 0,
         discountFieldsDetected: [],
-      } as ShopifyProductsSummaryResult & { ok: true });
+      } as Extract<ShopifyProductsSummaryResult, { ok: true }>);
 
   const funnel = funnelResult.ok
     ? funnelResult.metrics
