@@ -1,4 +1,5 @@
 import { connection } from 'next/server';
+import { BarChart } from '@/components/BarChart';
 import { BusinessOverviewDailyClient } from '@/components/BusinessOverviewDailyClient';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
@@ -159,6 +160,45 @@ export default async function BusinessOverviewPage({
                 />
               ))}
             </div>
+
+            <PageSection>
+              <SectionTitle sub="Exact landing arrivals by day and hour">Landing Page Timing</SectionTitle>
+              <Card style={{ marginBottom: 12, borderColor: '#E8E6E1', background: '#F8F7F4' }}>
+                <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>
+                  Best day and best hour come from the landing page arrival stream in PostgreSQL. Use this to decide whether to run ads 24/7 or focus on high-volume windows.
+                </p>
+              </Card>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+                <MetricCard label="Best day" value={landing?.topDay ? `${landing.topDay.date} (${formatNumber(landing.topDay.arrivals)})` : 'No data'} />
+                <MetricCard label="Best hour" value={landing?.topHour ? `${landing.topHour.hour.toString().padStart(2, '0')}:00 (${formatNumber(landing.topHour.arrivals)})` : 'No data'} />
+                <MetricCard label="Total arrivals" value={landing ? formatNumber(landing.totalArrivals) : 'No data'} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+                <Card>
+                  <SectionTitle>Arrivals by day</SectionTitle>
+                  {landing?.daily.length ? (
+                    <LineChart data={landing.daily.map((row) => ({ label: row.date, value: row.arrivals }))} color="#2D6A4F" />
+                  ) : (
+                    <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13 }}>No landing page timing data yet.</p>
+                  )}
+                </Card>
+                <Card>
+                  <SectionTitle>Arrivals by hour</SectionTitle>
+                  {landing?.byHour.length ? (
+                    <BarChart
+                      data={landing.byHour.map((row) => ({
+                        label: `${row.hour.toString().padStart(2, '0')}:00`,
+                        value: row.arrivals,
+                        color: '#722F37',
+                      }))}
+                      valueFormatter={(value) => formatNumber(value)}
+                    />
+                  ) : (
+                    <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13 }}>No hourly data yet.</p>
+                  )}
+                </Card>
+              </div>
+            </PageSection>
 
             {siteBehavior ? (
               <PageSection>
