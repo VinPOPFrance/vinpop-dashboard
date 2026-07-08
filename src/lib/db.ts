@@ -5925,10 +5925,6 @@ type TableColumnRow = {
   data_type: string;
 };
 
-function quoteIdentifier(identifier: string): string {
-  return `"${identifier.replace(/"/g, '""')}"`;
-}
-
 function pickColumn(columns: TableColumnRow[], candidates: string[]): TableColumnRow | null {
   const lookup = new Map(columns.map((column) => [column.column_name.toLowerCase(), column]));
   for (const candidate of candidates) {
