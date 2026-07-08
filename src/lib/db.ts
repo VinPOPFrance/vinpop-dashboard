@@ -6077,8 +6077,12 @@ export async function getLandingPageArrivals(range: DateRange): Promise<LandingP
     const engagementArrivalColumn = pickColumn(engagementColumns, ['landing_page_views', 'page_views', 'pageviews', 'sessions', 'users', 'visits', 'arrivals', 'clicks']);
     const engagementSessionColumn = pickColumn(engagementColumns, ['unique_sessions', 'sessions']);
     const engagementVisitorColumn = pickColumn(engagementColumns, ['unique_visitors', 'visitors', 'users']);
+    const engagementRowCountResult = await pool.query<{ row_count: string }>(`
+      SELECT COUNT(*)::text AS row_count
+      FROM public.engagement_horaire
+    `);
 
-    const canUseEngagementHoraire = Boolean(engagementDateColumn && engagementArrivalColumn);
+    const canUseEngagementHoraire = Boolean(engagementDateColumn && engagementArrivalColumn && numberFromPg(engagementRowCountResult.rows[0]?.row_count) > 0);
 
     const dailyResult = canUseEngagementHoraire
       ? await pool.query<LandingPageArrivalDayRow>(`
@@ -7005,81 +7009,188 @@ export async function getBusinessOverview(): Promise<BusinessOverviewResult> {
       getRatingsConversion(),
     ]);
 
-  if (!ordersResult.ok) {
-    return ordersResult;
-  }
+  const orders = ordersResult.ok
+    ? ordersResult.metrics
+    : ({
+        totalRevenue: 0,
+        totalOrders: 0,
+        averageOrderValue: 0,
+        paidOrders: 0,
+        cancelledOrders: 0,
+        fulfilledOrders: 0,
+        unfulfilledOrders: 0,
+        totalLineItemsCount: null,
+        averageLineItemsPerOrder: null,
+        lineItemsCountWorked: false,
+        firstOrderDate: null,
+        latestOrderDate: null,
+      } as ShopifyOrdersAggregateMetrics);
 
-  if (!productsResult.ok) {
-    return productsResult;
-  }
+  const products = productsResult.ok
+    ? productsResult
+    : ({
+        products: [],
+        totalQuantitySold: 0,
+        totalProductDiscounts: 0,
+        freeQuantityEstimate: 0,
+        discountFieldsDetected: [],
+      } as ShopifyProductsSummaryResult & { ok: true });
 
-  if (!funnelResult.ok) {
-    return funnelResult;
-  }
+  const funnel = funnelResult.ok
+    ? funnelResult.metrics
+    : ({
+        abandonedCheckoutCount: 0,
+        orderCount: 0,
+        paidOrderCount: 0,
+        cancelledOrderCount: 0,
+        fulfilledOrderCount: 0,
+        unfulfilledOrderCount: 0,
+        abandonmentToOrderRatio: null,
+        paidOrderRate: null,
+        cancelledOrderRate: null,
+        fulfilledOrderRate: null,
+        totalRevenue: 0,
+        averageOrderValue: 0,
+      } as ShopifyFunnelBasicMetrics);
 
-  if (!startupPackResult.ok) {
-    return startupPackResult;
-  }
+  const startupPack = startupPackResult.ok
+    ? startupPackResult.metrics
+    : ({
+        startupPackOrderCount: 0,
+        startupPackLineItemsSold: 0,
+        startupPackGrossRevenue: 0,
+        startupPackNetRevenue: 0,
+        averageStartupPackNetRevenuePerOrder: null,
+        freeBottleLineItemCount: 0,
+        freeBottleQuantity: 0,
+        freeBottleGrossValue: 0,
+        freeBottleDiscountValue: 0,
+        paidItemsNetRevenueInStartupPackOrders: 0,
+        averageFreeBottlesPerStartupPackOrder: null,
+        topFreeWinesByQuantity: [],
+        topFreeWinesByGrossValue: [],
+        topPaidPackProducts: [],
+      } as StartupPackAnalysisMetrics);
 
-  if (!stockMovementResult.ok) {
-    return stockMovementResult;
-  }
+  const stockMovement = stockMovementResult.ok
+    ? stockMovementResult.metrics
+    : ({
+        totalQuantityMoved: 0,
+        totalPaidQuantity: 0,
+        totalFreeQuantity: 0,
+        freeQuantityPercentage: null,
+        totalGrossProductValue: 0,
+        totalDiscountValue: 0,
+        totalNetProductRevenue: 0,
+        products: [],
+      } as StockMovementSummaryMetrics);
 
-  if (!repeatResult.ok) {
-    return repeatResult;
-  }
+  const repeat = repeatResult.ok
+    ? repeatResult.metrics
+    : ({
+        orderingCustomers: 0,
+        oneTimeCustomers: 0,
+        repeatCustomers: 0,
+        reorderRate: null,
+        customersWithExactlyTwoOrders: 0,
+        customersWithThreePlusOrders: 0,
+        totalNonCancelledOrders: 0,
+        averageOrdersPerOrderingCustomer: null,
+        firstOrderRevenue: 0,
+        laterOrderRevenue: 0,
+        totalNonCancelledRevenue: 0,
+        repeatRevenueShare: null,
+        averageFirstOrderValue: null,
+        averageLaterOrderValue: null,
+        firstOrderDate: null,
+        latestOrderDate: null,
+        distribution: [],
+        potentialIssues: [],
+      } as RepeatCustomerMetrics);
 
-  if (!startupRetentionResult.ok) {
-    return startupRetentionResult;
-  }
+  const startupRetention = startupRetentionResult.ok
+    ? startupRetentionResult.metrics
+    : ({
+        startupPackCustomers: 0,
+        startupPackOrders: 0,
+        startupPackCustomersWithLaterOrder: 0,
+        startupPackReorderRate: null,
+        startupPackFirstOrderRevenue: 0,
+        startupPackLaterOrderRevenue: 0,
+        averageLaterOrdersPerStartupPackCustomer: null,
+        smartBoxLaterOrdersAfterStartupPack: 0,
+        customersWithStartupPackOnly: 0,
+        customersWithStartupPackAndLaterOrder: 0,
+        customersWithStartupPackAndSmartBox: 0,
+        averageFreeBottlesPerStartupPackOrder: null,
+        cohorts: [],
+        potentialIssues: [],
+      } as StartupPackRetentionMetrics);
 
-  if (!ratingsResult.ok) {
-    return ratingsResult;
-  }
+  const ratings = ratingsResult.ok
+    ? ratingsResult.metrics
+    : ({
+        totalUsers: 0,
+        usersWithRatings: 0,
+        usersWithThreePlusRatings: 0,
+        totalRatings: 0,
+        averageRatingsPerUser: null,
+        orderingCustomers: 0,
+        repeatCustomers: 0,
+        ratedOrderingCustomers: null,
+        ratedRepeatCustomers: null,
+        ratedReorderRate: null,
+        unratedReorderRate: null,
+        ratedVsUnratedReorderRateDifference: null,
+        matchingAvailable: false,
+        matchingUnavailableReason: null,
+        buckets: [],
+        potentialIssues: [],
+      } as RatingsConversionMetrics);
 
   const potentialIssues: string[] = [];
 
-  if ((funnelResult.metrics.cancelledOrderRate ?? 0) > 10) {
+  if ((funnel.cancelledOrderRate ?? 0) > 10) {
     potentialIssues.push('Cancelled orders may be high.');
   }
 
-  if (funnelResult.metrics.abandonedCheckoutCount > funnelResult.metrics.orderCount) {
+  if (funnel.abandonedCheckoutCount > funnel.orderCount) {
     potentialIssues.push('Abandoned checkouts exceed completed orders.');
   }
 
-  if ((funnelResult.metrics.paidOrderRate ?? 100) < 90) {
+  if ((funnel.paidOrderRate ?? 100) < 90) {
     potentialIssues.push('Paid order rate may need attention.');
   }
 
-  if (productsResult.freeQuantityEstimate > 0) {
+  if (products.freeQuantityEstimate > 0) {
     potentialIssues.push(
       'Some products were included for free via discounts. Stock movement may exceed paid product sales.',
     );
   }
 
-  const averageFreeBottles = startupPackResult.metrics.averageFreeBottlesPerStartupPackOrder;
+  const averageFreeBottles = startupPack.averageFreeBottlesPerStartupPackOrder;
   if (
-    startupPackResult.metrics.startupPackOrderCount > 0 &&
+    startupPack.startupPackOrderCount > 0 &&
     (averageFreeBottles === null || averageFreeBottles < 3 || averageFreeBottles > 4)
   ) {
     potentialIssues.push('Average free bottles per Startup Pack is outside the expected 3 to 4 range.');
   }
 
-  if ((stockMovementResult.metrics.freeQuantityPercentage ?? 0) > 50) {
+  if ((stockMovement.freeQuantityPercentage ?? 0) > 50) {
     potentialIssues.push(
       'A large share of stock movement is discounted/free. Check acquisition economics.',
     );
   }
 
-  if ((repeatResult.metrics.reorderRate ?? 100) < 20) {
+  if ((repeat.reorderRate ?? 100) < 20) {
     potentialIssues.push('Reorder rate is low. Startup Pack acquisition may not yet be converting into repeat orders.');
   }
 
-  if ((startupRetentionResult.metrics.startupPackReorderRate ?? 100) < 20) {
+  if ((startupRetention.startupPackReorderRate ?? 100) < 20) {
     potentialIssues.push('Startup Pack customers are not yet reordering enough.');
   }
 
-  if (ratingsResult.metrics.totalUsers > 0 && ratingsResult.metrics.usersWithRatings / ratingsResult.metrics.totalUsers < 0.5) {
+  if (ratings.totalUsers > 0 && ratings.usersWithRatings / ratings.totalUsers < 0.5) {
     potentialIssues.push('Most users have not rated wines yet.');
   }
 
@@ -7087,29 +7198,29 @@ export async function getBusinessOverview(): Promise<BusinessOverviewResult> {
     ok: true,
     metrics: {
       totalRevenue: ordersResult.metrics.totalRevenue,
-      totalOrders: ordersResult.metrics.totalOrders,
-      averageOrderValue: ordersResult.metrics.averageOrderValue,
-      paidOrders: ordersResult.metrics.paidOrders,
-      cancelledOrders: ordersResult.metrics.cancelledOrders,
-      abandonedCheckoutCount: funnelResult.metrics.abandonedCheckoutCount,
-      topProducts: productsResult.products.slice(0, 5),
-      totalQuantitySold: productsResult.totalQuantitySold,
-      totalProductDiscounts: productsResult.totalProductDiscounts,
-      freeQuantityEstimate: productsResult.freeQuantityEstimate,
-      totalLineItems: ordersResult.metrics.totalLineItemsCount,
-      startupPackOrders: startupPackResult.metrics.startupPackOrderCount,
+      totalOrders: orders.totalOrders,
+      averageOrderValue: orders.averageOrderValue,
+      paidOrders: orders.paidOrders,
+      cancelledOrders: orders.cancelledOrders,
+      abandonedCheckoutCount: funnel.abandonedCheckoutCount,
+      topProducts: products.products.slice(0, 5),
+      totalQuantitySold: products.totalQuantitySold,
+      totalProductDiscounts: products.totalProductDiscounts,
+      freeQuantityEstimate: products.freeQuantityEstimate,
+      totalLineItems: orders.totalLineItemsCount,
+      startupPackOrders: startupPack.startupPackOrderCount,
       averageFreeBottlesPerStartupPackOrder:
-        startupPackResult.metrics.averageFreeBottlesPerStartupPackOrder,
-      paidQuantityEstimate: stockMovementResult.metrics.totalPaidQuantity,
-      freeQuantityPercentage: stockMovementResult.metrics.freeQuantityPercentage,
-      repeatCustomers: repeatResult.metrics.repeatCustomers,
-      reorderRate: repeatResult.metrics.reorderRate,
-      oneTimeCustomers: repeatResult.metrics.oneTimeCustomers,
-      laterOrderRevenue: repeatResult.metrics.laterOrderRevenue,
-      repeatRevenueShare: repeatResult.metrics.repeatRevenueShare,
-      startupPackReorderRate: startupRetentionResult.metrics.startupPackReorderRate,
-      usersWithRatings: ratingsResult.metrics.usersWithRatings,
-      ratingsPerUser: ratingsResult.metrics.averageRatingsPerUser,
+        startupPack.averageFreeBottlesPerStartupPackOrder,
+      paidQuantityEstimate: stockMovement.totalPaidQuantity,
+      freeQuantityPercentage: stockMovement.freeQuantityPercentage,
+      repeatCustomers: repeat.repeatCustomers,
+      reorderRate: repeat.reorderRate,
+      oneTimeCustomers: repeat.oneTimeCustomers,
+      laterOrderRevenue: repeat.laterOrderRevenue,
+      repeatRevenueShare: repeat.repeatRevenueShare,
+      startupPackReorderRate: startupRetention.startupPackReorderRate,
+      usersWithRatings: ratings.usersWithRatings,
+      ratingsPerUser: ratings.averageRatingsPerUser,
       potentialIssues:
         potentialIssues.length > 0 ? potentialIssues : ['No major Shopify issue detected.'],
     },

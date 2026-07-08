@@ -25,6 +25,9 @@ export default async function MetaPage({
     category: 'page',
   });
   const landing = landingResult.ok ? landingResult.metrics : null;
+  const hourlyBuckets = landing?.byHour.length
+    ? landing.byHour
+    : Array.from({ length: 24 }, (_, hour) => ({ hour, arrivals: 0, uniqueSessions: 0 }));
 
   return (
     <DashboardLayout>
@@ -66,18 +69,14 @@ export default async function MetaPage({
             </Card>
             <Card>
               <SectionTitle>Arrivals by hour</SectionTitle>
-              {landing?.byHour.length ? (
-                <BarChart
-                  data={landing.byHour.map((row) => ({
-                    label: `${row.hour.toString().padStart(2, '0')}:00`,
-                    value: row.arrivals,
-                    color: '#722F37',
-                  }))}
-                  valueFormatter={(value) => formatNumber(value)}
-                />
-              ) : (
-                <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13 }}>No hourly data yet.</p>
-              )}
+              <BarChart
+                data={hourlyBuckets.map((row) => ({
+                  label: `${row.hour.toString().padStart(2, '0')}:00`,
+                  value: row.arrivals,
+                  color: '#722F37',
+                }))}
+                valueFormatter={(value) => formatNumber(value)}
+              />
             </Card>
           </div>
         </PageSection>
