@@ -10,6 +10,7 @@ import { getCachedBusinessOverview, getCachedGa4OverviewTrends, getCachedMetaAds
 import type { Trend } from '@/lib/analytics/trends';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
 import { timeAsync } from '@/lib/performance';
+import { getLandingPageArrivals } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
@@ -66,6 +67,10 @@ export default async function BusinessOverviewPage({
   const siteBehavior = siteBehaviorResult.ok ? siteBehaviorResult.metrics : null;
   const ga4 = ga4Result.ok ? ga4Result.metrics : null;
   const meta = metaResult.ok ? metaResult.metrics : null;
+  const landingResult = await timeAsync('page:/business-overview getLandingPageArrivals', () => getLandingPageArrivals(range), {
+    category: 'page',
+  });
+  const landing = landingResult.ok ? landingResult.metrics : null;
 
   const ratingsCount = siteBehavior?.totalRatings ?? 0;
   const cards = business
@@ -111,6 +116,14 @@ export default async function BusinessOverviewPage({
           ga4?.topSourceMedium ? 'Good' : 'Watch',
           ga4?.topSourceMedium || 'Unknown',
           ga4?.topSourceMedium ? 'Top source / medium in selected period.' : 'No source/medium detected for this period.',
+        ),
+        statusCard(
+          'Landing Timing',
+          landing?.topHour ? 'Good' : 'Watch',
+          landing?.topHour ? `${landing.topHour.hour.toString().padStart(2, '0')}:00` : 'Missing data',
+          landing?.topDay && landing?.topHour
+            ? `Best day ${landing.topDay.date} · best hour ${landing.topHour.hour.toString().padStart(2, '0')}:00.`
+            : 'Landing page timing depends on page-view events in PostgreSQL.',
         ),
         statusCard(
           'Meta Attribution',
