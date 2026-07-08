@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BarChart } from '@/components/BarChart';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { MetricCard } from '@/components/MetricCard';
@@ -13,6 +13,12 @@ type LandingDay = {
 
 type LandingHour = {
   hour: number;
+  arrivals: number;
+};
+
+type LandingWeekday = {
+  weekday: string;
+  weekdayIndex: number;
   arrivals: number;
 };
 
@@ -67,30 +73,47 @@ export function MetaLandingTimingClient({
   const hourlyBuckets = metrics?.byHour.length
     ? metrics.byHour
     : Array.from({ length: 24 }, (_, hour) => ({ hour, arrivals: 0 }));
+  const weekdayBuckets = useMemo(() => {
+    const weekdayLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const base = weekdayLabels.map((weekday, weekdayIndex) => ({ weekday, weekdayIndex, arrivals: 0 }));
+
+    for (const row of metrics?.daily ?? []) {
+      const weekdayIndex = new Date(`${row.date}T00:00:00Z`).getUTCDay();
+      base[weekdayIndex].arrivals += row.arrivals;
+    }
+
+    return base;
+  }, [metrics]);
+  const bestWeekday = useMemo(() => {
+    return weekdayBuckets.reduce<LandingWeekday | null>((best, current) => {
+      if (!best || current.arrivals > best.arrivals) return current;
+      return best;
+    }, null);
+  }, [weekdayBuckets]);
 
   return (
     <PageSection>
-      <SectionTitle sub={`Landing page arrivals by day and hour · ${label}`}>Landing Page Timing</SectionTitle>
+      <SectionTitle sub={`Landing page arrivals by weekday and hour · ${label}`}>Landing Page Timing</SectionTitle>
       <Card style={{ marginBottom: 12, borderColor: '#E8E6E1', background: '#F8F7F4' }}>
         <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>
-          This shows the best day and best hour for landing page arrivals, so you can decide whether to run ads all day or only in strong windows.
+          This shows the strongest weekdays and hours for landing page arrivals, so you can decide whether to run ads all week or only in specific windows.
         </p>
       </Card>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-        <MetricCard label="Best day" value={metrics?.topDay ? `${metrics.topDay.date} (${formatNumber(metrics.topDay.arrivals)})` : 'No data'} />
+        <MetricCard label="Best weekday" value={bestWeekday && bestWeekday.arrivals > 0 ? `${bestWeekday.weekday} (${formatNumber(bestWeekday.arrivals)})` : 'No data'} />
         <MetricCard label="Best hour" value={metrics?.topHour ? `${metrics.topHour.hour.toString().padStart(2, '0')}:00 (${formatNumber(metrics.topHour.arrivals)})` : 'No data'} />
         <MetricCard label="Total arrivals" value={metrics ? formatNumber(metrics.totalArrivals) : 'No data'} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
         <Card>
-          <SectionTitle>Arrivals by day</SectionTitle>
-          {metrics?.daily.length ? (
+          <SectionTitle>Arrivals by weekday</SectionTitle>
+          {weekdayBuckets.some((row) => row.arrivals > 0) ? (
             <BarChart
-              data={metrics.daily.map((row) => ({ label: row.date, value: row.arrivals, color: '#2D6A4F' }))}
+              data={weekdayBuckets.map((row) => ({ label: row.weekday, value: row.arrivals, color: '#2D6A4F' }))}
               valueFormatter={(value) => formatNumber(value)}
             />
           ) : (
-            <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13 }}>No landing page timing data yet.</p>
+            <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13 }}>No weekday timing data yet.</p>
           )}
         </Card>
         <Card>
