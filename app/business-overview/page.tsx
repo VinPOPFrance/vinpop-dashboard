@@ -4,6 +4,7 @@ import { BusinessOverviewDailyClient } from '@/components/BusinessOverviewDailyC
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/Layout';
 import { MetricCard } from '@/components/MetricCard';
+import { LineChart } from '@/components/dashboard/LineChart';
 import { TrendBadge } from '@/components/dashboard/TrendBadge';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
