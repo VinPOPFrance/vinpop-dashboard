@@ -14,7 +14,7 @@ export function BarChart({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {data.map((item) => {
-        const width = max > 0 ? Math.max((item.value / max) * 100, 2) : 0;
+        const width = max > 0 ? Math.max((item.value / max) * 100, 2) : 2;
         return (
           <button
             key={item.label}
