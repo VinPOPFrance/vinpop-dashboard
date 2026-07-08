@@ -671,6 +671,29 @@ export type SiteBehaviorMetrics = {
   insights: string[];
 };
 
+export type LandingPageArrivalDay = {
+  date: string;
+  arrivals: number;
+  uniqueSessions: number;
+  uniqueVisitors: number;
+};
+
+export type LandingPageArrivalHour = {
+  hour: number;
+  arrivals: number;
+  uniqueSessions: number;
+};
+
+export type LandingPageArrivalMetrics = {
+  totalArrivals: number;
+  totalUniqueSessions: number;
+  totalUniqueVisitors: number;
+  daily: LandingPageArrivalDay[];
+  byHour: LandingPageArrivalHour[];
+  topDay: LandingPageArrivalDay | null;
+  topHour: LandingPageArrivalHour | null;
+};
+
 export type GeoInsightCityRow = {
   city: string;
   region: string;
@@ -1172,6 +1195,10 @@ export type TrackingReadinessResult =
 
 export type SiteBehaviorResult =
   | { ok: true; metrics: SiteBehaviorMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+export type LandingPageArrivalResult =
+  | { ok: true; metrics: LandingPageArrivalMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 export type GeoInsightsResult =
@@ -5727,6 +5754,7 @@ export async function getTrackingReadiness(): Promise<TrackingReadinessResult> {
         UNION ALL SELECT 'devices', COUNT(*)::text, MIN(date)::text, MAX(date)::text FROM public.devices
         UNION ALL SELECT 'daily_active_users', COUNT(*)::text, MIN(date)::text, MAX(date)::text FROM public.daily_active_users
         UNION ALL SELECT 'conversions_report', COUNT(*)::text, MIN(date)::text, MAX(date)::text FROM public.conversions_report
+        UNION ALL SELECT 'site_events', COUNT(*)::text, MIN(event_time)::text, MAX(event_time)::text FROM public.site_events
         UNION ALL SELECT 'shopify.abandoned_checkouts', COUNT(*)::text, MIN(created_at)::text, MAX(created_at)::text FROM shopify.abandoned_checkouts
         UNION ALL SELECT 'shopify.orders', COUNT(*)::text, MIN(created_at)::text, MAX(created_at)::text FROM shopify.orders
       `),
@@ -5762,6 +5790,7 @@ export async function getTrackingReadiness(): Promise<TrackingReadinessResult> {
     const hasSessionTracking = hasColumn(availableTables, ['session_id', 'sessionId']) || ga4TablesWithRows.some((table) => table.includes('session'));
     const hasVisitorTracking = hasColumn(availableTables, ['visitor_id', 'client_id', 'user_pseudo_id']);
     const hasEvents = hasColumn(availableTables, ['event_name', 'eventName']);
+    const hasLandingPageArrivalTracking = hasColumn(availableTables, ['event_time', 'page_url']) && (hasEvents || hasColumn(availableTables, ['event_name']));
     const hasAttribution = hasColumn(availableTables, ['utm_source', 'utm_campaign', 'meta_click_id', 'fbp', 'fbc', 'gclid']);
     const hasCity = hasColumn(availableTables, ['city', 'region', 'province']);
 
@@ -5797,6 +5826,13 @@ export async function getTrackingReadiness(): Promise<TrackingReadinessResult> {
             status: hasEvents ? 'warning' : 'missing',
             evidence: hasEvents ? 'Event-like columns exist.' : 'No event table with event_name/event_time was found.',
             dataNeeded: trackingEventFields,
+          },
+          {
+            label: 'Landing page arrival tracking',
+            available: hasLandingPageArrivalTracking,
+            status: hasLandingPageArrivalTracking ? 'good' : 'missing',
+            evidence: hasLandingPageArrivalTracking ? 'event_time + page_url are available for landing page arrival measurement.' : 'Need an event table with event_time and page_url for landing page arrival analysis.',
+            dataNeeded: ['event_name', 'event_time', 'page_url', 'session_id', 'visitor_id'],
           },
           {
             label: 'Meta attribution tracking status',
@@ -5870,6 +5906,41 @@ type DailyBehaviorRow = {
   quizzes: string | null;
   ratings: string | null;
 };
+
+type LandingPageArrivalDayRow = {
+  date: string;
+  arrivals: string | null;
+  unique_sessions: string | null;
+  unique_visitors: string | null;
+};
+
+type LandingPageArrivalHourRow = {
+  hour: string | null;
+  arrivals: string | null;
+  unique_sessions: string | null;
+};
+
+type TableColumnRow = {
+  column_name: string;
+  data_type: string;
+};
+
+function quoteIdentifier(identifier: string): string {
+  return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+function pickColumn(columns: TableColumnRow[], candidates: string[]): TableColumnRow | null {
+  const lookup = new Map(columns.map((column) => [column.column_name.toLowerCase(), column]));
+  for (const candidate of candidates) {
+    const matched = lookup.get(candidate.toLowerCase());
+    if (matched) return matched;
+  }
+  return null;
+}
+
+function isTimestampLike(dataType: string): boolean {
+  return ['timestamp without time zone', 'timestamp with time zone', 'date'].includes(dataType.toLowerCase());
+}
 
 export async function getSiteBehavior(range: DateRange): Promise<SiteBehaviorResult> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -5987,6 +6058,135 @@ export async function getSiteBehavior(range: DateRange): Promise<SiteBehaviorRes
   } catch (error) {
     const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
     console.error('Site behavior failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getLandingPageArrivals(range: DateRange): Promise<LandingPageArrivalResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  try {
+    const pool = getPool(databaseUrl);
+    const engagementColumnsResult = await pool.query<TableColumnRow>(`
+      SELECT column_name, data_type
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'engagement_horaire'
+      ORDER BY ordinal_position
+    `);
+    const engagementColumns = engagementColumnsResult.rows;
+    const engagementDateColumn = pickColumn(engagementColumns, ['date', 'day', 'report_date', 'date_start', 'event_date', 'created_at', 'timestamp', 'datetime']);
+    const engagementHourColumn = pickColumn(engagementColumns, ['hour', 'hour_of_day', 'date_hour', 'datehour']);
+    const engagementArrivalColumn = pickColumn(engagementColumns, ['landing_page_views', 'page_views', 'pageviews', 'sessions', 'users', 'visits', 'arrivals', 'clicks']);
+    const engagementSessionColumn = pickColumn(engagementColumns, ['unique_sessions', 'sessions']);
+    const engagementVisitorColumn = pickColumn(engagementColumns, ['unique_visitors', 'visitors', 'users']);
+
+    const canUseEngagementHoraire = Boolean(engagementDateColumn && engagementArrivalColumn);
+
+    const dailyResult = canUseEngagementHoraire
+      ? await pool.query<LandingPageArrivalDayRow>(`
+          SELECT
+            (${quoteIdentifier(engagementDateColumn!.column_name)})::date::text AS date,
+            COALESCE(SUM(${quoteIdentifier(engagementArrivalColumn!.column_name)}), 0)::text AS arrivals,
+            COALESCE(SUM(${quoteIdentifier(engagementSessionColumn?.column_name ?? engagementArrivalColumn!.column_name)}), 0)::text AS unique_sessions,
+            COALESCE(SUM(${quoteIdentifier(engagementVisitorColumn?.column_name ?? engagementArrivalColumn!.column_name)}), 0)::text AS unique_visitors
+          FROM public.engagement_horaire
+          WHERE (${quoteIdentifier(engagementDateColumn!.column_name)})::date >= $1::date
+            AND (${quoteIdentifier(engagementDateColumn!.column_name)})::date < ($2::date + interval '1 day')
+          GROUP BY 1
+          ORDER BY 1
+        `, [dateToSql(range.start), dateToSql(range.end)])
+      : await pool.query<LandingPageArrivalDayRow>(`
+          SELECT
+            (event_time AT TIME ZONE 'Europe/Amsterdam')::date::text AS date,
+            COUNT(*)::text AS arrivals,
+            COUNT(DISTINCT session_id)::text AS unique_sessions,
+            COUNT(DISTINCT visitor_id)::text AS unique_visitors
+          FROM public.site_events
+          WHERE event_name IN ('vinpop_page_view', 'vinpop_landing_page_view')
+            AND event_time >= $1::date
+            AND event_time < ($2::date + interval '1 day')
+            AND page_url IS NOT NULL
+            AND (
+              page_url ILIKE 'https://vinpop.nl%'
+              OR page_url ILIKE 'https://www.vinpop.nl%'
+              OR page_url = '/'
+            )
+          GROUP BY 1
+          ORDER BY 1
+        `, [dateToSql(range.start), dateToSql(range.end)]);
+
+    const hourlyResult = canUseEngagementHoraire && (engagementHourColumn || (engagementDateColumn && isTimestampLike(engagementDateColumn.data_type)))
+      ? await pool.query<LandingPageArrivalHourRow>(`
+          SELECT
+            ${engagementHourColumn
+              ? `COALESCE(${quoteIdentifier(engagementHourColumn.column_name)}, EXTRACT(HOUR FROM (${quoteIdentifier(engagementDateColumn!.column_name)})::timestamp))`
+              : `EXTRACT(HOUR FROM (${quoteIdentifier(engagementDateColumn!.column_name)})::timestamp)`
+            }::int::text AS hour,
+            COALESCE(SUM(${quoteIdentifier(engagementArrivalColumn!.column_name)}), 0)::text AS arrivals,
+            COALESCE(SUM(${quoteIdentifier(engagementSessionColumn?.column_name ?? engagementArrivalColumn!.column_name)}), 0)::text AS unique_sessions
+          FROM public.engagement_horaire
+          WHERE (${quoteIdentifier(engagementDateColumn!.column_name)})::date >= $1::date
+            AND (${quoteIdentifier(engagementDateColumn!.column_name)})::date < ($2::date + interval '1 day')
+          GROUP BY 1
+          ORDER BY 1
+        `, [dateToSql(range.start), dateToSql(range.end)])
+      : await pool.query<LandingPageArrivalHourRow>(`
+          SELECT
+            EXTRACT(HOUR FROM event_time AT TIME ZONE 'Europe/Amsterdam')::int::text AS hour,
+            COUNT(*)::text AS arrivals,
+            COUNT(DISTINCT session_id)::text AS unique_sessions
+          FROM public.site_events
+          WHERE event_name IN ('vinpop_page_view', 'vinpop_landing_page_view')
+            AND event_time >= $1::date
+            AND event_time < ($2::date + interval '1 day')
+            AND page_url IS NOT NULL
+            AND (
+              page_url ILIKE 'https://vinpop.nl%'
+              OR page_url ILIKE 'https://www.vinpop.nl%'
+              OR page_url = '/'
+            )
+          GROUP BY 1
+          ORDER BY 1
+        `, [dateToSql(range.start), dateToSql(range.end)]);
+
+    const daily = dailyResult.rows.map((row) => ({
+      date: row.date,
+      arrivals: numberFromPg(row.arrivals),
+      uniqueSessions: numberFromPg(row.unique_sessions),
+      uniqueVisitors: numberFromPg(row.unique_visitors),
+    }));
+    const byHour = hourlyResult.rows.map((row) => ({
+      hour: row.hour ? Number(row.hour) : 0,
+      arrivals: numberFromPg(row.arrivals),
+      uniqueSessions: numberFromPg(row.unique_sessions),
+    })).sort((a, b) => a.hour - b.hour);
+
+    const topDay = daily.reduce<LandingPageArrivalDay | null>((best, current) => {
+      if (!best || current.arrivals > best.arrivals) return current;
+      return best;
+    }, null);
+    const topHour = byHour.reduce<LandingPageArrivalHour | null>((best, current) => {
+      if (!best || current.arrivals > best.arrivals) return current;
+      return best;
+    }, null);
+
+    return {
+      ok: true,
+      metrics: {
+        totalArrivals: daily.reduce((sum, row) => sum + row.arrivals, 0),
+        totalUniqueSessions: daily.reduce((sum, row) => sum + row.uniqueSessions, 0),
+        totalUniqueVisitors: daily.reduce((sum, row) => sum + row.uniqueVisitors, 0),
+        daily,
+        byHour,
+        topDay,
+        topHour,
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Landing page arrival analytics failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }

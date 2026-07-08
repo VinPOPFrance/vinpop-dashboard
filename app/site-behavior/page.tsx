@@ -6,7 +6,7 @@ import { MetricCard } from '@/components/MetricCard';
 import { LineChart } from '@/components/dashboard/LineChart';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
-import { getSiteBehavior } from '@/lib/db';
+import { getLandingPageArrivals, getSiteBehavior } from '@/lib/db';
 import { formatNumber, formatPercent } from '@/lib/format';
 
 export const runtime = 'nodejs';
@@ -22,8 +22,9 @@ export default async function SiteBehaviorPage({
 }) {
   await connection();
   const range = getDateRangeFromSearchParams(await searchParams);
-  const result = await getSiteBehavior(range);
+  const [result, landingResult] = await Promise.all([getSiteBehavior(range), getLandingPageArrivals(range)]);
   const metrics = result.ok ? result.metrics : null;
+  const landing = landingResult.ok ? landingResult.metrics : null;
 
   return (
     <DashboardLayout>
@@ -35,6 +36,47 @@ export default async function SiteBehaviorPage({
             Aggregate daily metrics only. No customer personal data or individual orders are displayed.
           </p>
         </Card>
+
+        {landing ? (
+          <PageSection>
+            <SectionTitle sub={`Landing page arrivals from PostgreSQL site_events · ${range.label}`}>Landing Page Arrivals</SectionTitle>
+            <Card style={{ marginBottom: 12, borderColor: '#E8E6E1', background: '#F8F7F4' }}>
+              <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>
+                This uses the PostgreSQL `public.site_events` table and the `vinpop_page_view` event. It shows when people actually reach the landing page by day and hour.
+              </p>
+            </Card>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+              <MetricCard label="Total arrivals" value={formatNumber(landing.totalArrivals)} />
+              <MetricCard label="Unique sessions" value={formatNumber(landing.totalUniqueSessions)} />
+              <MetricCard label="Unique visitors" value={formatNumber(landing.totalUniqueVisitors)} />
+              <MetricCard label="Best day" value={landing.topDay ? `${landing.topDay.date} (${formatNumber(landing.topDay.arrivals)})` : 'No data'} />
+              <MetricCard label="Best hour" value={landing.topHour ? `${landing.topHour.hour.toString().padStart(2, '0')}:00 (${formatNumber(landing.topHour.arrivals)})` : 'No data'} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+              <Card>
+                <SectionTitle>Arrivals by day</SectionTitle>
+                <LineChart data={landing.daily.map((row) => ({ label: row.date, value: row.arrivals }))} color="#2D6A4F" />
+              </Card>
+              <Card>
+                <SectionTitle>Arrivals by hour</SectionTitle>
+                <BarChart
+                  data={landing.byHour.map((row) => ({
+                    label: `${row.hour.toString().padStart(2, '0')}:00`,
+                    value: row.arrivals,
+                    color: '#722F37',
+                  }))}
+                  valueFormatter={(value) => formatNumber(value)}
+                />
+              </Card>
+            </div>
+          </PageSection>
+        ) : (
+          <Card style={{ marginBottom: 16, borderColor: '#F2C94C', background: '#FFFCF0' }}>
+            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
+              Landing page arrivals are not available yet. The dashboard needs `vinpop_page_view` events in `public.site_events`.
+            </p>
+          </Card>
+        )}
 
         {metrics ? (
           <>

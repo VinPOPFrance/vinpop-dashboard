@@ -6,6 +6,7 @@ import { insertSiteEvent } from '@/lib/db';
 const MAX_BODY_BYTES = 32 * 1024;
 
 const allowedEventNames = new Set([
+  'vinpop_page_view',
   'vinpop_quiz_started',
   'vinpop_quiz_completed',
   'vinpop_email_submitted',
