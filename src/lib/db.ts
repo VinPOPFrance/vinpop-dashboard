@@ -6064,36 +6064,23 @@ export async function getLandingPageArrivals(range: DateRange): Promise<LandingP
 
   try {
     const pool = getPool(databaseUrl);
-    const engagementColumnsResult = await pool.query<TableColumnRow>(`
-      SELECT column_name, data_type
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = 'engagement_horaire'
-      ORDER BY ordinal_position
-    `);
-    const engagementColumns = engagementColumnsResult.rows;
-    const engagementDateColumn = pickColumn(engagementColumns, ['date', 'day', 'report_date', 'date_start', 'event_date', 'created_at', 'timestamp', 'datetime']);
-    const engagementHourColumn = pickColumn(engagementColumns, ['hour', 'hour_of_day', 'date_hour', 'datehour']);
-    const engagementArrivalColumn = pickColumn(engagementColumns, ['landing_page_views', 'page_views', 'pageviews', 'sessions', 'users', 'visits', 'arrivals', 'clicks']);
-    const engagementSessionColumn = pickColumn(engagementColumns, ['unique_sessions', 'sessions']);
-    const engagementVisitorColumn = pickColumn(engagementColumns, ['unique_visitors', 'visitors', 'users']);
     const engagementRowCountResult = await pool.query<{ row_count: string }>(`
       SELECT COUNT(*)::text AS row_count
       FROM public.engagement_horaire
     `);
 
-    const canUseEngagementHoraire = Boolean(engagementDateColumn && engagementArrivalColumn && numberFromPg(engagementRowCountResult.rows[0]?.row_count) > 0);
+    const canUseEngagementHoraire = numberFromPg(engagementRowCountResult.rows[0]?.row_count) > 0;
 
     const dailyResult = canUseEngagementHoraire
       ? await pool.query<LandingPageArrivalDayRow>(`
           SELECT
-            (${quoteIdentifier(engagementDateColumn!.column_name)})::date::text AS date,
-            COALESCE(SUM(${quoteIdentifier(engagementArrivalColumn!.column_name)}), 0)::text AS arrivals,
-            COALESCE(SUM(${quoteIdentifier(engagementSessionColumn?.column_name ?? engagementArrivalColumn!.column_name)}), 0)::text AS unique_sessions,
-            COALESCE(SUM(${quoteIdentifier(engagementVisitorColumn?.column_name ?? engagementArrivalColumn!.column_name)}), 0)::text AS unique_visitors
+            to_date(date, 'YYYYMMDD')::text AS date,
+            COALESCE(SUM(sessions), 0)::text AS arrivals,
+            COALESCE(SUM(sessions), 0)::text AS unique_sessions,
+            COALESCE(SUM(COALESCE("activeUsers", 0)), 0)::text AS unique_visitors
           FROM public.engagement_horaire
-          WHERE (${quoteIdentifier(engagementDateColumn!.column_name)})::date >= $1::date
-            AND (${quoteIdentifier(engagementDateColumn!.column_name)})::date < ($2::date + interval '1 day')
+          WHERE to_date(date, 'YYYYMMDD') >= $1::date
+            AND to_date(date, 'YYYYMMDD') < ($2::date + interval '1 day')
           GROUP BY 1
           ORDER BY 1
         `, [dateToSql(range.start), dateToSql(range.end)])
@@ -6117,18 +6104,15 @@ export async function getLandingPageArrivals(range: DateRange): Promise<LandingP
           ORDER BY 1
         `, [dateToSql(range.start), dateToSql(range.end)]);
 
-    const hourlyResult = canUseEngagementHoraire && (engagementHourColumn || (engagementDateColumn && isTimestampLike(engagementDateColumn.data_type)))
+    const hourlyResult = canUseEngagementHoraire
       ? await pool.query<LandingPageArrivalHourRow>(`
           SELECT
-            ${engagementHourColumn
-              ? `COALESCE(${quoteIdentifier(engagementHourColumn.column_name)}, EXTRACT(HOUR FROM (${quoteIdentifier(engagementDateColumn!.column_name)})::timestamp))`
-              : `EXTRACT(HOUR FROM (${quoteIdentifier(engagementDateColumn!.column_name)})::timestamp)`
-            }::int::text AS hour,
-            COALESCE(SUM(${quoteIdentifier(engagementArrivalColumn!.column_name)}), 0)::text AS arrivals,
-            COALESCE(SUM(${quoteIdentifier(engagementSessionColumn?.column_name ?? engagementArrivalColumn!.column_name)}), 0)::text AS unique_sessions
+            COALESCE(NULLIF(hour, ''), '0')::int::text AS hour,
+            COALESCE(SUM(sessions), 0)::text AS arrivals,
+            COALESCE(SUM(sessions), 0)::text AS unique_sessions
           FROM public.engagement_horaire
-          WHERE (${quoteIdentifier(engagementDateColumn!.column_name)})::date >= $1::date
-            AND (${quoteIdentifier(engagementDateColumn!.column_name)})::date < ($2::date + interval '1 day')
+          WHERE to_date(date, 'YYYYMMDD') >= $1::date
+            AND to_date(date, 'YYYYMMDD') < ($2::date + interval '1 day')
           GROUP BY 1
           ORDER BY 1
         `, [dateToSql(range.start), dateToSql(range.end)])
