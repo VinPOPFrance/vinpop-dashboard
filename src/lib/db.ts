@@ -7198,7 +7198,7 @@ export async function getBusinessOverview(): Promise<BusinessOverviewResult> {
   return {
     ok: true,
     metrics: {
-      totalRevenue: ordersResult.metrics.totalRevenue,
+      totalRevenue: orders.totalRevenue,
       totalOrders: orders.totalOrders,
       averageOrderValue: orders.averageOrderValue,
       paidOrders: orders.paidOrders,
