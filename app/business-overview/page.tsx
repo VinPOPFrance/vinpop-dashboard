@@ -261,7 +261,6 @@ export default async function BusinessOverviewPage({
               </Card>
             </PageSection>
           </>
-          </>
         ) : (
           <Card style={{ marginBottom: 16, borderColor: '#F2C94C', background: '#FFFCF0' }}>
             <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
