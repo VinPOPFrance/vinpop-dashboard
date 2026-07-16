@@ -684,6 +684,53 @@ export type LandingPageArrivalHour = {
   uniqueSessions: number;
 };
 
+export type HighIntentConversionMetrics = {
+  available: boolean;
+  method: 'true_click_count' | 'engagement_proxy';
+  methodLabel: string;
+  sourceTable: string | null;
+  thresholdInteractionsPerSession: number;
+  totalSessions: number;
+  highIntentSessions: number;
+  highIntentSessionShare: number | null;
+  purchaseUsers: number;
+  conversionRateAllSessions: number | null;
+  conversionRateHighIntentSessions: number | null;
+  daily: Array<{
+    date: string;
+    sessions: number;
+    highIntentSessions: number;
+    purchaseUsers: number;
+    conversionRateHighIntent: number | null;
+  }>;
+  beforeAfter: {
+    beforeLabel: string;
+    afterLabel: string;
+    beforeSessions: number;
+    afterSessions: number;
+    beforeHighIntentSessions: number;
+    afterHighIntentSessions: number;
+    beforeConversionRateHighIntent: number | null;
+    afterConversionRateHighIntent: number | null;
+    deltaConversionRateHighIntent: number | null;
+  } | null;
+  byWeekday: Array<{
+    weekday: string;
+    weekdayIndex: number;
+    sessions: number;
+    highIntentSessions: number;
+    purchaseUsers: number;
+    conversionRateHighIntent: number | null;
+  }>;
+  bySourceMedium: Array<{
+    sourceMedium: string;
+    sessions: number;
+    highIntentSessions: number;
+    purchaseUsersEstimated: number;
+    conversionRateHighIntentEstimated: number | null;
+  }>;
+};
+
 export type LandingPageArrivalMetrics = {
   totalArrivals: number;
   totalUniqueSessions: number;
@@ -692,6 +739,7 @@ export type LandingPageArrivalMetrics = {
   byHour: LandingPageArrivalHour[];
   topDay: LandingPageArrivalDay | null;
   topHour: LandingPageArrivalHour | null;
+  highIntentConversion: HighIntentConversionMetrics;
 };
 
 export type GeoInsightCityRow = {
@@ -5920,6 +5968,30 @@ type LandingPageArrivalHourRow = {
   unique_sessions: string | null;
 };
 
+type LandingIntentConversionDailyRow = {
+  date: string;
+  total_sessions: string | null;
+  high_intent_sessions: string | null;
+};
+
+type DailyPurchaseRow = {
+  date: string;
+  purchase_users: string | null;
+};
+
+type SourceMediumIntentRow = {
+  date: string;
+  source_medium: string | null;
+  sessions: string | null;
+  event_count: string | null;
+};
+
+type ClickCountCandidateColumnRow = {
+  table_name: string;
+  column_name: string;
+  data_type: string;
+};
+
 type TableColumnRow = {
   column_name: string;
   data_type: string;
@@ -6135,6 +6207,115 @@ export async function getLandingPageArrivals(range: DateRange): Promise<LandingP
           ORDER BY 1
         `, [dateToSql(range.start), dateToSql(range.end)]);
 
+    const clickCountColumnsResult = await pool.query<ClickCountCandidateColumnRow>(`
+      SELECT table_name, column_name, data_type
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND column_name IN ('click_count', 'session_id', 'event_time', 'created_at', 'session_start', 'date')
+    `);
+
+    const columnsByTable = new Map<string, Record<string, string>>();
+    for (const row of clickCountColumnsResult.rows) {
+      const current = columnsByTable.get(row.table_name) ?? {};
+      current[row.column_name] = row.data_type;
+      columnsByTable.set(row.table_name, current);
+    }
+
+    let clickCountSourceTable: string | null = null;
+    let clickCountDateExpr: string | null = null;
+
+    for (const [tableName, cols] of columnsByTable.entries()) {
+      if (!cols.click_count || !cols.session_id) continue;
+
+      if (cols.event_time) {
+        clickCountSourceTable = tableName;
+        clickCountDateExpr = `${quoteIdentifier('event_time')}::date`;
+        break;
+      }
+      if (cols.created_at) {
+        clickCountSourceTable = tableName;
+        clickCountDateExpr = `${quoteIdentifier('created_at')}::date`;
+        break;
+      }
+      if (cols.session_start) {
+        clickCountSourceTable = tableName;
+        clickCountDateExpr = `${quoteIdentifier('session_start')}::date`;
+        break;
+      }
+      if (cols.date) {
+        clickCountSourceTable = tableName;
+        clickCountDateExpr = cols.date.includes('character')
+          ? `to_date(${quoteIdentifier('date')}, 'YYYYMMDD')`
+          : `${quoteIdentifier('date')}::date`;
+        break;
+      }
+    }
+
+    const intentConversionResult = clickCountSourceTable && clickCountDateExpr
+      ? await pool.query<LandingIntentConversionDailyRow>(`
+          SELECT
+            ${clickCountDateExpr}::text AS date,
+            COUNT(DISTINCT ${quoteIdentifier('session_id')})::text AS total_sessions,
+            COUNT(DISTINCT CASE WHEN COALESCE(${quoteIdentifier('click_count')}, 0) > 3 THEN ${quoteIdentifier('session_id')} ELSE NULL END)::text AS high_intent_sessions
+          FROM public.${quoteIdentifier(clickCountSourceTable)}
+          WHERE ${clickCountDateExpr} >= $1::date
+            AND ${clickCountDateExpr} < ($2::date + interval '1 day')
+          GROUP BY 1
+          ORDER BY 1
+        `, [dateToSql(range.start), dateToSql(range.end)])
+      : canUseEngagementHoraire
+        ? await pool.query<LandingIntentConversionDailyRow>(`
+            WITH hourly AS (
+              SELECT
+                to_date(date, 'YYYYMMDD')::date AS date,
+                COALESCE(sessions, 0)::numeric AS sessions,
+                COALESCE("eventCount", 0)::numeric AS event_count
+              FROM public.engagement_horaire
+              WHERE to_date(date, 'YYYYMMDD') >= $1::date
+                AND to_date(date, 'YYYYMMDD') < ($2::date + interval '1 day')
+            )
+            SELECT
+              date::text AS date,
+              COALESCE(SUM(sessions), 0)::text AS total_sessions,
+              COALESCE(
+                SUM(
+                  CASE
+                    WHEN sessions > 0 AND (event_count / NULLIF(sessions, 0)) > 3
+                    THEN sessions
+                    ELSE 0
+                  END
+                ),
+                0
+              )::text AS high_intent_sessions
+            FROM hourly
+            GROUP BY date
+            ORDER BY date
+          `, [dateToSql(range.start), dateToSql(range.end)])
+        : null;
+
+    const purchasesResult = await pool.query<DailyPurchaseRow>(`
+      SELECT
+        to_date(date, 'YYYYMMDD')::text AS date,
+        COALESCE(SUM("totalUsers"), 0)::text AS purchase_users
+      FROM public.conversions_report
+      WHERE date BETWEEN $1 AND $2
+        AND LOWER(COALESCE("eventName", '')) = 'purchase'
+      GROUP BY 1
+      ORDER BY 1
+    `, [dateToGa4(range.start), dateToGa4(range.end)]);
+
+    const sourceMediumIntentResult = await pool.query<SourceMediumIntentRow>(`
+      SELECT
+        date,
+        CONCAT(COALESCE("sessionSource", 'unknown'), ' / ', COALESCE("sessionMedium", 'unknown')) AS source_medium,
+        COALESCE(SUM(sessions), 0)::text AS sessions,
+        COALESCE(SUM("eventCount"), 0)::text AS event_count
+      FROM public.traffic_acquisition_session_source_medium_report
+      WHERE date BETWEEN $1 AND $2
+      GROUP BY date, source_medium
+      ORDER BY date, sessions DESC
+    `, [dateToGa4(range.start), dateToGa4(range.end)]);
+
     const daily = dailyResult.rows.map((row) => ({
       date: row.date,
       arrivals: numberFromPg(row.arrivals),
@@ -6156,6 +6337,119 @@ export async function getLandingPageArrivals(range: DateRange): Promise<LandingP
       return best;
     }, null);
 
+    const purchaseByDate = new Map<string, number>(
+      purchasesResult.rows.map((row) => [row.date, numberFromPg(row.purchase_users)]),
+    );
+
+    const intentDaily = (intentConversionResult?.rows ?? []).map((row) => ({
+      date: row.date,
+      totalSessions: numberFromPg(row.total_sessions),
+      highIntentSessions: numberFromPg(row.high_intent_sessions),
+      purchaseUsers: purchaseByDate.get(row.date) ?? 0,
+    }));
+
+    const totalSessions = intentDaily.reduce((sum, row) => sum + row.totalSessions, 0);
+    const highIntentSessions = intentDaily.reduce((sum, row) => sum + row.highIntentSessions, 0);
+    const purchaseUsers = intentDaily.reduce((sum, row) => sum + row.purchaseUsers, 0);
+
+    const weekdayLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const weekdayAccumulator = new Map<number, { sessions: number; highIntentSessions: number; purchaseUsers: number }>();
+    for (const row of intentDaily) {
+      const weekdayIndex = new Date(`${row.date}T00:00:00Z`).getUTCDay();
+      const current = weekdayAccumulator.get(weekdayIndex) ?? { sessions: 0, highIntentSessions: 0, purchaseUsers: 0 };
+      current.sessions += row.totalSessions;
+      current.highIntentSessions += row.highIntentSessions;
+      current.purchaseUsers += row.purchaseUsers;
+      weekdayAccumulator.set(weekdayIndex, current);
+    }
+    const byWeekday = Array.from(weekdayAccumulator.entries())
+      .map(([weekdayIndex, values]) => ({
+        weekday: weekdayLabels[weekdayIndex] ?? 'Unknown',
+        weekdayIndex,
+        sessions: values.sessions,
+        highIntentSessions: values.highIntentSessions,
+        purchaseUsers: values.purchaseUsers,
+        conversionRateHighIntent: rate(values.purchaseUsers, values.highIntentSessions),
+      }))
+      .sort((a, b) => a.weekdayIndex - b.weekdayIndex);
+
+    const highIntentByDate = new Map<string, number>();
+    for (const row of sourceMediumIntentResult.rows) {
+      const events = numberFromPg(row.event_count);
+      const sessions = numberFromPg(row.sessions);
+      const interactionsPerSession = sessions > 0 ? events / sessions : 0;
+      const high = interactionsPerSession > 3 ? sessions : 0;
+      highIntentByDate.set(row.date, (highIntentByDate.get(row.date) ?? 0) + high);
+    }
+
+    const sourceAccumulator = new Map<string, { sessions: number; highIntentSessions: number; purchaseUsersEstimated: number }>();
+    for (const row of sourceMediumIntentResult.rows) {
+      const sourceMedium = row.source_medium || 'unknown / unknown';
+      const sessions = numberFromPg(row.sessions);
+      const events = numberFromPg(row.event_count);
+      const interactionsPerSession = sessions > 0 ? events / sessions : 0;
+      const sourceHighIntentSessions = interactionsPerSession > 3 ? sessions : 0;
+      const dayTotalHighIntent = highIntentByDate.get(row.date) ?? 0;
+      const dayPurchases = purchaseByDate.get(row.date) ?? 0;
+      const purchaseUsersEstimated = dayTotalHighIntent > 0
+        ? dayPurchases * (sourceHighIntentSessions / dayTotalHighIntent)
+        : 0;
+
+      const current = sourceAccumulator.get(sourceMedium) ?? { sessions: 0, highIntentSessions: 0, purchaseUsersEstimated: 0 };
+      current.sessions += sessions;
+      current.highIntentSessions += sourceHighIntentSessions;
+      current.purchaseUsersEstimated += purchaseUsersEstimated;
+      sourceAccumulator.set(sourceMedium, current);
+    }
+
+    const bySourceMedium = Array.from(sourceAccumulator.entries())
+      .map(([sourceMedium, values]) => ({
+        sourceMedium,
+        sessions: values.sessions,
+        highIntentSessions: values.highIntentSessions,
+        purchaseUsersEstimated: values.purchaseUsersEstimated,
+        conversionRateHighIntentEstimated: rate(values.purchaseUsersEstimated, values.highIntentSessions),
+      }))
+      .sort((a, b) => b.highIntentSessions - a.highIntentSessions)
+      .slice(0, 20);
+
+    const sortedIntentDaily = [...intentDaily].sort((a, b) => a.date.localeCompare(b.date));
+    const splitIndex = Math.ceil(sortedIntentDaily.length / 2);
+    const beforeRows = sortedIntentDaily.slice(0, splitIndex);
+    const afterRows = sortedIntentDaily.slice(splitIndex);
+    const summarizePeriod = (rows: typeof sortedIntentDaily) => {
+      const sessions = rows.reduce((sum, row) => sum + row.totalSessions, 0);
+      const highSessions = rows.reduce((sum, row) => sum + row.highIntentSessions, 0);
+      const purchases = rows.reduce((sum, row) => sum + row.purchaseUsers, 0);
+      return {
+        sessions,
+        highSessions,
+        conversionRateHighIntent: rate(purchases, highSessions),
+      };
+    };
+    const beforeSummary = summarizePeriod(beforeRows);
+    const afterSummary = summarizePeriod(afterRows);
+    const beforeAfter = sortedIntentDaily.length >= 2
+      ? {
+          beforeLabel: beforeRows.length
+            ? `${beforeRows[0].date} to ${beforeRows[beforeRows.length - 1].date}`
+            : 'Before',
+          afterLabel: afterRows.length
+            ? `${afterRows[0].date} to ${afterRows[afterRows.length - 1].date}`
+            : 'After',
+          beforeSessions: beforeSummary.sessions,
+          afterSessions: afterSummary.sessions,
+          beforeHighIntentSessions: beforeSummary.highSessions,
+          afterHighIntentSessions: afterSummary.highSessions,
+          beforeConversionRateHighIntent: beforeSummary.conversionRateHighIntent,
+          afterConversionRateHighIntent: afterSummary.conversionRateHighIntent,
+          deltaConversionRateHighIntent:
+            beforeSummary.conversionRateHighIntent !== null && afterSummary.conversionRateHighIntent !== null
+              ? afterSummary.conversionRateHighIntent - beforeSummary.conversionRateHighIntent
+              : null,
+        }
+      : null;
+
     return {
       ok: true,
       metrics: {
@@ -6166,6 +6460,31 @@ export async function getLandingPageArrivals(range: DateRange): Promise<LandingP
         byHour,
         topDay,
         topHour,
+        highIntentConversion: {
+          available: Boolean(intentConversionResult),
+          method: clickCountSourceTable ? 'true_click_count' : 'engagement_proxy',
+          methodLabel: clickCountSourceTable
+            ? 'True >3 clicks/session from session tracking table'
+            : 'Proxy from interactions/session >3',
+          sourceTable: clickCountSourceTable,
+          thresholdInteractionsPerSession: 3,
+          totalSessions,
+          highIntentSessions,
+          highIntentSessionShare: rate(highIntentSessions, totalSessions),
+          purchaseUsers,
+          conversionRateAllSessions: rate(purchaseUsers, totalSessions),
+          conversionRateHighIntentSessions: rate(purchaseUsers, highIntentSessions),
+          daily: sortedIntentDaily.map((row) => ({
+            date: row.date,
+            sessions: row.totalSessions,
+            highIntentSessions: row.highIntentSessions,
+            purchaseUsers: row.purchaseUsers,
+            conversionRateHighIntent: rate(row.purchaseUsers, row.highIntentSessions),
+          })),
+          beforeAfter,
+          byWeekday,
+          bySourceMedium,
+        },
       },
     };
   } catch (error) {
