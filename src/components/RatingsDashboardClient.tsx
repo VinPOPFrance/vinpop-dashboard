@@ -63,6 +63,8 @@ const wineColumns: SortableColumn<RatingTableRow>[] = [
 
 const customerColumns: SortableColumn<CustomerTableRow>[] = [
   { key: 'email', label: 'Customer email', type: 'text', width: 220 },
+  { key: 'lastOrderDate', label: 'Last order', type: 'date' },
+  { key: 'lastRatingDate', label: 'Last rating', type: 'date' },
   { key: 'bottlesBought', label: 'Bottles bought', type: 'number' },
   { key: 'bottlesRated', label: 'Bottles rated', type: 'number' },
   { key: 'ratedRate', label: '% rated', type: 'percent' },
@@ -169,6 +171,7 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
           stage: customer.funnelStage,
           nextAction: customer.nextAction,
         }))
+        .filter((row) => row.orders > 0)
         .filter((row) => hasSelectedRating(row, selectedRatingTypes) || selectedRatingTypes.length === 3),
     [customersMatchingFilters, selectedRatingTypes],
   );
@@ -363,7 +366,7 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
               columns={customerColumns}
               rows={customerRows}
               searchPlaceholder="Search customer email or stage..."
-              initialSortKey="totalSpent"
+              initialSortKey="lastOrderDate"
               getRowKey={(row) => row.customerId}
               selectedRowKey={selectedCustomer?.customerId}
               onRowClick={(row) => setSelectedCustomerId(row.customerId)}
