@@ -3592,10 +3592,20 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         SELECT customer_id, COUNT(*)::text AS quiz_count
         FROM public.quizz
         GROUP BY customer_id
+      ),
+      customer_base AS (
+        SELECT users.id::text AS customer_id, users.email AS email, lower(users.email) AS email_key
+        FROM public.users AS users
+        WHERE users.email IS NOT NULL
+        UNION
+        SELECT 'order:' || order_rollups.email AS customer_id, order_rollups.email AS email, order_rollups.email AS email_key
+        FROM order_rollups
+        WHERE order_rollups.email IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM public.users AS u WHERE lower(u.email) = order_rollups.email)
       )
       SELECT
-        users.id AS customer_id,
-        users.email,
+        customer_base.customer_id AS customer_id,
+        customer_base.email,
         COALESCE(order_rollups.total_spent, '0') AS total_spent,
         COALESCE(order_rollups.orders_count, '0') AS orders_count,
         COALESCE(order_rollups.non_cancelled_orders_count, '0') AS non_cancelled_orders_count,
@@ -3613,18 +3623,17 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         rating_rollups.last_rating_date,
         COALESCE(quiz_rollups.quiz_count, '0') AS quiz_count,
         COALESCE(rating_rollups.wine_colors_rated, 'None') AS wine_colors_rated
-      FROM public.users AS users
-      LEFT JOIN order_rollups ON order_rollups.email = lower(users.email)
-      LEFT JOIN bottle_rollups ON bottle_rollups.email = lower(users.email)
-      LEFT JOIN rating_rollups ON rating_rollups.customer_id = users.id
-      LEFT JOIN quiz_rollups ON quiz_rollups.customer_id = users.id
-      WHERE users.email IS NOT NULL
-        AND (
+      FROM customer_base
+      LEFT JOIN order_rollups ON order_rollups.email = customer_base.email_key
+      LEFT JOIN bottle_rollups ON bottle_rollups.email = customer_base.email_key
+      LEFT JOIN rating_rollups ON rating_rollups.customer_id::text = customer_base.customer_id
+      LEFT JOIN quiz_rollups ON quiz_rollups.customer_id::text = customer_base.customer_id
+      WHERE (
           COALESCE(order_rollups.orders_count, '0') <> '0'
           OR COALESCE(rating_rollups.total_ratings, '0') <> '0'
           OR COALESCE(quiz_rollups.quiz_count, '0') <> '0'
         )
-      ORDER BY COALESCE(order_rollups.total_spent, '0')::numeric DESC, users.email
+      ORDER BY COALESCE(order_rollups.total_spent, '0')::numeric DESC, customer_base.email
       LIMIT 200
     `);
     const customerProductResult = await pool.query<Record<string, string | null>>(`
