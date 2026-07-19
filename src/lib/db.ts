@@ -3639,7 +3639,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
     const customerProductResult = await pool.query<Record<string, string | null>>(`
       WITH order_items AS (
         SELECT
-          users.id AS customer_id,
+          COALESCE(users.id::text, 'order:' || lower(orders.email)) AS customer_id,
           COALESCE(NULLIF(item->>'product_id', ''), 'Unmapped') AS shopify_product_id,
           COALESCE(NULLIF(item->>'title', ''), NULLIF(item->>'name', ''), 'Unknown product') AS product_name,
           CASE WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric ELSE 0 END AS quantity_value,
@@ -3649,7 +3649,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
             ELSE 0
           END AS discount_value
         FROM shopify.orders AS orders
-        JOIN public.users AS users ON lower(users.email) = lower(orders.email)
+        LEFT JOIN public.users AS users ON lower(users.email) = lower(orders.email)
         CROSS JOIN LATERAL jsonb_array_elements(
           CASE
             WHEN line_items IS NULL THEN '[]'::jsonb
@@ -3657,6 +3657,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
             ELSE '[]'::jsonb
           END
         ) AS item
+        WHERE orders.email IS NOT NULL
       ),
       rated_products AS (
         SELECT
@@ -3677,7 +3678,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         COALESCE(SUM(GREATEST(quantity_value * price_value - discount_value, 0)), 0)::text AS net_revenue,
         COALESCE(MAX(rated_products.rated_count), 0)::text AS rated_count
       FROM order_items
-      LEFT JOIN rated_products ON rated_products.customer_id = order_items.customer_id
+      LEFT JOIN rated_products ON rated_products.customer_id::text = order_items.customer_id
         AND rated_products.shopify_product_id = order_items.shopify_product_id
       GROUP BY order_items.customer_id, order_items.shopify_product_id, order_items.product_name
       ORDER BY order_items.customer_id, SUM(quantity_value) DESC
