@@ -31,6 +31,9 @@ export type CopyVersionEra = 'theme-editor' | 'landing-section' | 'quiz-snippet'
  */
 export type CopyVersionDatePrecision = 'sync' | 'commit' | 'unknown';
 
+/** Secondary copy on a screen: everything below the headline block. */
+export type CopyBlock = { label: string; text: string };
+
 export type CopyVersionField =
   | 'eyebrow'
   | 'audience'
@@ -60,6 +63,8 @@ export type CopyVersion = {
   changedFields: CopyVersionField[];
   /** Short plain-language note on the editorial intent of the change. */
   angle: string;
+  /** Everything below the headline block. Captured for the live version of each screen. */
+  blocks?: CopyBlock[];
 };
 
 const TEMPLATE_FILE = 'templates/index.json';
@@ -472,6 +477,50 @@ export const quizIntroVersions: CopyVersion[] = [
     changedFields: ['lead'],
     angle:
       'What vinpop.nl actually serves today: 4 bottles worth €38, not 3 worth €45. This wording exists in no commit.',
+    blocks: [
+      { label: 'Objection — question', text: 'How can a lab know what I like?' },
+      { label: 'Objection — answer', text: 'It cannot. And we never try.' },
+      {
+        label: 'Objection — detail',
+        text: 'We never say a wine is good, that is subjective. We only measure how close two wines taste. You rate your 3 bottles, we match the rest.',
+      },
+      {
+        label: 'Comparison — them',
+        text: 'Everyone else · Sold by opinions. Critic scores / Gold medals / App star ratings / Wine jargon → You buy wine you do not drink.',
+      },
+      {
+        label: 'Comparison — us',
+        text: 'VinPop · Measured in a lab. Lab analysis / Zero opinions / Your own ratings / Measured similarity → You drink wine you like.',
+      },
+      {
+        label: 'Enemy line',
+        text: 'Wine snobs insult us online for saying this. Your palate does not need their approval.',
+      },
+      { label: 'Step 1', text: 'Test Kit — Answer 6 questions in under 30 seconds.' },
+      { label: 'Step 2', text: 'Rate your 3 bottles — 😍 Love it, 🙂 Like it, or 😕 not for me.' },
+      {
+        label: 'Step 3',
+        text: 'Smart Box — ❤️ Love it, 👍 Like it or 🧭 Safe adventure: you set the mix, we measure the distance, so exploring is never a gamble.',
+      },
+      {
+        label: 'Guarantee',
+        text: '🛡️ Not one of the 3 bottles is for you? We send you 3 new ones. Free.',
+      },
+      { label: 'Benefit', text: '🚚 Delivered in 48-72h' },
+      {
+        label: 'Proof — stat',
+        text: 'Our customers have rated 150 wines. Exactly one was rated "not for me".',
+      },
+      {
+        label: 'Proof — review',
+        text: '★★★★★ "Surprisingly accurate. Looks like I won\'t have to gamble buying wine anymore." — James, Netherlands · Trustpilot',
+      },
+      { label: 'Effort line', text: '6 questions · 30 seconds · no account needed' },
+      {
+        label: 'Microcopy',
+        text: 'Warehouse in Rotterdam · Oenology lab in Spain — No subscription · Secure payment — iDEAL / VISA / MC / Apple Pay',
+      },
+    ],
   },
 ];
 
@@ -562,6 +611,53 @@ export const resultsBundleVersions: CopyVersion[] = [
     changedFields: ['eyebrow', 'title', 'lead', 'ctaPrimary'],
     angle:
       'What vinpop.nl actually serves today, plus a step marker and a founder promise. None of this wording exists in any commit.',
+    blocks: [
+      {
+        label: 'Founder block',
+        text: 'Adrien, founder & former winemaker — "I chose these 3 bottles for your palate myself. Not your style? I replace them, that is my promise." + link: Meet Adrien (30 sec)',
+      },
+      {
+        label: 'Colour control',
+        text: 'Want another colour? / Retake the quiz · Only red / Only white / Mix red + white · How many of each? 2 red + 1 white / 1 red + 2 white',
+      },
+      {
+        label: 'Bottle 1 label',
+        text: '🍷 Bottle 1: Your safest bet — Of all the wines in our lab, this one sits closest to the answers you gave.',
+      },
+      {
+        label: 'Bottle 2 label',
+        text: '🍷 Bottle 2: One small step sideways — Same taste family, slightly different. If you love this one too, we know your taste is wide.',
+      },
+      {
+        label: 'Bottle 3 label',
+        text: '🍷 Bottle 3: Another safe choice — Also very close to your answers. There is no risky bottle in this box.',
+      },
+      {
+        label: 'Free gift label',
+        text: '🎁 Free gift — A thank-you gift, not a taste match: this bottle is on us for trying VinPop.',
+      },
+      {
+        label: 'Review in checkout card',
+        text: '★★★★★ Trustpilot — "The quiz worked amazing. Without any expectations, I have become really impressed." Maria, Netherlands',
+      },
+      {
+        label: 'Box contents',
+        text: 'Test Kit — Your box contains: 1 safe match based on your answers · 1 close match with a bit more variation · 1 second safe match, also very close to your answers · +1 extra bottle, free from us',
+      },
+      {
+        label: 'Price block (varies per box)',
+        text: '€7,48 per bottle, struck through €10,93, badge −31% · 4 bottles for €29,90, delivered free · You save €30,83 in total (€13,83 on the wine + €17,00 delivery, on us)',
+      },
+      {
+        label: 'Rebellion line',
+        text: '🍷 Welcome to the rebellion: a growing community that trusts its own palate over critic scores.',
+      },
+      {
+        label: 'Reassurances',
+        text: '✅ If you do not like the wines, we keep replacing bottles until you find your taste. · 🔒 One-time purchase. No subscription. · 🚚 Delivered within 72h from our Rotterdam warehouse via Kolibri Logistiek',
+      },
+      { label: 'Sticky bar', text: 'Your Test Kit €29,90 — Get it now →' },
+    ],
   },
 ];
 

@@ -9,8 +9,6 @@ import {
   daysBetween,
   type CopySurface,
   type CopyVersion,
-  type CopyVersionEra,
-  type CopyVersionField,
   type CopyVersionPeriod,
   type CopyVersionStatus,
 } from '@/data/copyVersions';
@@ -19,33 +17,39 @@ import { formatEuro, formatNumber, formatRatio } from '@/lib/format';
 
 export const runtime = 'nodejs';
 
-const fieldLabels: Record<CopyVersionField, string> = {
-  eyebrow: 'Eyebrow',
-  audience: 'Audience line',
-  title: 'Headline',
-  lead: 'Paragraph',
-  ctaPrimary: 'Main button',
-  ctaSecondary: 'Secondary link',
-};
-
-const statusStyles: Record<
-  CopyVersionStatus,
-  { label: string; color: string; background: string; border: string }
-> = {
-  live: { label: 'Live on the site', color: '#2D6A4F', background: '#EDF5F0', border: '#2D6A4F' },
-  replaced: { label: 'Replaced', color: '#6B6B6B', background: '#F4F3F0', border: '#E8E6E1' },
-  unpublished: { label: 'Committed, not published', color: '#B45309', background: '#FFFCF0', border: '#F2C94C' },
-  'live-untracked': { label: 'Live, absent from Git', color: '#9B2C2C', background: '#FDF0F0', border: '#9B2C2C' },
-};
-
-const eraLabels: Record<CopyVersionEra, string> = {
-  'theme-editor': 'Shopify theme editor',
-  'landing-section': 'Custom landing section',
-  'quiz-snippet': 'Quiz snippet (hardcoded)',
-  'quiz-script': 'Quiz script (JavaScript)',
+const statusStyles: Record<CopyVersionStatus, { label: string; color: string; background: string }> = {
+  live: { label: 'Live', color: '#2D6A4F', background: '#EDF5F0' },
+  replaced: { label: 'Replaced', color: '#6B6B6B', background: '#F4F3F0' },
+  unpublished: { label: 'Not published', color: '#B45309', background: '#FFFCF0' },
+  'live-untracked': { label: 'Live, not in Git', color: '#9B2C2C', background: '#FDF0F0' },
 };
 
 type Coverage = { covered: number; total: number; state: 'full' | 'partial' | 'none' | 'never-live' };
+
+const th: React.CSSProperties = {
+  textAlign: 'left',
+  fontSize: 11,
+  fontWeight: 700,
+  color: '#6B6B6B',
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+  padding: '10px 12px',
+  background: '#F8F7F4',
+  borderBottom: '1px solid #E8E6E1',
+  whiteSpace: 'nowrap',
+  verticalAlign: 'bottom',
+};
+
+const td: React.CSSProperties = {
+  padding: '12px 12px',
+  borderBottom: '1px solid #F0EEEA',
+  fontSize: 12.5,
+  color: '#1A1A1A',
+  verticalAlign: 'top',
+  lineHeight: 1.45,
+};
+
+const tdNum: React.CSSProperties = { ...td, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
 
 function toDay(value: string | null | undefined): string | null {
   return value ? value.slice(0, 10) : null;
@@ -71,87 +75,26 @@ function coverageFor(
   return { covered, total, state: covered >= total ? 'full' : 'partial' };
 }
 
-function coverageHint(coverage: Coverage, reason: string, neverLiveReason: string): string {
-  if (coverage.state === 'never-live') return neverLiveReason;
-  if (coverage.state === 'none') return reason;
-  if (coverage.state === 'full') return 'Full period covered';
-  return `Only ${coverage.covered} of ${coverage.total} days covered`;
-}
-
-function hasMeasured(coverage: Coverage): boolean {
+function measured(coverage: Coverage): boolean {
   return coverage.state === 'full' || coverage.state === 'partial';
 }
 
-function CopyPreview({ version }: { version: CopyVersion }) {
-  return (
-    <div
-      style={{
-        background: '#FBFAF8',
-        border: '1px solid #E8E6E1',
-        borderRadius: 8,
-        padding: '18px 20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
-      }}
-    >
-      {version.eyebrow ? (
-        <span
-          style={{
-            alignSelf: 'flex-start',
-            background: '#F3E7E3',
-            color: '#722F37',
-            fontSize: 12,
-            fontWeight: 600,
-            padding: '4px 10px',
-            borderRadius: 999,
-          }}
-        >
-          {version.eyebrow}
-        </span>
-      ) : null}
+/** The date a version went live, stated only as precisely as the evidence allows. */
+function liveFrom(version: CopyVersion): { text: string; note: string } {
+  if (version.status === 'live-untracked') {
+    return { text: 'Unknown', note: 'absent from Git — no date exists anywhere' };
+  }
+  if (version.status === 'unpublished') {
+    return { text: 'Never', note: `written ${version.committedOn}, still not deployed` };
+  }
+  if (version.datePrecision === 'sync') {
+    return { text: `≤ ${version.committedOn}`, note: 'theme-editor edit, captured on a later sync' };
+  }
+  return { text: version.committedOn, note: 'commit date; deploy may have followed later' };
+}
 
-      {version.audience ? (
-        <p style={{ margin: 0, fontSize: 13, color: '#9B9B9B', fontStyle: 'italic' }}>{version.audience}</p>
-      ) : null}
-
-      <h3
-        style={{
-          margin: 0,
-          fontSize: 22,
-          lineHeight: 1.2,
-          fontWeight: 700,
-          color: '#1A1A1A',
-          letterSpacing: '-0.01em',
-        }}
-      >
-        {version.titleBefore}
-        {version.titleHighlight ? <span style={{ color: '#722F37' }}> {version.titleHighlight}</span> : null}
-      </h3>
-
-      {version.lead ? (
-        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: '#6B6B6B', maxWidth: '68ch' }}>{version.lead}</p>
-      ) : null}
-
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 2 }}>
-        <span
-          style={{
-            background: '#1A1A1A',
-            color: '#FFFFFF',
-            fontSize: 12,
-            fontWeight: 600,
-            padding: '7px 13px',
-            borderRadius: 6,
-          }}
-        >
-          {version.ctaPrimary}
-        </span>
-        {version.ctaSecondary ? (
-          <span style={{ fontSize: 12, color: '#9B9B9B', textDecoration: 'underline' }}>{version.ctaSecondary}</span>
-        ) : null}
-      </div>
-    </div>
-  );
+function Cell({ children }: { children: React.ReactNode }) {
+  return <div style={{ maxWidth: 320, minWidth: 150 }}>{children}</div>;
 }
 
 export default async function CopyHistoryPage() {
@@ -173,9 +116,7 @@ export default async function CopyHistoryPage() {
   );
 
   const metrics = result.ok ? result.metrics : null;
-  const metricsById = new Map<string, CopyVersionPeriodMetrics>(
-    (metrics?.periods ?? []).map((row) => [row.id, row]),
-  );
+  const metricsById = new Map<string, CopyVersionPeriodMetrics>((metrics?.periods ?? []).map((row) => [row.id, row]));
 
   const firstEventDay = toDay(metrics?.firstEventAt);
   const lastEventDay = toDay(metrics?.lastEventAt);
@@ -199,21 +140,14 @@ export default async function CopyHistoryPage() {
     <DashboardLayout>
       <TopBar
         title="Copy History"
-        subtitle="Every headline VinPop has run on its three key screens, newest first, with what the data says about each."
+        subtitle="Every headline VinPop has run on its three key screens, newest first, with the numbers for each."
       />
 
       <PageSection>
-        <SectionTitle sub="Reconstructed from 208 commits of the Shopify theme repository">
-          Coverage
-        </SectionTitle>
+        <SectionTitle sub="Reconstructed from 208 commits of the Shopify theme repository">Coverage</SectionTitle>
 
         <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: 12,
-            marginBottom: 16,
-          }}
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}
         >
           <MetricCard label="Screens tracked" value={formatNumber(copySurfaces.length)} hint="Homepage, quiz intro, results" />
           <MetricCard label="Versions found" value={formatNumber(totalVersions)} hint="Since 18 November 2025" />
@@ -243,39 +177,39 @@ export default async function CopyHistoryPage() {
           />
         </div>
 
+        <Card style={{ marginBottom: 12, borderColor: '#9B2C2C', background: '#FDF0F0' }}>
+          <p style={{ margin: '0 0 6px', color: '#9B2C2C', fontSize: 13, fontWeight: 700 }}>
+            Go-live dates cannot be exact — and here is why
+          </p>
+          <p style={{ margin: '0 0 6px', color: '#7B2222', fontSize: 13, lineHeight: 1.55 }}>
+            Nothing records when a Shopify theme was published. Neither the repository nor the database holds a deploy
+            log, so the &quot;Live from&quot; column states only what the evidence supports: an exact commit date where
+            the copy was edited in code, an upper bound (≤) where it was edited in the theme editor and captured on a
+            later sync, and &quot;Unknown&quot; where the live text appears in no commit at all.
+          </p>
+          <p style={{ margin: 0, color: '#7B2222', fontSize: 13, lineHeight: 1.55 }}>
+            The only way to get true go-live dates is to stamp each version with an identifier in the theme and send it
+            with every event. From then on the first event carrying a new identifier <em>is</em> the go-live timestamp,
+            to the second.
+          </p>
+        </Card>
+
         {untrackedSurfaces.length > 0 ? (
-          <Card style={{ marginBottom: 12, borderColor: '#9B2C2C', background: '#FDF0F0' }}>
-            <p style={{ margin: '0 0 6px', color: '#9B2C2C', fontSize: 13, fontWeight: 700 }}>
-              Git is not the full record for {untrackedSurfaces.length} of these {copySurfaces.length} screens
-            </p>
-            <p style={{ margin: 0, color: '#7B2222', fontSize: 13, lineHeight: 1.55 }}>
-              The copy currently served on {untrackedSurfaces.map((surface) => surface.name).join(' and ')} appears in
-              no commit at all — it was edited directly in the Shopify admin and never pulled back into the repository.
-              Those versions are shown below marked &quot;Live, absent from Git&quot; and carry no dates, because none
-              exist. Until every edit goes through Git, this page will keep missing what visitors actually see.
+          <Card style={{ marginBottom: 12, borderColor: '#F2C94C', background: '#FFFCF0' }}>
+            <p style={{ margin: 0, color: '#B45309', fontSize: 13, lineHeight: 1.55 }}>
+              The copy served today on <strong>{untrackedSurfaces.map((surface) => surface.name).join(' and ')}</strong>{' '}
+              appears in no commit — it was edited directly in the Shopify admin and never pulled back. Those rows are
+              marked &quot;Live, not in Git&quot; and carry no statistics, because no period can be computed for them.
             </p>
           </Card>
         ) : null}
 
-        <Card style={{ marginBottom: 12, background: '#F8F7F4' }}>
-          <p style={{ margin: '0 0 8px', color: '#1A1A1A', fontSize: 13, fontWeight: 700 }}>How to read the dates</p>
-          <p style={{ margin: '0 0 6px', color: '#6B6B6B', fontSize: 13, lineHeight: 1.55 }}>
-            Homepage versions up to 3 June 2026 lived in <code>templates/index.json</code>, edited in the theme editor
-            and only pushed to Git on a sync. Their dates are <strong style={{ color: '#1A1A1A' }}>upper bounds</strong>
-            : the text changed on or before the date shown.
-          </p>
-          <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.55 }}>
-            Everything else is edited in code, so commit dates are exact — but deploys are manual, so a version can sit
-            in Git before it reaches vinpop.nl.
-          </p>
-        </Card>
-
         {firstEventDay ? (
-          <Card style={{ marginBottom: 12, borderColor: '#F2C94C', background: '#FFFCF0' }}>
-            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
-              Event tracking only started on {firstEventDay}. Versions before that show a dash, not a zero — nothing was
-              measured, which is not the same as nobody coming. Orders go back further, to {firstOrderDay}, but stop
-              at {lastOrderDay} because Airbyte is down.
+          <Card style={{ marginBottom: 12, background: '#F8F7F4' }}>
+            <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.55 }}>
+              Event tracking started on <strong style={{ color: '#1A1A1A' }}>{firstEventDay}</strong>. Rows before that
+              show a dash, not a zero — nothing was measured, which is not the same as nobody coming. Orders run
+              from {firstOrderDay} to {lastOrderDay}, where Airbyte stopped.
             </p>
           </Card>
         ) : null}
@@ -284,15 +218,15 @@ export default async function CopyHistoryPage() {
           <Card style={{ marginBottom: 12, borderColor: '#F2C94C', background: '#FFFCF0' }}>
             <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700 }}>
               {result.reason === 'missing-url'
-                ? 'DATABASE_URL is not configured, so no metrics can be shown. The copy history itself is still accurate.'
-                : 'Metrics could not be loaded from PostgreSQL. The copy history itself is still accurate.'}
+                ? 'DATABASE_URL is not configured, so no statistics are shown. The copy history itself is still accurate.'
+                : 'Statistics could not be loaded from PostgreSQL. The copy history itself is still accurate.'}
             </p>
           </Card>
         ) : null}
       </PageSection>
 
       {surfacePeriods.map(({ surface, periods }) => (
-        <SurfaceSection
+        <SurfaceTable
           key={surface.id}
           surface={surface}
           periods={[...periods].reverse()}
@@ -304,41 +238,11 @@ export default async function CopyHistoryPage() {
           today={today}
         />
       ))}
-
-      <PageSection>
-        <SectionTitle sub="What this page can and cannot answer today">Interpretation</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-          <Card>
-            <p style={{ margin: 0, color: '#9B2C2C', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
-              Two of the three live screens are not in Git. Any comparison built on commit history alone would be
-              measuring copy that visitors never saw.
-            </p>
-          </Card>
-          <Card>
-            <p style={{ margin: 0, color: '#1A1A1A', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
-              The homepage angle keeps swinging back. Match score → science → pain → desire → pain again. The newest
-              version returns to almost exactly the promise from May.
-            </p>
-          </Card>
-          <Card>
-            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
-              There is no view count anywhere. `site_events` holds quiz events only, so click-through rate cannot be
-              computed for any screen.
-            </p>
-          </Card>
-          <Card>
-            <p style={{ margin: 0, color: '#2D6A4F', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
-              Quiz completion holds around 90–95% across every measured period. Whatever is failing, it is not the quiz
-              itself.
-            </p>
-          </Card>
-        </div>
-      </PageSection>
     </DashboardLayout>
   );
 }
 
-function SurfaceSection({
+function SurfaceTable({
   surface,
   periods,
   metricsById,
@@ -357,168 +261,116 @@ function SurfaceSection({
   lastOrderDay: string | null;
   today: string;
 }) {
+  const liveVersion = surface.versions.find(
+    (version) => version.status === 'live' || version.status === 'live-untracked',
+  );
+
   return (
     <PageSection>
       <SectionTitle sub={`${surface.note} · ${surface.url}`}>
         {surface.name} — {surface.versions.length} versions
       </SectionTitle>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {periods.map((period) => {
-          const { version } = period;
-          const style = statusStyles[version.status];
-          const row = metricsById.get(version.id);
-          const eventCoverage = coverageFor(period, firstEventDay, lastEventDay, today);
-          const orderCoverage = coverageFor(period, firstOrderDay, lastOrderDay, today);
-          const perDay =
-            row && eventCoverage.covered > 0 ? row.quizSessions / eventCoverage.covered : null;
-          const neverLiveReason =
-            version.status === 'live-untracked' ? 'No date — absent from Git' : 'Never exposed to visitors';
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 1100 }}>
+            <thead>
+              <tr>
+                <th style={th}>Ver.</th>
+                <th style={th}>Live from</th>
+                <th style={th}>Days</th>
+                <th style={th}>Eyebrow</th>
+                <th style={th}>Headline</th>
+                <th style={th}>Paragraph</th>
+                <th style={th}>Button</th>
+                <th style={{ ...th, textAlign: 'right' }}>Sessions</th>
+                <th style={{ ...th, textAlign: 'right' }}>Per day</th>
+                <th style={{ ...th, textAlign: 'right' }}>Quiz done</th>
+                <th style={{ ...th, textAlign: 'right' }}>Orders</th>
+                <th style={{ ...th, textAlign: 'right' }}>Revenue</th>
+              </tr>
+            </thead>
+            <tbody>
+              {periods.map((period) => {
+                const { version } = period;
+                const style = statusStyles[version.status];
+                const row = metricsById.get(version.id);
+                const eventCoverage = coverageFor(period, firstEventDay, lastEventDay, today);
+                const orderCoverage = coverageFor(period, firstOrderDay, lastOrderDay, today);
+                const perDay = row && eventCoverage.covered > 0 ? row.quizSessions / eventCoverage.covered : null;
+                const date = liveFrom(version);
 
-          return (
-            <Card key={version.id} style={{ borderColor: style.border, padding: 0, overflow: 'hidden' }}>
+                return (
+                  <tr key={version.id} style={{ background: version.status === 'replaced' ? '#FFFFFF' : style.background }}>
+                    <td style={td}>
+                      <div style={{ fontWeight: 700 }}>{version.label}</div>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: style.color, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 3 }}>
+                        {style.label}
+                      </div>
+                    </td>
+                    <td style={td}>
+                      <div style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{date.text}</div>
+                      <div style={{ fontSize: 11, color: '#9B9B9B', marginTop: 3, maxWidth: 170 }}>{date.note}</div>
+                    </td>
+                    <td style={tdNum}>{period.liveDays === null ? '—' : period.liveDays}</td>
+                    <td style={td}>
+                      <Cell>{version.eyebrow ?? <span style={{ color: '#C4C4C4' }}>none</span>}</Cell>
+                    </td>
+                    <td style={{ ...td, fontWeight: 600 }}>
+                      <Cell>
+                        {version.titleBefore}
+                        {version.titleHighlight ? <span style={{ color: '#722F37' }}> {version.titleHighlight}</span> : null}
+                      </Cell>
+                    </td>
+                    <td style={{ ...td, color: '#6B6B6B' }}>
+                      <Cell>{version.lead ?? <span style={{ color: '#C4C4C4' }}>none</span>}</Cell>
+                    </td>
+                    <td style={td}>
+                      <Cell>{version.ctaPrimary}</Cell>
+                    </td>
+                    <td style={tdNum}>{measured(eventCoverage) ? formatNumber(row?.quizSessions ?? 0) : '—'}</td>
+                    <td style={tdNum}>{perDay === null ? '—' : formatRatio(perDay, 1)}</td>
+                    <td style={tdNum}>{measured(eventCoverage) ? formatNumber(row?.quizCompleted ?? 0) : '—'}</td>
+                    <td style={tdNum}>
+                      {measured(orderCoverage) ? formatNumber(row?.orders ?? 0) : '—'}
+                      {orderCoverage.state === 'partial' ? (
+                        <div style={{ fontSize: 10.5, color: '#B45309', fontWeight: 700 }}>
+                          {orderCoverage.covered}/{orderCoverage.total} d
+                        </div>
+                      ) : null}
+                    </td>
+                    <td style={tdNum}>{measured(orderCoverage) ? formatEuro(row?.revenue ?? 0) : '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {liveVersion?.blocks?.length ? (
+        <Card style={{ marginTop: 12 }}>
+          <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>
+            Everything else on this screen today
+          </p>
+          <p style={{ margin: '0 0 14px', fontSize: 12, color: '#9B9B9B' }}>
+            The copy below the headline block, as served right now. Not versioned — no history exists for these lines.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 10 }}>
+            {liveVersion.blocks.map((block) => (
               <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  flexWrap: 'wrap',
-                  padding: '12px 20px',
-                  background: style.background,
-                  borderBottom: '1px solid #E8E6E1',
-                }}
+                key={block.label}
+                style={{ borderLeft: '3px solid #E8E6E1', paddingLeft: 12, display: 'flex', flexDirection: 'column', gap: 3 }}
               >
-                <span
-                  style={{
-                    background: style.color,
-                    color: '#FFFFFF',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    padding: '3px 9px',
-                    borderRadius: 5,
-                  }}
-                >
-                  {version.label}
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {block.label}
                 </span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>
-                  {version.datePrecision === 'unknown'
-                    ? 'date unknown'
-                    : version.datePrecision === 'sync'
-                      ? `on or before ${version.committedOn}`
-                      : version.committedOn}
-                </span>
-                <span style={{ fontSize: 12, color: '#6B6B6B' }}>
-                  {period.liveDays === null
-                    ? version.status === 'live-untracked'
-                      ? 'serving now, duration unknown'
-                      : 'never went live'
-                    : period.end
-                      ? `live ${period.liveDays} days`
-                      : `live ${period.liveDays} days and counting`}
-                </span>
-                <span
-                  style={{
-                    marginLeft: 'auto',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: style.color,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
-                  }}
-                >
-                  {style.label}
-                </span>
+                <span style={{ fontSize: 12.5, color: '#1A1A1A', lineHeight: 1.5 }}>{block.text}</span>
               </div>
-
-              <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <CopyPreview version={version} />
-
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    {version.changedFields.length > 0 ? 'Changed' : 'Oldest state in Git'}
-                  </span>
-                  {version.changedFields.map((field) => (
-                    <span
-                      key={field}
-                      style={{
-                        background: '#F3E7E3',
-                        color: '#722F37',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        padding: '3px 8px',
-                        borderRadius: 4,
-                      }}
-                    >
-                      {fieldLabels[field]}
-                    </span>
-                  ))}
-                  <span
-                    style={{
-                      marginLeft: 'auto',
-                      background: '#F4F3F0',
-                      color: '#6B6B6B',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      padding: '3px 8px',
-                      borderRadius: 4,
-                    }}
-                  >
-                    {eraLabels[version.era]}
-                  </span>
-                </div>
-
-                <p style={{ margin: 0, fontSize: 13, color: '#6B6B6B', lineHeight: 1.5 }}>{version.angle}</p>
-
-                <div
-                  style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}
-                >
-                  <MetricCard
-                    label="Quiz sessions"
-                    value={hasMeasured(eventCoverage) ? formatNumber(row?.quizSessions ?? 0) : '—'}
-                    hint={coverageHint(eventCoverage, 'Tracking not installed yet', neverLiveReason)}
-                    tone={eventCoverage.state === 'partial' ? 'warning' : 'default'}
-                  />
-                  <MetricCard
-                    label="Sessions / measured day"
-                    value={perDay === null ? '—' : formatRatio(perDay, 1)}
-                    hint="Driven by ad spend, not by the copy"
-                  />
-                  <MetricCard
-                    label="Quiz completed"
-                    value={hasMeasured(eventCoverage) ? formatNumber(row?.quizCompleted ?? 0) : '—'}
-                  />
-                  <MetricCard
-                    label="Orders"
-                    value={hasMeasured(orderCoverage) ? formatNumber(row?.orders ?? 0) : '—'}
-                    hint={coverageHint(orderCoverage, 'Airbyte has no data here', neverLiveReason)}
-                    tone={orderCoverage.state === 'partial' ? 'warning' : 'default'}
-                  />
-                  <MetricCard
-                    label="Revenue"
-                    value={hasMeasured(orderCoverage) ? formatEuro(row?.revenue ?? 0) : '—'}
-                    hint="Cancelled orders excluded"
-                  />
-                </div>
-
-                <p
-                  style={{
-                    margin: 0,
-                    paddingTop: 12,
-                    borderTop: '1px dashed #E8E6E1',
-                    fontSize: 12,
-                    color: '#9B9B9B',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  <code style={{ color: '#6B6B6B' }}>{version.commitSha}</code> — {version.commitSubject}
-                  <br />
-                  <span style={{ color: '#B8B8B8' }}>{version.sourceFile}</span>
-                </p>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
     </PageSection>
   );
 }
