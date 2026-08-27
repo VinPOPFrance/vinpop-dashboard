@@ -1,0 +1,14 @@
+# Fins de ligne identiques sur les deux ordinateurs.
+# Sans ceci, un poste en CRLF et l'autre en LF font apparaitre
+# tous les fichiers comme modifies alors que le contenu est identique.
+* text=auto eol=lf
+
+# Fichiers binaires : jamais de conversion.
+*.xlsx binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.woff binary
+*.woff2 binary

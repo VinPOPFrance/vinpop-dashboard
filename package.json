@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "sync:check": "node scripts/sync-check.mjs",
+    "sync:pull": "git pull --rebase origin main",
+    "sync:push": "git push origin main"
   },
   "dependencies": {
     "clsx": "^2.1.1",

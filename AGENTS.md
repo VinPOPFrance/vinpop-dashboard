@@ -99,6 +99,71 @@ For each task:
 4. Stop and summarize.
 5. Wait for confirmation before continuing.
 
+## Synchronisation Git (obligatoire - travail sur deux ordinateurs)
+
+Ce projet est developpe depuis deux ordinateurs differents.
+Le depot GitHub `VinPOPFrance/vinpop-dashboard` (branche `main`) est la
+**seule source de verite**. Un dossier local n'est jamais considere comme a jour
+tant qu'il n'a pas ete compare a GitHub.
+
+### Regle absolue : verifier AVANT de modifier quoi que ce soit
+
+Au debut de chaque session, avant de lire ou modifier le moindre fichier :
+
+```bash
+npm run sync:check
+```
+
+Le script affiche `OK` uniquement si les trois conditions sont reunies :
+- aucun fichier modifie non commite
+- aucun commit de retard sur `origin/main`
+- aucun commit d'avance non pousse
+
+**Si le script n'affiche pas `OK`, ne commence aucune modification.**
+Signale l'ecart a l'utilisateur et attends sa decision.
+
+### Que faire selon le resultat
+
+| Resultat | Signification | Action |
+|---|---|---|
+| `OK` | Local identique a GitHub | Travailler normalement |
+| `N commit(s) de retard` | L'autre ordinateur a pousse du travail | `npm run sync:pull` puis relancer `sync:check` |
+| `N commit(s) d'avance` | Du travail local n'est pas sur GitHub | `npm run sync:push` |
+| `fichier(s) modifie(s)` | Travail en cours non commite | Commiter ou demander a l'utilisateur |
+| Retard **et** avance | Les deux postes ont diverge | **S'arreter.** Ne jamais forcer. Demander a l'utilisateur |
+
+Ne jamais utiliser `git push --force`, `git reset --hard` ou `git checkout --`
+sans demande explicite de l'utilisateur : cela detruirait le travail fait sur
+l'autre ordinateur.
+
+### Regle a la fin de chaque session
+
+Ne jamais laisser du travail uniquement en local : l'autre ordinateur ne le
+verra pas et les deux postes divergeront.
+
+```bash
+git add -A
+git commit -m "description du changement"
+npm run sync:push
+npm run sync:check   # doit afficher OK
+```
+
+### Structure des dossiers
+
+Le dossier de travail est le depot Git lui-meme. Il ne doit exister
+**qu'une seule copie** du projet par ordinateur. Ne jamais dupliquer le projet
+dans un dossier voisin non versionne : une copie sans `.git` ne peut pas etre
+synchronisee et provoque exactement le probleme que ce document evite.
+
+Fichiers volontairement absents de GitHub (voir `.gitignore`) et donc a recreer
+manuellement sur chaque ordinateur :
+- `.env.local` (contient `DASHBOARD_PASSWORD` et `DATABASE_URL`)
+- `node_modules/` (recree avec `npm install`)
+
+Les fins de ligne sont normalisees en LF via `.gitattributes`. Ne pas modifier
+ce fichier : sans lui, un poste en CRLF ferait apparaitre tout le projet comme
+modifie alors que le contenu est identique.
+
 ## Commands
 
 Use these commands when relevant:
@@ -108,6 +173,7 @@ npm run dev
 npm run lint
 npm run build
 git status --short
+npm run sync:check
 ```
 
 ## Immediate next technical goal
