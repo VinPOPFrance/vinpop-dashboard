@@ -5,6 +5,7 @@ import { MetricCard } from '@/components/MetricCard';
 import { TopBar } from '@/components/TopBar';
 import {
   buildCopyVersionPeriods,
+  daysBetween,
   homepageHeroVersions,
   type CopyVersion,
   type CopyVersionField,
@@ -14,8 +15,6 @@ import { getCopyVersionPerformance, type CopyVersionPeriodMetrics } from '@/lib/
 import { formatEuro, formatNumber, formatRatio } from '@/lib/format';
 
 export const runtime = 'nodejs';
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const fieldLabels: Record<CopyVersionField, string> = {
   eyebrow: 'Eyebrow',
@@ -32,45 +31,48 @@ const statusStyles = {
   unpublished: { label: 'Committed, not published', color: '#B45309', background: '#FFFCF0', border: '#F2C94C' },
 } as const;
 
-function toDay(value: string | null): string | null {
+const eraLabels = {
+  'theme-editor': 'Shopify theme editor era',
+  'landing-section': 'Custom landing section era',
+} as const;
+
+/** Data coverage for one source: how much of a period the source can actually see. */
+type Coverage = { covered: number; total: number; state: 'full' | 'partial' | 'none' | 'never-live' };
+
+function toDay(value: string | null | undefined): string | null {
   return value ? value.slice(0, 10) : null;
 }
 
-function daysBetween(start: string, end: string): number {
-  return Math.max(0, Math.round((Date.parse(end) - Date.parse(start)) / MS_PER_DAY));
-}
+function coverageFor(
+  period: CopyVersionPeriod,
+  firstDataDay: string | null,
+  lastDataDay: string | null,
+  today: string,
+): Coverage {
+  if (period.liveDays === null) {
+    return { covered: 0, total: 0, state: 'never-live' };
+  }
 
-/**
- * How many days of a period the data actually reaches. Airbyte and the event
- * pipeline stop at different dates, so each source gets its own coverage.
- */
-function coveredDays(period: CopyVersionPeriod, lastDataDay: string | null, today: string): number | null {
-  if (period.liveDays === null) return null;
-  if (!lastDataDay) return 0;
-
+  const total = period.liveDays;
   const periodEnd = period.end ?? today;
-  const reachable = lastDataDay < periodEnd ? lastDataDay : periodEnd;
-  return daysBetween(period.start, reachable);
+
+  if (!firstDataDay || !lastDataDay) {
+    return { covered: 0, total, state: 'none' };
+  }
+
+  const from = firstDataDay > period.start ? firstDataDay : period.start;
+  const to = lastDataDay < periodEnd ? lastDataDay : periodEnd;
+  const covered = from >= to ? 0 : daysBetween(from, to);
+
+  if (covered === 0) return { covered, total, state: 'none' };
+  return { covered, total, state: covered >= total ? 'full' : 'partial' };
 }
 
-function CoverageNote({ covered, total }: { covered: number | null; total: number | null }) {
-  if (covered === null || total === null) {
-    return <>Never exposed</>;
-  }
-  if (total === 0) {
-    return <>Period not started</>;
-  }
-  if (covered >= total) {
-    return <>Full period covered</>;
-  }
-  if (covered === 0) {
-    return <>No data for this period</>;
-  }
-  return (
-    <>
-      Only {covered} of {total} days covered
-    </>
-  );
+function coverageHint(coverage: Coverage, reason: string): string {
+  if (coverage.state === 'never-live') return 'Never exposed to visitors';
+  if (coverage.state === 'none') return reason;
+  if (coverage.state === 'full') return 'Full period covered';
+  return `Only ${coverage.covered} of ${coverage.total} days covered`;
 }
 
 function HeroPreview({ version }: { version: CopyVersion }) {
@@ -116,10 +118,15 @@ function HeroPreview({ version }: { version: CopyVersion }) {
           letterSpacing: '-0.01em',
         }}
       >
-        {version.titleBefore} <span style={{ color: '#722F37' }}>{version.titleHighlight}</span>
+        {version.titleBefore}
+        {version.titleHighlight ? <span style={{ color: '#722F37' }}> {version.titleHighlight}</span> : null}
       </h3>
 
-      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: '#6B6B6B', maxWidth: '68ch' }}>{version.lead}</p>
+      {version.lead ? (
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: '#6B6B6B', maxWidth: '68ch' }}>{version.lead}</p>
+      ) : (
+        <p style={{ margin: 0, fontSize: 12, color: '#9B9B9B', fontStyle: 'italic' }}>No paragraph in this version.</p>
+      )}
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 2 }}>
         <span
@@ -134,7 +141,9 @@ function HeroPreview({ version }: { version: CopyVersion }) {
         >
           {version.ctaPrimary}
         </span>
-        <span style={{ fontSize: 12, color: '#9B9B9B', textDecoration: 'underline' }}>{version.ctaSecondary}</span>
+        {version.ctaSecondary ? (
+          <span style={{ fontSize: 12, color: '#9B9B9B', textDecoration: 'underline' }}>{version.ctaSecondary}</span>
+        ) : null}
       </div>
     </div>
   );
@@ -156,45 +165,33 @@ export default async function CopyHistoryPage() {
     (metrics?.periods ?? []).map((row) => [row.id, row]),
   );
 
-  const lastEventDay = toDay(metrics?.lastEventAt ?? null);
-  const lastOrderDay = toDay(metrics?.lastOrderAt ?? null);
-  const lastSyncDay = toDay(metrics?.lastOrderSyncAt ?? null);
+  const firstEventDay = toDay(metrics?.firstEventAt);
+  const lastEventDay = toDay(metrics?.lastEventAt);
+  const firstOrderDay = toDay(metrics?.firstOrderAt);
+  const lastOrderDay = toDay(metrics?.lastOrderAt);
+  const lastSyncDay = toDay(metrics?.lastOrderSyncAt);
 
   const eventsAreFresh = Boolean(lastEventDay && daysBetween(lastEventDay, today) <= 2);
   const ordersAreStale = Boolean(lastSyncDay && daysBetween(lastSyncDay, today) > 2);
 
   const liveVersion = homepageHeroVersions.find((version) => version.status === 'live') ?? null;
   const unpublished = homepageHeroVersions.filter((version) => version.status === 'unpublished');
+  const oldest = homepageHeroVersions[0];
+
+  // Newest first — the whole point of this page is "what did I change lately".
+  const displayPeriods = [...periods].reverse();
 
   return (
     <DashboardLayout>
       <TopBar
         title="Copy History"
-        subtitle="Which homepage headline was live when, and what the data says about each one."
+        subtitle="Every homepage headline since November 2025, newest first, with what the data says about each one."
       />
 
       <PageSection>
-        <SectionTitle sub="Reconstructed from the Shopify theme Git history · locales/en.default.json">
+        <SectionTitle sub="Reconstructed from 208 commits of the Shopify theme repository">
           Homepage Hero
         </SectionTitle>
-
-        <Card style={{ marginBottom: 16, background: '#F8F7F4' }}>
-          <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.55 }}>
-            Dates below are <strong style={{ color: '#1A1A1A' }}>commit dates, not publish dates</strong>. Theme deploys
-            are manual, so a version can sit in Git for days before it reaches vinpop.nl. Periods are therefore
-            approximations, and any version marked &quot;committed, not published&quot; was never seen by a visitor.
-          </p>
-        </Card>
-
-        {!result.ok ? (
-          <Card style={{ marginBottom: 16, borderColor: '#F2C94C', background: '#FFFCF0' }}>
-            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700 }}>
-              {result.reason === 'missing-url'
-                ? 'DATABASE_URL is not configured, so no metrics can be shown. The copy history itself is still accurate.'
-                : 'Metrics could not be loaded from PostgreSQL. The copy history itself is still accurate.'}
-            </p>
-          </Card>
-        ) : null}
 
         <div
           style={{
@@ -204,7 +201,11 @@ export default async function CopyHistoryPage() {
             marginBottom: 16,
           }}
         >
-          <MetricCard label="Versions tracked" value={formatNumber(homepageHeroVersions.length)} />
+          <MetricCard
+            label="Versions found"
+            value={formatNumber(homepageHeroVersions.length)}
+            hint={`Since ${oldest.committedOn}`}
+          />
           <MetricCard
             label="Currently live"
             value={liveVersion ? liveVersion.label : 'Unknown'}
@@ -231,30 +232,67 @@ export default async function CopyHistoryPage() {
           />
         </div>
 
+        <Card style={{ marginBottom: 12, background: '#F8F7F4' }}>
+          <p style={{ margin: '0 0 8px', color: '#1A1A1A', fontSize: 13, fontWeight: 700 }}>
+            How to read the dates
+          </p>
+          <p style={{ margin: '0 0 6px', color: '#6B6B6B', fontSize: 13, lineHeight: 1.55 }}>
+            Versions up to 3 June 2026 lived in <code>templates/index.json</code>, edited in the Shopify theme editor
+            and only pushed to Git on a sync. Their dates are <strong style={{ color: '#1A1A1A' }}>upper bounds</strong>:
+            the text changed on or before the date shown.
+          </p>
+          <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, lineHeight: 1.55 }}>
+            Versions from 23 June 2026 live in <code>locales/en.default.json</code>, edited in code. Their commit dates
+            are exact, but deploys are manual — so a version can sit in Git before reaching vinpop.nl. That is exactly
+            the case for {unpublished.length > 0 ? unpublished[0].label : 'the newest version'} today.
+          </p>
+        </Card>
+
+        {firstEventDay ? (
+          <Card style={{ marginBottom: 12, borderColor: '#F2C94C', background: '#FFFCF0' }}>
+            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
+              Event tracking only started on {firstEventDay}. Every version before that shows zero quiz sessions
+              because nothing was measured — not because nobody came. Orders go back further, to {firstOrderDay}.
+            </p>
+          </Card>
+        ) : null}
+
         {ordersAreStale ? (
-          <Card style={{ marginBottom: 16, borderColor: '#F2C94C', background: '#FFFCF0' }}>
+          <Card style={{ marginBottom: 12, borderColor: '#F2C94C', background: '#FFFCF0' }}>
             <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
               Airbyte has not synced Shopify orders since {lastSyncDay}. No order exists after {lastOrderDay}, so every
-              period ending later shows incomplete or missing sales. Restart the sync before reading revenue here.
+              period ending later shows incomplete or missing sales.
+            </p>
+          </Card>
+        ) : null}
+
+        {!result.ok ? (
+          <Card style={{ marginBottom: 12, borderColor: '#F2C94C', background: '#FFFCF0' }}>
+            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700 }}>
+              {result.reason === 'missing-url'
+                ? 'DATABASE_URL is not configured, so no metrics can be shown. The copy history itself is still accurate.'
+                : 'Metrics could not be loaded from PostgreSQL. The copy history itself is still accurate.'}
             </p>
           </Card>
         ) : null}
       </PageSection>
 
       <PageSection>
-        <SectionTitle sub="Oldest first · each card shows the copy exactly as it was written">
+        <SectionTitle sub="Newest first · each card shows the copy exactly as it was written">
           Every Version
         </SectionTitle>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {periods.map((period) => {
+          {displayPeriods.map((period) => {
             const { version } = period;
             const style = statusStyles[version.status];
             const row = metricsById.get(version.id);
-            const eventCoverage = coveredDays(period, lastEventDay, today);
-            const orderCoverage = coveredDays(period, lastOrderDay, today);
+            const eventCoverage = coverageFor(period, firstEventDay, lastEventDay, today);
+            const orderCoverage = coverageFor(period, firstOrderDay, lastOrderDay, today);
             const perDay =
-              row && period.liveDays && period.liveDays > 0 ? row.quizSessions / period.liveDays : null;
+              row && eventCoverage.state !== 'none' && eventCoverage.covered > 0
+                ? row.quizSessions / eventCoverage.covered
+                : null;
 
             return (
               <Card key={version.id} style={{ borderColor: style.border, padding: 0, overflow: 'hidden' }}>
@@ -281,7 +319,9 @@ export default async function CopyHistoryPage() {
                   >
                     {version.label}
                   </span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>{version.committedOn}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>
+                    {version.datePrecision === 'sync' ? `on or before ${version.committedOn}` : version.committedOn}
+                  </span>
                   <span style={{ fontSize: 12, color: '#6B6B6B' }}>
                     {period.liveDays === null
                       ? 'never went live'
@@ -308,38 +348,36 @@ export default async function CopyHistoryPage() {
 
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     <span style={{ fontSize: 11, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                      {version.changedFields.length > 0 ? 'Changed' : 'Created'}
+                      {version.changedFields.length > 0 ? 'Changed' : 'Oldest state in Git'}
                     </span>
-                    {version.changedFields.length > 0 ? (
-                      version.changedFields.map((field) => (
-                        <span
-                          key={field}
-                          style={{
-                            background: '#F3E7E3',
-                            color: '#722F37',
-                            fontSize: 11,
-                            fontWeight: 600,
-                            padding: '3px 8px',
-                            borderRadius: 4,
-                          }}
-                        >
-                          {fieldLabels[field]}
-                        </span>
-                      ))
-                    ) : (
+                    {version.changedFields.map((field) => (
                       <span
+                        key={field}
                         style={{
-                          background: '#F4F3F0',
-                          color: '#6B6B6B',
+                          background: '#F3E7E3',
+                          color: '#722F37',
                           fontSize: 11,
                           fontWeight: 600,
                           padding: '3px 8px',
                           borderRadius: 4,
                         }}
                       >
-                        Initial version of the section
+                        {fieldLabels[field]}
                       </span>
-                    )}
+                    ))}
+                    <span
+                      style={{
+                        marginLeft: 'auto',
+                        background: '#F4F3F0',
+                        color: '#6B6B6B',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        padding: '3px 8px',
+                        borderRadius: 4,
+                      }}
+                    >
+                      {eraLabels[version.era]}
+                    </span>
                   </div>
 
                   <p style={{ margin: 0, fontSize: 13, color: '#6B6B6B', lineHeight: 1.5 }}>{version.angle}</p>
@@ -353,31 +391,36 @@ export default async function CopyHistoryPage() {
                   >
                     <MetricCard
                       label="Quiz sessions"
-                      value={period.liveDays === null ? '—' : formatNumber(row?.quizSessions ?? 0)}
-                      hint={<CoverageNote covered={eventCoverage} total={period.liveDays} />}
+                      value={eventCoverage.state === 'full' || eventCoverage.state === 'partial'
+                        ? formatNumber(row?.quizSessions ?? 0)
+                        : '—'}
+                      hint={coverageHint(eventCoverage, 'Tracking not installed yet')}
+                      tone={eventCoverage.state === 'partial' ? 'warning' : 'default'}
                     />
                     <MetricCard
-                      label="Sessions / day"
+                      label="Sessions / measured day"
                       value={perDay === null ? '—' : formatRatio(perDay, 1)}
                       hint="Driven by ad spend, not by the headline"
                     />
                     <MetricCard
                       label="Quiz completed"
-                      value={period.liveDays === null ? '—' : formatNumber(row?.quizCompleted ?? 0)}
+                      value={eventCoverage.state === 'full' || eventCoverage.state === 'partial'
+                        ? formatNumber(row?.quizCompleted ?? 0)
+                        : '—'}
                     />
                     <MetricCard
                       label="Orders"
-                      value={
-                        period.liveDays === null || orderCoverage === 0 ? '—' : formatNumber(row?.orders ?? 0)
-                      }
-                      hint={<CoverageNote covered={orderCoverage} total={period.liveDays} />}
-                      tone={orderCoverage !== null && period.liveDays !== null && orderCoverage < period.liveDays ? 'warning' : 'default'}
+                      value={orderCoverage.state === 'full' || orderCoverage.state === 'partial'
+                        ? formatNumber(row?.orders ?? 0)
+                        : '—'}
+                      hint={coverageHint(orderCoverage, 'Airbyte has no data here')}
+                      tone={orderCoverage.state === 'partial' ? 'warning' : 'default'}
                     />
                     <MetricCard
                       label="Revenue"
-                      value={
-                        period.liveDays === null || orderCoverage === 0 ? '—' : formatEuro(row?.revenue ?? 0)
-                      }
+                      value={orderCoverage.state === 'full' || orderCoverage.state === 'partial'
+                        ? formatEuro(row?.revenue ?? 0)
+                        : '—'}
                       hint="Cancelled orders excluded"
                     />
                   </div>
@@ -393,6 +436,8 @@ export default async function CopyHistoryPage() {
                     }}
                   >
                     <code style={{ color: '#6B6B6B' }}>{version.commitSha}</code> — {version.commitSubject}
+                    <br />
+                    <span style={{ color: '#B8B8B8' }}>{version.sourceFile}</span>
                   </p>
                 </div>
               </Card>
@@ -405,26 +450,26 @@ export default async function CopyHistoryPage() {
         <SectionTitle sub="What this page can and cannot answer today">Interpretation</SectionTitle>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
           <Card>
-            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
-              No headline comparison is possible yet. v1, v2 and v3 carry the same message — only a button word and a
-              comma changed — and they cover almost all the measured traffic.
+            <p style={{ margin: 0, color: '#1A1A1A', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
+              The angle has swung back and forth. Match score → science → pain → desire → pain again. v12 returns to
+              almost exactly the v5 promise from May.
             </p>
           </Card>
           <Card>
             <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
-              There is no view count. `site_events` holds quiz events only, so the number of people who actually saw
-              each headline is unknown. Click-through rate cannot be computed until `vinpop_page_view` is sent.
+              No headline comparison is possible yet. The only versions with real traffic — v7, v8, v9 — all carry the
+              same message; only a button word and a comma changed between them.
+            </p>
+          </Card>
+          <Card>
+            <p style={{ margin: 0, color: '#B45309', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
+              There is no view count. `site_events` holds quiz events only, so the number of people who saw each
+              headline is unknown and click-through rate cannot be computed.
             </p>
           </Card>
           <Card>
             <p style={{ margin: 0, color: '#2D6A4F', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
               Quiz completion holds around 90–95% across every measured period. The drop-off is not in the quiz.
-            </p>
-          </Card>
-          <Card>
-            <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
-              Sessions per day measure ad spend, not copy. v1 at 6.1 and v3 at 5.6 carried an identical headline — that
-              gap is the natural noise floor.
             </p>
           </Card>
         </div>

@@ -7556,7 +7556,9 @@ type CopyVersionOrderRow = {
 };
 
 type CopyVersionCoverageRow = {
+  first_event_at: string | null;
   last_event_at: string | null;
+  first_order_at: string | null;
   last_order_at: string | null;
   last_order_sync_at: string | null;
 };
@@ -7579,7 +7581,10 @@ export type CopyVersionPeriodMetrics = {
 
 export type CopyVersionPerformanceMetrics = {
   periods: CopyVersionPeriodMetrics[];
+  /** Data only exists between these boundaries; outside them a zero means "not measured". */
+  firstEventAt: string | null;
   lastEventAt: string | null;
+  firstOrderAt: string | null;
   lastOrderAt: string | null;
   lastOrderSyncAt: string | null;
 };
@@ -7606,7 +7611,14 @@ export async function getCopyVersionPerformance(
   if (periods.length === 0) {
     return {
       ok: true,
-      metrics: { periods: [], lastEventAt: null, lastOrderAt: null, lastOrderSyncAt: null },
+      metrics: {
+        periods: [],
+        firstEventAt: null,
+        lastEventAt: null,
+        firstOrderAt: null,
+        lastOrderAt: null,
+        lastOrderSyncAt: null,
+      },
     };
   }
 
@@ -7660,7 +7672,9 @@ export async function getCopyVersionPerformance(
       pool.query<CopyVersionCoverageRow>(
         `
           SELECT
+            (SELECT MIN(event_time) FROM public.site_events)::text AS first_event_at,
             (SELECT MAX(event_time) FROM public.site_events)::text AS last_event_at,
+            (SELECT MIN(created_at) FROM shopify.orders)::text AS first_order_at,
             (SELECT MAX(created_at) FROM shopify.orders)::text AS last_order_at,
             (SELECT MAX(_airbyte_extracted_at) FROM shopify.orders)::text AS last_order_sync_at
         `,
@@ -7671,7 +7685,9 @@ export async function getCopyVersionPerformance(
     const eventsById = new Map(eventsResult.rows.map((row) => [row.id, row]));
 
     const coverage = coverageResult.rows[0] ?? {
+      first_event_at: null,
       last_event_at: null,
+      first_order_at: null,
       last_order_at: null,
       last_order_sync_at: null,
     };
@@ -7693,7 +7709,9 @@ export async function getCopyVersionPerformance(
             revenue: numberFromPg(orders?.revenue),
           };
         }),
+        firstEventAt: coverage.first_event_at,
         lastEventAt: coverage.last_event_at,
+        firstOrderAt: coverage.first_order_at,
         lastOrderAt: coverage.last_order_at,
         lastOrderSyncAt: coverage.last_order_sync_at,
       },
