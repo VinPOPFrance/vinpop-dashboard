@@ -10,6 +10,7 @@ const navItems = [
   { href: '/sales-funnel', label: 'Sales Funnel', icon: '▽' },
   { href: '/customers', label: 'Customers', icon: '◪' },
   { href: '/ratings', label: 'Ratings', icon: '★' },
+  { href: '/copy-history', label: 'Copy History', icon: '✎' },
   { href: '/shopify-products-summary', label: 'Products & Stock', icon: '▣' },
   { href: '/today-action-plan', label: 'Today Action Plan', icon: '!' },
 ];

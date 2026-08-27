@@ -7540,3 +7540,167 @@ export async function getBusinessOverview(): Promise<BusinessOverviewResult> {
     },
   };
 }
+
+type CopyVersionEventRow = {
+  id: string;
+  quiz_sessions: string;
+  quiz_started: string;
+  quiz_completed: string;
+  email_submitted: string;
+};
+
+type CopyVersionOrderRow = {
+  id: string;
+  orders: string;
+  revenue: string;
+};
+
+type CopyVersionCoverageRow = {
+  last_event_at: string | null;
+  last_order_at: string | null;
+  last_order_sync_at: string | null;
+};
+
+export type CopyVersionPeriodInput = {
+  id: string;
+  start: string;
+  end: string | null;
+};
+
+export type CopyVersionPeriodMetrics = {
+  id: string;
+  quizSessions: number;
+  quizStarted: number;
+  quizCompleted: number;
+  emailSubmitted: number;
+  orders: number;
+  revenue: number;
+};
+
+export type CopyVersionPerformanceMetrics = {
+  periods: CopyVersionPeriodMetrics[];
+  lastEventAt: string | null;
+  lastOrderAt: string | null;
+  lastOrderSyncAt: string | null;
+};
+
+export type CopyVersionPerformanceResult =
+  | { ok: true; metrics: CopyVersionPerformanceMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+/**
+ * Aggregates site events and Shopify orders for each copy version period.
+ *
+ * Read-only. Periods come from the theme's Git history (see src/data/copyVersions.ts),
+ * so they are approximations of when each version was live. The returned coverage
+ * boundaries let the page state how much of each period the data actually reaches.
+ */
+export async function getCopyVersionPerformance(
+  periods: CopyVersionPeriodInput[],
+): Promise<CopyVersionPerformanceResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  if (periods.length === 0) {
+    return {
+      ok: true,
+      metrics: { periods: [], lastEventAt: null, lastOrderAt: null, lastOrderSyncAt: null },
+    };
+  }
+
+  const ids = periods.map((period) => period.id);
+  const starts = periods.map((period) => period.start);
+  const ends = periods.map((period) => period.end);
+
+  try {
+    const pool = getPool(databaseUrl);
+
+    const [eventsResult, ordersResult, coverageResult] = await Promise.all([
+      pool.query<CopyVersionEventRow>(
+        `
+          WITH periods AS (
+            SELECT id, start_date, end_date
+            FROM unnest($1::text[], $2::date[], $3::date[]) AS t(id, start_date, end_date)
+          )
+          SELECT
+            p.id AS id,
+            COUNT(DISTINCT e.session_id)::text AS quiz_sessions,
+            COUNT(*) FILTER (WHERE e.event_name = 'vinpop_quiz_started')::text AS quiz_started,
+            COUNT(*) FILTER (WHERE e.event_name = 'vinpop_quiz_completed')::text AS quiz_completed,
+            COUNT(*) FILTER (WHERE e.event_name = 'vinpop_email_submitted')::text AS email_submitted
+          FROM periods p
+          LEFT JOIN public.site_events e
+            ON e.event_time >= p.start_date
+           AND (p.end_date IS NULL OR e.event_time < p.end_date)
+          GROUP BY p.id
+        `,
+        [ids, starts, ends],
+      ),
+      pool.query<CopyVersionOrderRow>(
+        `
+          WITH periods AS (
+            SELECT id, start_date, end_date
+            FROM unnest($1::text[], $2::date[], $3::date[]) AS t(id, start_date, end_date)
+          )
+          SELECT
+            p.id AS id,
+            COUNT(o.created_at)::text AS orders,
+            COALESCE(SUM(o.total_price), 0)::text AS revenue
+          FROM periods p
+          LEFT JOIN shopify.orders o
+            ON o.created_at >= p.start_date
+           AND (p.end_date IS NULL OR o.created_at < p.end_date)
+           AND o.cancelled_at IS NULL
+          GROUP BY p.id
+        `,
+        [ids, starts, ends],
+      ),
+      pool.query<CopyVersionCoverageRow>(
+        `
+          SELECT
+            (SELECT MAX(event_time) FROM public.site_events)::text AS last_event_at,
+            (SELECT MAX(created_at) FROM shopify.orders)::text AS last_order_at,
+            (SELECT MAX(_airbyte_extracted_at) FROM shopify.orders)::text AS last_order_sync_at
+        `,
+      ),
+    ]);
+
+    const ordersById = new Map(ordersResult.rows.map((row) => [row.id, row]));
+    const eventsById = new Map(eventsResult.rows.map((row) => [row.id, row]));
+
+    const coverage = coverageResult.rows[0] ?? {
+      last_event_at: null,
+      last_order_at: null,
+      last_order_sync_at: null,
+    };
+
+    return {
+      ok: true,
+      metrics: {
+        periods: periods.map((period) => {
+          const events = eventsById.get(period.id);
+          const orders = ordersById.get(period.id);
+
+          return {
+            id: period.id,
+            quizSessions: numberFromPg(events?.quiz_sessions),
+            quizStarted: numberFromPg(events?.quiz_started),
+            quizCompleted: numberFromPg(events?.quiz_completed),
+            emailSubmitted: numberFromPg(events?.email_submitted),
+            orders: numberFromPg(orders?.orders),
+            revenue: numberFromPg(orders?.revenue),
+          };
+        }),
+        lastEventAt: coverage.last_event_at,
+        lastOrderAt: coverage.last_order_at,
+        lastOrderSyncAt: coverage.last_order_sync_at,
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Copy version performance failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
