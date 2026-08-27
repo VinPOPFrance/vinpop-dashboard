@@ -21,15 +21,15 @@
  * and keep the array sorted oldest first. The page reverses it for display.
  */
 
-export type CopyVersionStatus = 'replaced' | 'live' | 'unpublished';
+export type CopyVersionStatus = 'replaced' | 'live' | 'unpublished' | 'live-untracked';
 
-export type CopyVersionEra = 'theme-editor' | 'landing-section';
+export type CopyVersionEra = 'theme-editor' | 'landing-section' | 'quiz-snippet' | 'quiz-script';
 
 /**
  * 'sync'   — captured when the theme was synced to Git; the change happened earlier.
  * 'commit' — the edit itself; publishing to the live theme can happen later.
  */
-export type CopyVersionDatePrecision = 'sync' | 'commit';
+export type CopyVersionDatePrecision = 'sync' | 'commit' | 'unknown';
 
 export type CopyVersionField =
   | 'eyebrow'
@@ -340,10 +340,12 @@ export function daysBetween(start: string, end: string): number {
  * no period at all, so they never absorb traffic that belonged to the live one.
  */
 export function buildCopyVersionPeriods(versions: CopyVersion[], today: string): CopyVersionPeriod[] {
-  const published = versions.filter((version) => version.status !== 'unpublished');
+  const published = versions.filter(
+    (version) => version.status !== 'unpublished' && version.status !== 'live-untracked',
+  );
 
   return versions.map((version) => {
-    if (version.status === 'unpublished') {
+    if (version.status === 'unpublished' || version.status === 'live-untracked') {
       return { version, start: version.committedOn, end: null, liveDays: null };
     }
 
@@ -359,3 +361,238 @@ export function buildCopyVersionPeriods(versions: CopyVersion[], today: string):
     };
   });
 }
+
+const QUIZ_SNIPPET = 'snippets/taste-profile-quiz-inline.liquid';
+const QUIZ_SCRIPT = 'assets/taste-profile-quiz.js';
+const NOT_IN_GIT = 'live theme only — never committed';
+
+/**
+ * Quiz intro on /collections/test-kit.
+ * Copy is hardcoded inline in the snippet behind an English/Dutch conditional,
+ * not in the locale files, so it is extracted per commit by markup class.
+ */
+export const quizIntroVersions: CopyVersion[] = [
+  {
+    id: 'quiz_intro_v1',
+    label: 'v1',
+    era: 'quiz-snippet',
+    status: 'replaced',
+    datePrecision: 'commit',
+    committedOn: '2026-07-10',
+    commitSha: '4949f0f',
+    commitSubject: 'feat: Enhance quiz introduction with localized messaging and styling',
+    sourceFile: QUIZ_SNIPPET,
+    eyebrow: null,
+    audience: null,
+    titleBefore: 'Stop wasting money on wines you do not like.',
+    titleHighlight: '',
+    lead: null,
+    ctaPrimary: 'See my 3 wines',
+    ctaSecondary: null,
+    changedFields: [],
+    angle: 'Intro screen created. Reuses the homepage pain headline word for word.',
+  },
+  {
+    id: 'quiz_intro_v2',
+    label: 'v2',
+    era: 'quiz-snippet',
+    status: 'replaced',
+    datePrecision: 'commit',
+    committedOn: '2026-07-11',
+    commitSha: 'ef30738',
+    commitSubject: 'Refactor snippets and templates for improved clarity and structure',
+    sourceFile: QUIZ_SNIPPET,
+    eyebrow: null,
+    audience: null,
+    titleBefore: 'Finally, only order wines you actually like.',
+    titleHighlight: '',
+    lead: null,
+    ctaPrimary: 'See my 3 wines',
+    ctaSecondary: null,
+    changedFields: ['title'],
+    angle: 'Drops the pain framing for a promise. Stops duplicating the homepage headline.',
+  },
+  {
+    id: 'quiz_intro_v3',
+    label: 'v3',
+    era: 'quiz-snippet',
+    status: 'replaced',
+    datePrecision: 'commit',
+    committedOn: '2026-07-11',
+    commitSha: 'da4ba21',
+    commitSubject: 'feat: Update quiz calibration intro styles and structure',
+    sourceFile: QUIZ_SNIPPET,
+    eyebrow: '🔬 Every wine analyzed in our lab in Spain',
+    audience: null,
+    titleBefore: 'Finally, only order wines you actually like.',
+    titleHighlight: '',
+    lead: null,
+    ctaPrimary: 'See my 3 wines',
+    ctaSecondary: null,
+    changedFields: ['eyebrow'],
+    angle: 'Adds a credibility line above the headline, naming the lab and its country.',
+  },
+  {
+    id: 'quiz_intro_v4',
+    label: 'v4',
+    era: 'quiz-snippet',
+    status: 'replaced',
+    datePrecision: 'commit',
+    committedOn: '2026-07-14',
+    commitSha: 'e7fa191',
+    commitSubject: 'Refactor Taste Kit terminology to Test Kit across multiple sections',
+    sourceFile: QUIZ_SNIPPET,
+    eyebrow: '🔬 10,000 wines analyzed in our lab',
+    audience: null,
+    titleBefore: 'Finally, only order wines you actually like.',
+    titleHighlight: '',
+    lead: 'Your Test Kit. 3 bottles, delivered. Worth €45 or more. You pay €29,90.',
+    ctaPrimary: 'See my 3 wines',
+    ctaSecondary: null,
+    changedFields: ['eyebrow', 'lead'],
+    angle: 'Swaps a place for a number, and adds the price-versus-value line under the headline.',
+  },
+  {
+    id: 'quiz_intro_live',
+    label: 'live',
+    era: 'quiz-snippet',
+    status: 'live-untracked',
+    datePrecision: 'unknown',
+    committedOn: '',
+    commitSha: '—',
+    commitSubject: NOT_IN_GIT,
+    sourceFile: QUIZ_SNIPPET,
+    eyebrow: '🔬 10,000 wines analyzed in our lab',
+    audience: null,
+    titleBefore: 'Finally, only order wines you actually like.',
+    titleHighlight: '',
+    lead: 'Your Test Kit. 4 bottles, delivered. Worth €38 or more. You pay €29,90.',
+    ctaPrimary: 'See my 3 wines',
+    ctaSecondary: null,
+    changedFields: ['lead'],
+    angle:
+      'What vinpop.nl actually serves today: 4 bottles worth €38, not 3 worth €45. This wording exists in no commit.',
+  },
+];
+
+/**
+ * Results screen after the quiz (the bundle page).
+ * The headline is built in JavaScript, so it is extracted from the `packTitle`
+ * assignment rather than from markup.
+ */
+export const resultsBundleVersions: CopyVersion[] = [
+  {
+    id: 'results_v1',
+    label: 'v1',
+    era: 'quiz-script',
+    status: 'replaced',
+    datePrecision: 'commit',
+    committedOn: '2026-05-21',
+    commitSha: 'aff0cb3',
+    commitSubject: 'feat: DNA loading animation + Adrien authority block + GEO-optimized robots.txt',
+    sourceFile: QUIZ_SCRIPT,
+    eyebrow: null,
+    audience: null,
+    titleBefore: 'WINE DNA: DECODED.',
+    titleHighlight: '',
+    lead: null,
+    ctaPrimary: 'Add to cart',
+    ctaSecondary: null,
+    changedFields: [],
+    angle: 'Oldest results headline in Git. Science-theatre framing, all caps.',
+  },
+  {
+    id: 'results_v2',
+    label: 'v2',
+    era: 'quiz-script',
+    status: 'replaced',
+    datePrecision: 'commit',
+    committedOn: '2026-06-08',
+    commitSha: '0045387',
+    commitSubject: 'feat: Update taste profile quiz and collection banner',
+    sourceFile: QUIZ_SCRIPT,
+    eyebrow: null,
+    audience: null,
+    titleBefore: 'Your Personalized Box Is Ready',
+    titleHighlight: '',
+    lead: null,
+    ctaPrimary: 'Add to cart',
+    ctaSecondary: null,
+    changedFields: ['title'],
+    angle: 'Drops the DNA metaphor for a plain completion statement.',
+  },
+  {
+    id: 'results_v3',
+    label: 'v3',
+    era: 'quiz-script',
+    status: 'replaced',
+    datePrecision: 'commit',
+    committedOn: '2026-07-05',
+    commitSha: '6f31e35',
+    commitSubject: 'feat: Enhance user experience in Smart Box with improved UI elements',
+    sourceFile: QUIZ_SCRIPT,
+    eyebrow: null,
+    audience: null,
+    titleBefore: 'Taste 4 wines. Buy the box that matches your taste.',
+    titleHighlight: '',
+    lead: null,
+    ctaPrimary: 'Add to cart',
+    ctaSecondary: null,
+    changedFields: ['title'],
+    angle: 'Bottle count becomes dynamic. Instruction-style headline naming the next action.',
+  },
+  {
+    id: 'results_live',
+    label: 'live',
+    era: 'quiz-script',
+    status: 'live-untracked',
+    datePrecision: 'unknown',
+    committedOn: '',
+    commitSha: '—',
+    commitSubject: NOT_IN_GIT,
+    sourceFile: QUIZ_SCRIPT,
+    eyebrow: 'Step 1 of your taste profile',
+    audience: null,
+    titleBefore: 'The last 4 bottles you will ever buy blind.',
+    titleHighlight: '',
+    lead:
+      'I chose these 3 bottles for your palate myself. Not your style? I replace them, that is my promise. — Adrien, founder and former winemaker',
+    ctaPrimary: 'Get my Taste Kit - €29.90',
+    ctaSecondary: null,
+    changedFields: ['eyebrow', 'title', 'lead', 'ctaPrimary'],
+    angle:
+      'What vinpop.nl actually serves today, plus a step marker and a founder promise. None of this wording exists in any commit.',
+  },
+];
+
+export type CopySurface = {
+  id: string;
+  name: string;
+  url: string;
+  note: string;
+  versions: CopyVersion[];
+};
+
+export const copySurfaces: CopySurface[] = [
+  {
+    id: 'homepage-hero',
+    name: 'Homepage hero',
+    url: 'https://www.vinpop.nl/en',
+    note: 'The first thing every visitor reads. Traced across 208 commits and two different section systems.',
+    versions: homepageHeroVersions,
+  },
+  {
+    id: 'quiz-intro',
+    name: 'Quiz intro',
+    url: 'https://www.vinpop.nl/en/collections/test-kit',
+    note: 'The screen that decides whether someone starts the quiz. Copy is hardcoded in the snippet, not in the locale files.',
+    versions: quizIntroVersions,
+  },
+  {
+    id: 'results-bundle',
+    name: 'Quiz results',
+    url: 'https://www.vinpop.nl/en/collections/test-kit',
+    note: 'The screen that asks for the sale. Its headline is generated in JavaScript.',
+    versions: resultsBundleVersions,
+  },
+];
