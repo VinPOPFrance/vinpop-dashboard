@@ -70,6 +70,7 @@ export function DataTable<T extends Record<string, unknown>>({
   enableSearch = true,
   emptyMessage = 'Aucune ligne a afficher.',
   selectedRowKey,
+  rowKey,
   getRowKey,
   onRowClick,
   initialSortKey,
@@ -83,7 +84,16 @@ export function DataTable<T extends Record<string, unknown>>({
   /** Message affiche quand aucune ligne ne subsiste apres filtrage. */
   emptyMessage?: string;
   selectedRowKey?: string;
+  /**
+   * Colonne servant d identifiant de ligne.
+   *
+   * Version serialisable de `getRowKey` : un composant serveur ne peut pas
+   * passer de fonction a un composant client, il designe donc une colonne.
+   */
+  rowKey?: keyof T & string;
+  /** Identifiant calcule. Reserve aux composants clients. */
   getRowKey?: (row: T) => string;
+  /** Reserve aux composants clients, pour la meme raison. */
   onRowClick?: (row: T) => void;
   initialSortKey?: keyof T & string;
   initialSortDirection?: SortDirection;
@@ -188,11 +198,11 @@ export function DataTable<T extends Record<string, unknown>>({
               </tr>
             ) : (
               visibleRows.map((row, index) => {
-                const rowKey = getRowKey ? getRowKey(row) : String(index);
-                const isSelected = selectedRowKey === rowKey;
+                const key = getRowKey ? getRowKey(row) : rowKey ? String(row[rowKey]) : String(index);
+                const isSelected = selectedRowKey === key;
                 return (
                   <tr
-                    key={rowKey}
+                    key={key}
                     onClick={() => onRowClick?.(row)}
                     style={{
                       borderTop: `1px solid ${colors.border}`,

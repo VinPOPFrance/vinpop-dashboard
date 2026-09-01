@@ -6,6 +6,7 @@ import {
   getCustomerIntelligence,
   getFoodPairingIntelligence,
   getGa4OverviewTrends,
+  getGoogleAdsKeywordPerformance,
   getLandingPageArrivals,
   getLastAirbyteSync,
   getMetaAdsOverviewSummary,
@@ -13,6 +14,7 @@ import {
   getRatingsIntelligence,
   getShopifyOrdersSummary,
   getSiteBehavior,
+  getSiteExperience,
   getTodayActionPlan,
   getTrackingReadiness,
 } from '@/lib/db';
@@ -183,4 +185,18 @@ export const getCachedLandingPageArrivals = cachedByRange(
   'getLandingPageArrivals',
   getLandingPageArrivals,
   (result) => (result.ok ? result.metrics.daily.length : null),
+);
+
+export const getCachedSiteExperience = cachedByRange(
+  'site-experience',
+  'getSiteExperience',
+  getSiteExperience,
+  (result) => (result.ok ? result.metrics.pages.length : null),
+);
+
+export const getCachedGoogleAdsKeywordPerformance = cachedByRange(
+  'google-ads-keywords',
+  'getGoogleAdsKeywordPerformance',
+  getGoogleAdsKeywordPerformance,
+  (result) => (result.ok ? result.metrics.keywords.length : null),
 );

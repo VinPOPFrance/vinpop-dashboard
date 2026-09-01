@@ -1070,3 +1070,110 @@ export type CopyVersionPerformanceResult =
  * so they are approximations of when each version was live. The returned coverage
  * boundaries let the page state how much of each period the data actually reaches.
  */
+
+/** Etape 1 : une source de trafic et son taux de rebond reel (GA4). */
+export type SiteExperienceSource = {
+  sourceMedium: string;
+  sessions: number;
+  /** Taux de rebond en pourcentage, pondere par les sessions. */
+  bounceRate: number | null;
+  screenPageViews: number;
+  averageSessionDuration: number | null;
+};
+
+/**
+ * Etape 1 : une page et son engagement.
+ *
+ * `pages_path_report` ne contient ni sessions ni engagedSessions : GA4 ne
+ * fournit donc PAS de taux de rebond par page dans cet entrepot. On expose
+ * l engagement par vue, seul signal disponible a la maille page.
+ */
+export type SiteExperiencePage = {
+  pagePath: string;
+  screenPageViews: number;
+  totalUsers: number;
+  newUsers: number;
+  /** Secondes d engagement par vue de page. Proche de zero = page traversee. */
+  engagementSecondsPerView: number | null;
+  /** Evenements par vue de page. Une seule vue sans interaction = 1. */
+  eventsPerView: number | null;
+  /** true si l engagement par vue est sous le seuil d alerte. */
+  lowEngagement: boolean;
+};
+
+export type SiteExperienceMetrics = {
+  periodLabel: string;
+  dataAvailable: boolean;
+  totalSessions: number;
+  /** Taux de rebond global du site, pondere par les sessions. */
+  bounceRate: number | null;
+  /** Seuil au-dela duquel une source est signalee. */
+  bounceAlertThreshold: number;
+  totalPageViews: number;
+  averageSessionDuration: number | null;
+  sources: SiteExperienceSource[];
+  /** Sources depassant le seuil de rebond, les plus grosses d abord. */
+  highBounceSources: SiteExperienceSource[];
+  pages: SiteExperiencePage[];
+  /** Seuil d engagement par vue sous lequel une page est signalee. */
+  engagementAlertThresholdSeconds: number;
+};
+
+export type SiteExperienceResult =
+  | { ok: true; metrics: SiteExperienceMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+/** Etape 2 : verdict porte sur un mot-cle Google Ads. */
+export type GoogleAdsKeywordVerdict =
+  | 'converting'
+  | 'trap'
+  | 'watch'
+  | 'insufficient-clicks';
+
+export type GoogleAdsKeywordRow = {
+  keyword: string;
+  matchType: string;
+  campaignName: string;
+  impressions: number;
+  clicks: number;
+  /** Cout en euros : cost_micros / 1 000 000. */
+  cost: number;
+  /** Cout par clic, en euros. */
+  costPerClick: number | null;
+  ctr: number | null;
+  conversions: number;
+  costPerConversion: number | null;
+  qualityScore: number | null;
+  verdict: GoogleAdsKeywordVerdict;
+  /** Phrase d action associee au verdict. */
+  recommendation: string;
+};
+
+export type GoogleAdsKeywordMetrics = {
+  periodLabel: string;
+  dataAvailable: boolean;
+  totalCost: number;
+  totalClicks: number;
+  totalImpressions: number;
+  totalConversions: number;
+  averageCostPerClick: number | null;
+  averageCtr: number | null;
+  costPerConversion: number | null;
+  /**
+   * Rebond du canal google / cpc (GA4). Il n existe pas de taux de rebond par
+   * mot-cle dans l entrepot : ce chiffre vaut pour tout le trafic Google Ads.
+   */
+  paidSearchBounceRate: number | null;
+  paidSearchSessions: number;
+  /** Nombre minimum de clics pour qu un mot-cle soit jugeable. */
+  minimumClicksForVerdict: number;
+  keywords: GoogleAdsKeywordRow[];
+  /** Mots-cles qui consomment du budget sans jamais convertir. */
+  trapKeywords: GoogleAdsKeywordRow[];
+  /** Budget total absorbe par ces mots-cles, en euros. */
+  wastedCost: number;
+};
+
+export type GoogleAdsKeywordResult =
+  | { ok: true; metrics: GoogleAdsKeywordMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };

@@ -82,11 +82,16 @@ Local `.env.local` should contain:
 ```env
 DASHBOARD_PASSWORD=your-dashboard-password
 DATABASE_URL=your-postgres-connection-string
+
+# Optionnel : active les liens profonds vers Microsoft Clarity (etape 1 du funnel).
+# Sans lui, les boutons Heatmap / Sessions sont masques.
+CLARITY_PROJECT_ID=your-clarity-project-id
 ```
 
 Vercel Production environment variables should contain:
 - `DASHBOARD_PASSWORD`
 - `DATABASE_URL`
+- `CLARITY_PROJECT_ID` (optionnel)
 
 ## Step-by-step rule
 
