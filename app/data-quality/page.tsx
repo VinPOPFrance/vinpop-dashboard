@@ -3,8 +3,8 @@ import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
-import { getCachedMetaAdsOverviewSummary, rangeCacheArgs } from '@/lib/cachedDb';
-import { getFoodPairingIntelligence, getRatingsIntelligence, getShopifyOrdersSummary, getTrackingReadiness } from '@/lib/db';
+import { getCachedFoodPairingIntelligence, getCachedMetaAdsOverviewSummary, getCachedRatingsIntelligence, getCachedShopifyOrdersSummary, getCachedTrackingReadiness, rangeCacheArgs } from '@/lib/cachedDb';
+
 import { formatNumber, formatPercent } from '@/lib/format';
 import { timeAsync } from '@/lib/performance';
 
@@ -19,11 +19,11 @@ export default async function DataQualityPage() {
   const defaultRange = getDateRangeFromSearchParams({ range: '30d' });
   const rangeArgs = rangeCacheArgs(defaultRange);
   const [trackingResult, metaResult, ordersResult, ratingsResult, foodPairingResult] = await Promise.all([
-    timeAsync('page:/data-quality getTrackingReadiness', () => getTrackingReadiness()),
+    timeAsync('page:/data-quality getTrackingReadiness', () => getCachedTrackingReadiness()),
     timeAsync('page:/data-quality getMetaAdsOverviewSummary', () => getCachedMetaAdsOverviewSummary(...rangeArgs)),
-    timeAsync('page:/data-quality getShopifyOrdersSummary', () => getShopifyOrdersSummary()),
-    timeAsync('page:/data-quality getRatingsIntelligence', () => getRatingsIntelligence()),
-    timeAsync('page:/data-quality getFoodPairingIntelligence', () => getFoodPairingIntelligence()),
+    timeAsync('page:/data-quality getShopifyOrdersSummary', () => getCachedShopifyOrdersSummary()),
+    timeAsync('page:/data-quality getRatingsIntelligence', () => getCachedRatingsIntelligence()),
+    timeAsync('page:/data-quality getFoodPairingIntelligence', () => getCachedFoodPairingIntelligence()),
   ]);
   const tracking = trackingResult.ok ? trackingResult.metrics : null;
   const meta = metaResult.ok ? metaResult.metrics : null;

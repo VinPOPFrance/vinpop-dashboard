@@ -4,11 +4,11 @@ import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle, StatCard, TrendBadge } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
-import { getCachedGa4OverviewTrends, getCachedMetaAdsOverviewSummary, getCachedSiteBehavior, rangeCacheArgs } from '@/lib/cachedDb';
+import { getCachedBusinessOverview, getCachedGa4OverviewTrends, getCachedMetaAdsOverviewSummary, getCachedSiteBehavior, rangeCacheArgs } from '@/lib/cachedDb';
 import type { Trend } from '@/lib/analytics/trends';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
 import { timeAsync } from '@/lib/performance';
-import { getBusinessOverview } from '@/lib/db';
+
 
 export const runtime = 'nodejs';
 
@@ -44,7 +44,7 @@ export default async function BusinessOverviewPage({
   const range = getDateRangeFromSearchParams(await searchParams);
   const rangeArgs = rangeCacheArgs(range);
   const [businessResult, siteBehaviorResult, ga4Result, metaResult] = await Promise.all([
-    timeAsync('page:/business-overview getBusinessOverview', () => getBusinessOverview(), {
+    timeAsync('page:/business-overview getBusinessOverview', () => getCachedBusinessOverview(), {
       category: 'page',
     }),
     timeAsync('page:/business-overview getSiteBehavior', () => getCachedSiteBehavior(...rangeArgs), {

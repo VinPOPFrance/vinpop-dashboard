@@ -5,7 +5,8 @@ import { Card, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { LineChart } from '@/components/dashboard/LineChart';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
-import { getLandingPageArrivals, getSiteBehavior } from '@/lib/db';
+import { getCachedLandingPageArrivals, getCachedSiteBehavior, rangeCacheArgs } from '@/lib/cachedDb';
+
 import { formatNumber, formatPercent } from '@/lib/format';
 
 export const runtime = 'nodejs';
@@ -21,7 +22,7 @@ export default async function SiteBehaviorPage({
 }) {
   await connection();
   const range = getDateRangeFromSearchParams(await searchParams);
-  const [result, landingResult] = await Promise.all([getSiteBehavior(range), getLandingPageArrivals(range)]);
+  const [result, landingResult] = await Promise.all([getCachedSiteBehavior(...rangeCacheArgs(range)), getCachedLandingPageArrivals(...rangeCacheArgs(range))]);
   const metrics = result.ok ? result.metrics : null;
   const landing = landingResult.ok ? landingResult.metrics : null;
 
@@ -64,7 +65,7 @@ export default async function SiteBehaviorPage({
                     value: row.arrivals,
                     color: '#722F37',
                   }))}
-                  valueFormatter={(value) => formatNumber(value)}
+                  format="number"
                 />
               </Card>
             </div>

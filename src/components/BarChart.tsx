@@ -1,11 +1,33 @@
 'use client';
 
+import { formatNumber, formatPercent } from '@/lib/format';
+
+/**
+ * Formats de valeur disponibles.
+ *
+ * `format` est une chaine et non une fonction : un composant serveur ne peut
+ * pas passer de fonction a un composant client (React ne sait pas la
+ * serialiser), ce qui faisait planter la page /site-behavior en erreur 500.
+ * Les composants clients peuvent toujours passer `valueFormatter`.
+ */
+export type BarChartFormat = 'raw' | 'number' | 'percent';
+
+function formatValue(value: number, format: BarChartFormat): string {
+  if (format === 'number') return formatNumber(value);
+  if (format === 'percent') return formatPercent(value);
+  return value.toLocaleString('en-US');
+}
+
 export function BarChart({
   data,
+  format = 'raw',
   valueFormatter,
   onBarClick,
 }: {
   data: { label: string; value: number; color?: string }[];
+  /** Formatage serialisable, utilisable depuis un composant serveur. */
+  format?: BarChartFormat;
+  /** Formatage libre, reserve aux composants clients. */
   valueFormatter?: (value: number) => string;
   onBarClick?: (label: string) => void;
 }) {
@@ -39,7 +61,7 @@ export function BarChart({
               <span style={{ display: 'block', width: `${width}%`, height: '100%', background: item.color ?? '#722F37' }} />
             </span>
             <span style={{ color: '#6B6B6B', fontSize: 12 }}>
-              {valueFormatter ? valueFormatter(item.value) : item.value.toLocaleString('en-US')}
+              {valueFormatter ? valueFormatter(item.value) : formatValue(item.value, format)}
             </span>
           </button>
         );

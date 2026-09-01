@@ -2,7 +2,7 @@ import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
-import { getTrackingReadiness } from '@/lib/db';
+import { getCachedTrackingReadiness } from '@/lib/cachedDb';
 import { formatNumber } from '@/lib/format';
 
 export const runtime = 'nodejs';
@@ -32,7 +32,7 @@ function statusColor(status: string) {
 
 export default async function TrackingReadinessPage() {
   await connection();
-  const result = await getTrackingReadiness();
+  const result = await getCachedTrackingReadiness();
   const metrics = result.ok ? result.metrics : null;
   const rows: TrackingTableRow[] = metrics
     ? metrics.availableTables.map((table) => ({

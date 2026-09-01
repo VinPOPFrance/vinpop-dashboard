@@ -4,7 +4,7 @@ import { DashboardLayout } from '@/components/DashboardLayout';
 import { DonutChart } from '@/components/DonutChart';
 import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
-import { getRatingsIntelligence } from '@/lib/db';
+import { getCachedRatingsIntelligence } from '@/lib/cachedDb';
 import { formatDate, formatNumber, formatPercent } from '@/lib/format';
 
 export const runtime = 'nodejs';
@@ -41,7 +41,7 @@ const wineColumns: DataTableColumn<IntelligenceWineRow>[] = [
 
 export default async function RatingsIntelligencePage() {
   await connection();
-  const result = await getRatingsIntelligence();
+  const result = await getCachedRatingsIntelligence();
   const metrics = result.ok ? result.metrics : null;
   const cards = metrics
     ? [

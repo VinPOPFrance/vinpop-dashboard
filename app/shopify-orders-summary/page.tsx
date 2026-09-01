@@ -2,7 +2,7 @@ import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
-import { getShopifyOrdersSummary } from '@/lib/db';
+import { getCachedShopifyOrdersSummary } from '@/lib/cachedDb';
 
 export const runtime = 'nodejs';
 
@@ -51,7 +51,7 @@ function formatDate(value: string | null): string {
 
 export default async function ShopifyOrdersSummaryPage() {
   await connection();
-  const result = await getShopifyOrdersSummary();
+  const result = await getCachedShopifyOrdersSummary();
   const metrics = result.ok ? result.metrics : null;
   const message = result.ok
     ? 'Aggregate Shopify order metrics loaded from shopify.orders.'

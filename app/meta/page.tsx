@@ -6,7 +6,7 @@ import { MetaAdsDashboardClient } from '@/components/MetaAdsDashboardClient';
 import { MetaLandingTimingClient } from '@/components/MetaLandingTimingClient';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
-import { getCachedMetaAdsPerformance } from '@/lib/cachedDb';
+import { getCachedLandingPageArrivals, getCachedMetaAdsPerformance, rangeCacheArgs } from '@/lib/cachedDb';
 import { timeAsync } from '@/lib/performance';
 
 export const runtime = 'nodejs';
@@ -18,6 +18,15 @@ export default async function MetaPage({
 }) {
   await connection();
   const range = getDateRangeFromSearchParams(await searchParams);
+
+  // Chemin unique pour les arrivees sur la landing page : lecture serveur mise
+  // en cache, partagee avec /site-behavior. Le composant client ne refait plus
+  // d appel reseau de son cote.
+  const landingResult = await timeAsync(
+    'page:/meta getLandingPageArrivals',
+    () => getCachedLandingPageArrivals(...rangeCacheArgs(range)),
+    { category: 'page', cacheStatus: 'unknown' },
+  );
 
   return (
     <DashboardLayout>
@@ -33,7 +42,7 @@ export default async function MetaPage({
           </p>
         </Card>
 
-        <MetaLandingTimingClient period={range.period} label={range.label} />
+        <MetaLandingTimingClient metrics={landingResult.ok ? landingResult.metrics : null} label={range.label} />
 
         <Suspense
           fallback={(

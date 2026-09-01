@@ -1,168 +1,186 @@
 import { unstable_cache } from 'next/cache';
-import { getAcquisitionTraffic, getBusinessOverview, getBusinessOverviewPeriodTrends, getCustomerIntelligence, getGa4OverviewTrends, getMetaAdsOverviewSummary, getMetaAdsPerformance, getRatingsIntelligence, getSiteBehavior, getTodayActionPlan } from '@/lib/db';
+import {
+  getAcquisitionTraffic,
+  getBusinessOverview,
+  getBusinessOverviewPeriodTrends,
+  getCustomerIntelligence,
+  getFoodPairingIntelligence,
+  getGa4OverviewTrends,
+  getLandingPageArrivals,
+  getLastAirbyteSync,
+  getMetaAdsOverviewSummary,
+  getMetaAdsPerformance,
+  getRatingsIntelligence,
+  getShopifyOrdersSummary,
+  getSiteBehavior,
+  getTodayActionPlan,
+  getTrackingReadiness,
+} from '@/lib/db';
 import type { DateRange, DateRangePeriod } from '@/lib/analytics/dateRanges';
 import { timeAsync } from '@/lib/performance';
 
+/**
+ * Acces en lecture mis en cache.
+ *
+ * Regle du projet : une page ne doit jamais importer un getter depuis
+ * `@/lib/db` directement. Plusieurs pages lisaient la meme metrique, certaines
+ * via le cache et d autres non, ce qui rejouait la meme requete lourde deux ou
+ * trois fois par navigation (`getRatingsIntelligence` etait ainsi executee par
+ * `/ratings`, `/ratings-intelligence` et `/data-quality`). Chaque getter n a
+ * plus qu un seul point d entree cache, defini ici.
+ */
+
 const SHORT_REVALIDATE_SECONDS = 60;
 
-export const getCachedBusinessOverview = unstable_cache(
-  () =>
-    timeAsync('helper:getBusinessOverview', () => getBusinessOverview(), {
-      category: 'helper',
-      cacheStatus: 'unknown',
-    }),
-  ['business-overview'],
-  { revalidate: SHORT_REVALIDATE_SECONDS },
-);
+/**
+ * La fraicheur des donnees change au rythme des synchronisations Airbyte,
+ * pas a celui des pages : inutile de la relire chaque minute.
+ */
+const FRESHNESS_REVALIDATE_SECONDS = 300;
 
-export const getCachedTodayActionPlan = unstable_cache(
-  () =>
-    timeAsync('helper:getTodayActionPlan', () => getTodayActionPlan(), {
-      category: 'helper',
-      cacheStatus: 'unknown',
-      rowCount: (result) => (result.ok ? result.metrics.topActions.length : null),
-    }),
-  ['today-action-plan'],
-  { revalidate: SHORT_REVALIDATE_SECONDS },
-);
+/**
+ * Enveloppe un getter sans argument.
+ *
+ * Chaque appel est mesure (`timeAsync`) et memoise sous une cle stable. Les
+ * dix wrappers repetaient auparavant ces quinze lignes a l identique.
+ */
+function cached<TResult>(
+  cacheKey: string,
+  label: string,
+  run: () => Promise<TResult>,
+  rowCount?: (result: TResult) => number | null,
+  revalidate: number = SHORT_REVALIDATE_SECONDS,
+) {
+  return unstable_cache(
+    () => timeAsync(`helper:${label}`, run, { category: 'helper', cacheStatus: 'unknown', rowCount }),
+    [cacheKey],
+    { revalidate },
+  );
+}
 
-export const getCachedCustomerIntelligence = unstable_cache(
-  () =>
-    timeAsync('helper:getCustomerIntelligence', () => getCustomerIntelligence(), {
-      category: 'helper',
-      cacheStatus: 'unknown',
-      rowCount: (result) => (result.ok ? result.metrics.customers.length : null),
-    }),
-  ['customer-intelligence-v2'],
-  { revalidate: SHORT_REVALIDATE_SECONDS },
-);
+/**
+ * Enveloppe un getter qui depend d une periode.
+ *
+ * `unstable_cache` ne sait memoiser que des arguments serialisables : la plage
+ * est donc eclatee en quatre primitives (voir `rangeCacheArgs`) puis
+ * reconstruite ici. Deux periodes differentes occupent deux entrees de cache.
+ */
+function cachedByRange<TResult>(
+  cacheKey: string,
+  label: string,
+  run: (range: DateRange) => Promise<TResult>,
+  rowCount?: (result: TResult) => number | null,
+) {
+  return unstable_cache(
+    (period: DateRangePeriod, rangeLabel: string, start: string, end: string) =>
+      timeAsync(
+        `helper:${label}`,
+        () => run({ period, label: rangeLabel, start: new Date(start), end: new Date(end) }),
+        { category: 'helper', cacheStatus: 'unknown', rowCount },
+      ),
+    [cacheKey],
+    { revalidate: SHORT_REVALIDATE_SECONDS },
+  );
+}
 
-export const getCachedMetaAdsPerformance = unstable_cache(
-  () =>
-    timeAsync('helper:getMetaAdsPerformance', () => getMetaAdsPerformance(), {
-      category: 'helper',
-      cacheStatus: 'unknown',
-      rowCount: (result) => (result.ok ? result.metrics.daily.length : null),
-    }),
-  ['meta-ads-performance-v2'],
-  { revalidate: SHORT_REVALIDATE_SECONDS },
-);
-
-export const getCachedMetaAdsOverviewSummary = unstable_cache(
-  (period: DateRangePeriod, label: string, start: string, end: string) =>
-    timeAsync(
-      'helper:getMetaAdsOverviewSummary',
-      () =>
-        getMetaAdsOverviewSummary({
-          period,
-          label,
-          start: new Date(start),
-          end: new Date(end),
-        }),
-      {
-        category: 'helper',
-        cacheStatus: 'unknown',
-        rowCount: (result) => (result.ok ? result.metrics.daily.length : null),
-      },
-    ),
-  ['meta-ads-overview-summary-v2'],
-  { revalidate: SHORT_REVALIDATE_SECONDS },
-);
-
-export const getCachedRatingsIntelligence = unstable_cache(
-  () =>
-    timeAsync('helper:getRatingsIntelligence', () => getRatingsIntelligence(), {
-      category: 'helper',
-      cacheStatus: 'unknown',
-      rowCount: (result) => (result.ok ? result.metrics.customers.length : null),
-    }),
-  ['ratings-intelligence'],
-  { revalidate: SHORT_REVALIDATE_SECONDS },
-);
-
-export const getCachedBusinessOverviewPeriodTrends = unstable_cache(
-  (period: DateRangePeriod, label: string, start: string, end: string) =>
-    timeAsync(
-      'helper:getBusinessOverviewPeriodTrends',
-      () =>
-        getBusinessOverviewPeriodTrends({
-          period,
-          label,
-          start: new Date(start),
-          end: new Date(end),
-        }),
-      {
-        category: 'helper',
-        cacheStatus: 'unknown',
-      },
-    ),
-  ['business-overview-period-trends'],
-  { revalidate: SHORT_REVALIDATE_SECONDS },
-);
-
-export const getCachedSiteBehavior = unstable_cache(
-  (period: DateRangePeriod, label: string, start: string, end: string) =>
-    timeAsync(
-      'helper:getSiteBehavior',
-      () =>
-        getSiteBehavior({
-          period,
-          label,
-          start: new Date(start),
-          end: new Date(end),
-        }),
-      {
-        category: 'helper',
-        cacheStatus: 'unknown',
-        rowCount: (result) => (result.ok ? result.metrics.series.length : null),
-      },
-    ),
-  ['site-behavior'],
-  { revalidate: SHORT_REVALIDATE_SECONDS },
-);
-
-export const getCachedGa4OverviewTrends = unstable_cache(
-  (period: DateRangePeriod, label: string, start: string, end: string) =>
-    timeAsync(
-      'helper:getGa4OverviewTrends',
-      () =>
-        getGa4OverviewTrends({
-          period,
-          label,
-          start: new Date(start),
-          end: new Date(end),
-        }),
-      {
-        category: 'helper',
-        cacheStatus: 'unknown',
-        rowCount: (result) => (result.ok ? result.metrics.daily.length : null),
-      },
-    ),
-  ['ga4-overview-trends'],
-  { revalidate: SHORT_REVALIDATE_SECONDS },
-);
-
-export const getCachedAcquisitionTraffic = unstable_cache(
-  (period: DateRangePeriod, label: string, start: string, end: string) =>
-    timeAsync(
-      'helper:getAcquisitionTraffic',
-      () =>
-        getAcquisitionTraffic({
-          period,
-          label,
-          start: new Date(start),
-          end: new Date(end),
-        }),
-      {
-        category: 'helper',
-        cacheStatus: 'unknown',
-        rowCount: (result) => (result.ok ? result.metrics.series.length : null),
-      },
-    ),
-  ['acquisition-traffic'],
-  { revalidate: SHORT_REVALIDATE_SECONDS },
-);
-
+/** Eclate une plage de dates en arguments memoisables par `unstable_cache`. */
 export function rangeCacheArgs(range: DateRange): [DateRangePeriod, string, string, string] {
   return [range.period, range.label, range.start.toISOString(), range.end.toISOString()];
 }
+
+// --------------------------------------------------------------- sans periode
+
+export const getCachedBusinessOverview = cached('business-overview', 'getBusinessOverview', getBusinessOverview);
+
+export const getCachedTodayActionPlan = cached(
+  'today-action-plan',
+  'getTodayActionPlan',
+  getTodayActionPlan,
+  (result) => (result.ok ? result.metrics.topActions.length : null),
+);
+
+export const getCachedCustomerIntelligence = cached(
+  'customer-intelligence-v2',
+  'getCustomerIntelligence',
+  getCustomerIntelligence,
+  (result) => (result.ok ? result.metrics.customers.length : null),
+);
+
+export const getCachedMetaAdsPerformance = cached(
+  'meta-ads-performance-v2',
+  'getMetaAdsPerformance',
+  getMetaAdsPerformance,
+  (result) => (result.ok ? result.metrics.daily.length : null),
+);
+
+export const getCachedRatingsIntelligence = cached(
+  'ratings-intelligence',
+  'getRatingsIntelligence',
+  getRatingsIntelligence,
+  (result) => (result.ok ? result.metrics.customers.length : null),
+);
+
+export const getCachedTrackingReadiness = cached('tracking-readiness', 'getTrackingReadiness', getTrackingReadiness);
+
+export const getCachedFoodPairingIntelligence = cached(
+  'food-pairing-intelligence',
+  'getFoodPairingIntelligence',
+  getFoodPairingIntelligence,
+);
+
+export const getCachedShopifyOrdersSummary = cached(
+  'shopify-orders-summary',
+  'getShopifyOrdersSummary',
+  getShopifyOrdersSummary,
+);
+
+export const getCachedLastAirbyteSync = cached(
+  'airbyte-freshness',
+  'getLastAirbyteSync',
+  getLastAirbyteSync,
+  undefined,
+  FRESHNESS_REVALIDATE_SECONDS,
+);
+
+// --------------------------------------------------------------- avec periode
+
+export const getCachedMetaAdsOverviewSummary = cachedByRange(
+  'meta-ads-overview-summary-v2',
+  'getMetaAdsOverviewSummary',
+  getMetaAdsOverviewSummary,
+  (result) => (result.ok ? result.metrics.daily.length : null),
+);
+
+export const getCachedBusinessOverviewPeriodTrends = cachedByRange(
+  'business-overview-period-trends',
+  'getBusinessOverviewPeriodTrends',
+  getBusinessOverviewPeriodTrends,
+);
+
+export const getCachedSiteBehavior = cachedByRange(
+  'site-behavior',
+  'getSiteBehavior',
+  getSiteBehavior,
+  (result) => (result.ok ? result.metrics.series.length : null),
+);
+
+export const getCachedGa4OverviewTrends = cachedByRange(
+  'ga4-overview-trends',
+  'getGa4OverviewTrends',
+  getGa4OverviewTrends,
+  (result) => (result.ok ? result.metrics.daily.length : null),
+);
+
+export const getCachedAcquisitionTraffic = cachedByRange(
+  'acquisition-traffic',
+  'getAcquisitionTraffic',
+  getAcquisitionTraffic,
+  (result) => (result.ok ? result.metrics.series.length : null),
+);
+
+export const getCachedLandingPageArrivals = cachedByRange(
+  'landing-page-arrivals',
+  'getLandingPageArrivals',
+  getLandingPageArrivals,
+  (result) => (result.ok ? result.metrics.daily.length : null),
+);

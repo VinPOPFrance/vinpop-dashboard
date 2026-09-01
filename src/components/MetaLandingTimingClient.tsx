@@ -1,123 +1,43 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { BarChart } from '@/components/BarChart';
 import { Card, PageSection, SectionTitle, StatCard } from '@/components/ui';
+import type { LandingPageArrivalMetrics } from '@/lib/db';
 import { formatNumber, formatPercent } from '@/lib/format';
 
-type LandingDay = {
-  date: string;
-  arrivals: number;
-};
-
-type LandingHour = {
-  hour: number;
-  arrivals: number;
-};
-
+/**
+ * Agregat par jour de semaine, calcule dans le composant a partir des jours.
+ * Vue d affichage uniquement : il n existe pas d equivalent cote base.
+ */
 type LandingWeekday = {
   weekday: string;
   weekdayIndex: number;
   arrivals: number;
 };
 
-type LandingTimingResponse =
-  | {
-      ok: true;
-      metrics: {
-        totalArrivals: number;
-        topDay: LandingDay | null;
-        topHour: LandingHour | null;
-        daily: LandingDay[];
-        byHour: LandingHour[];
-        highIntentConversion: {
-          available: boolean;
-          method: 'true_click_count' | 'engagement_proxy';
-          methodLabel: string;
-          sourceTable: string | null;
-          thresholdInteractionsPerSession: number;
-          totalSessions: number;
-          highIntentSessions: number;
-          highIntentSessionShare: number | null;
-          purchaseUsers: number;
-          conversionRateAllSessions: number | null;
-          conversionRateHighIntentSessions: number | null;
-          daily: Array<{
-            date: string;
-            sessions: number;
-            highIntentSessions: number;
-            purchaseUsers: number;
-            conversionRateHighIntent: number | null;
-          }>;
-          beforeAfter: {
-            beforeLabel: string;
-            afterLabel: string;
-            beforeSessions: number;
-            afterSessions: number;
-            beforeHighIntentSessions: number;
-            afterHighIntentSessions: number;
-            beforeConversionRateHighIntent: number | null;
-            afterConversionRateHighIntent: number | null;
-            deltaConversionRateHighIntent: number | null;
-          } | null;
-          byWeekday: Array<{
-            weekday: string;
-            weekdayIndex: number;
-            sessions: number;
-            highIntentSessions: number;
-            purchaseUsers: number;
-            conversionRateHighIntent: number | null;
-          }>;
-          bySourceMedium: Array<{
-            sourceMedium: string;
-            sessions: number;
-            highIntentSessions: number;
-            purchaseUsersEstimated: number;
-            conversionRateHighIntentEstimated: number | null;
-          }>;
-        };
-      };
-    }
-  | {
-      ok: false;
-      reason: string;
-    };
-
+/**
+ * Timing des arrivees sur la landing page.
+ *
+ * Les metriques sont calculees cote serveur et passees en props. Avant le
+ * Lot 3, ce composant rappelait /api/meta/landing-timing depuis le navigateur
+ * et redeclarait a la main une copie du type des metriques : la page /meta
+ * interrogeait donc la base par deux chemins differents, dont un sans cache.
+ * La route API et la copie du type ont ete supprimees.
+ */
 export function MetaLandingTimingClient({
-  period,
+  metrics,
   label,
 }: {
-  period: string;
+  /** Metriques deja chargees cote serveur, ou null si la lecture a echoue. */
+  metrics: LandingPageArrivalMetrics | null;
+  /** Libelle de la periode selectionnee, affiche dans le sous-titre. */
   label: string;
 }) {
-  const [data, setData] = useState<LandingTimingResponse | null>(null);
-  // Date de bascule choisie par l utilisateur. `null` signifie "pas encore
+  // Date de bascule choisie par l utilisateur. null signifie "pas encore
   // choisie" : on retombe alors sur la date par defaut calculee plus bas.
   const [changeDateOverride, setChangeDateOverride] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const response = await fetch(`/api/meta/landing-timing?period=${encodeURIComponent(period)}`, {
-          cache: 'no-store',
-        });
-        const json = (await response.json()) as LandingTimingResponse;
-        if (!cancelled) setData(json);
-      } catch {
-        if (!cancelled) setData({ ok: false, reason: 'connection-failed' });
-      }
-    }
-
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [period]);
-
-  const metrics = data?.ok ? data.metrics : null;
 
   // Par defaut on coupe la periode en deux : c est la comparaison avant/apres la
   // plus neutre tant que l utilisateur n a pas designe une date de changement.

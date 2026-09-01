@@ -102,7 +102,26 @@ function NavItem({
   );
 }
 
-export function Sidebar() {
+/** Couleur de la pastille de fraicheur, par niveau d alerte. */
+const SYNC_TONE: Record<string, string> = {
+  fresh: colors.good,
+  late: colors.warning,
+  stale: colors.critical,
+  unknown: colors.textMuted,
+};
+
+export function Sidebar({
+  syncLabel,
+  syncStatus,
+  syncDetail,
+}: {
+  /** Libelle de fraicheur, deja formate cote serveur. */
+  syncLabel: string;
+  /** Niveau d alerte associe : fresh, late, stale ou unknown. */
+  syncStatus: string;
+  /** Detail par source, affiche en info-bulle. */
+  syncDetail: string;
+}) {
   const pathname = usePathname();
 
   // Les annexes sont repliees par defaut, sauf si on consulte justement une
@@ -204,8 +223,32 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Pied : deconnexion */}
+      {/* Pied : fraicheur des donnees puis deconnexion */}
       <div style={{ borderTop: `1px solid ${colors.border}`, padding: '10px', flexShrink: 0 }}>
+        <div
+          title={syncDetail}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '2px 4px 8px',
+            fontSize: 11,
+            color: colors.textMuted,
+            cursor: 'help',
+          }}
+        >
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              background: SYNC_TONE[syncStatus] ?? colors.textMuted,
+              flexShrink: 0,
+            }}
+          />
+          {syncLabel}
+        </div>
+
         <form action="/api/logout" method="POST">
           <button
             type="submit"

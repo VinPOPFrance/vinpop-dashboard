@@ -3,7 +3,7 @@ import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
-import { getFoodPairingIntelligence } from '@/lib/db';
+import { getCachedFoodPairingIntelligence } from '@/lib/cachedDb';
 import { formatNumber, formatPercent } from '@/lib/format';
 
 export const runtime = 'nodejs';
@@ -52,7 +52,7 @@ const winePairingColumns: DataTableColumn<WinePairingRow>[] = [
 
 export default async function FoodPairingIntelligencePage() {
   await connection();
-  const result = await getFoodPairingIntelligence();
+  const result = await getCachedFoodPairingIntelligence();
   const metrics = result.ok ? result.metrics : null;
   const cards = metrics
     ? [
