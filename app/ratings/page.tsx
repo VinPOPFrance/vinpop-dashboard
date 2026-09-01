@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
+import { Card, PageSection, SectionTitle } from '@/components/ui';
 import { RatingsDashboardClient } from '@/components/RatingsDashboardClient';
 import { TopBar } from '@/components/TopBar';
 import { getCachedRatingsIntelligence } from '@/lib/cachedDb';

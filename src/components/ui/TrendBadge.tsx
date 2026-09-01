@@ -1,9 +1,13 @@
-'use client';
-
+import { colors } from './tokens';
 import { formatTrend, type Trend } from '@/lib/analytics/trends';
 
+/** Variation par rapport a la periode precedente, avec fleche et couleur d'etat. */
 export function TrendBadge({ trend }: { trend: Trend }) {
-  const color = trend.status === 'good' ? '#2D6A4F' : trend.status === 'warning' ? '#B45309' : trend.status === 'critical' ? '#C0392B' : '#6B6B6B';
+  const color =
+    trend.status === 'good' ? colors.good
+    : trend.status === 'warning' ? colors.warning
+    : trend.status === 'critical' ? colors.critical
+    : colors.textSecondary;
   const arrow = trend.direction === 'up' ? '↑' : trend.direction === 'down' ? '↓' : '→';
 
   return (

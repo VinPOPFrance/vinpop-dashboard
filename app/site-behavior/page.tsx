@@ -1,8 +1,7 @@
 import { connection } from 'next/server';
 import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
+import { Card, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { LineChart } from '@/components/dashboard/LineChart';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
@@ -46,11 +45,11 @@ export default async function SiteBehaviorPage({
               </p>
             </Card>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-              <MetricCard label="Total arrivals" value={formatNumber(landing.totalArrivals)} />
-              <MetricCard label="Unique sessions" value={formatNumber(landing.totalUniqueSessions)} />
-              <MetricCard label="Unique visitors" value={formatNumber(landing.totalUniqueVisitors)} />
-              <MetricCard label="Best day" value={landing.topDay ? `${landing.topDay.date} (${formatNumber(landing.topDay.arrivals)})` : 'No data'} />
-              <MetricCard label="Best hour" value={landing.topHour ? `${landing.topHour.hour.toString().padStart(2, '0')}:00 (${formatNumber(landing.topHour.arrivals)})` : 'No data'} />
+              <StatCard label="Total arrivals" value={formatNumber(landing.totalArrivals)} />
+              <StatCard label="Unique sessions" value={formatNumber(landing.totalUniqueSessions)} />
+              <StatCard label="Unique visitors" value={formatNumber(landing.totalUniqueVisitors)} />
+              <StatCard label="Best day" value={landing.topDay ? `${landing.topDay.date} (${formatNumber(landing.topDay.arrivals)})` : 'No data'} />
+              <StatCard label="Best hour" value={landing.topHour ? `${landing.topHour.hour.toString().padStart(2, '0')}:00 (${formatNumber(landing.topHour.arrivals)})` : 'No data'} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
               <Card>
@@ -81,14 +80,14 @@ export default async function SiteBehaviorPage({
         {metrics ? (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-              <MetricCard label="Traffic" value={availability(metrics.sessionsPerDayAvailable)} tone={metrics.sessionsPerDayAvailable ? 'good' : 'warning'} />
-              <MetricCard label="Engagement" value={availability(metrics.pagesPerSessionAvailable || metrics.clicksPerSessionAvailable)} tone="warning" />
-              <MetricCard label="Checkout" value={`${formatNumber(metrics.totalAbandonedCheckouts)} abandoned`} tone={metrics.totalAbandonedCheckouts > metrics.totalOrders ? 'warning' : 'good'} />
-              <MetricCard label="Rating engagement" value={`${formatNumber(metrics.totalRatings)} ratings`} />
-              <MetricCard label="Orders" value={formatNumber(metrics.totalOrders)} />
-              <MetricCard label="Quizzes" value={formatNumber(metrics.totalQuizzes)} />
-              <MetricCard label="Checkout abandonment" value={formatPercent(metrics.checkoutAbandonmentRate)} tone={(metrics.checkoutAbandonmentRate ?? 0) > 50 ? 'warning' : 'default'} />
-              <MetricCard label="Purchase conversion" value={formatPercent(metrics.purchaseConversionRate)} />
+              <StatCard label="Traffic" value={availability(metrics.sessionsPerDayAvailable)} tone={metrics.sessionsPerDayAvailable ? 'good' : 'warning'} />
+              <StatCard label="Engagement" value={availability(metrics.pagesPerSessionAvailable || metrics.clicksPerSessionAvailable)} tone="warning" />
+              <StatCard label="Checkout" value={`${formatNumber(metrics.totalAbandonedCheckouts)} abandoned`} tone={metrics.totalAbandonedCheckouts > metrics.totalOrders ? 'warning' : 'good'} />
+              <StatCard label="Rating engagement" value={`${formatNumber(metrics.totalRatings)} ratings`} />
+              <StatCard label="Orders" value={formatNumber(metrics.totalOrders)} />
+              <StatCard label="Quizzes" value={formatNumber(metrics.totalQuizzes)} />
+              <StatCard label="Checkout abandonment" value={formatPercent(metrics.checkoutAbandonmentRate)} tone={(metrics.checkoutAbandonmentRate ?? 0) > 50 ? 'warning' : 'default'} />
+              <StatCard label="Purchase conversion" value={formatPercent(metrics.purchaseConversionRate)} />
             </div>
 
             {!metrics.hasSessionData ? (

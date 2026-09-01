@@ -1,9 +1,7 @@
 import { connection } from 'next/server';
 import { AcquisitionTrafficClient } from '@/components/AcquisitionTrafficClient';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
-import { TrendBadge } from '@/components/dashboard/TrendBadge';
+import { Card, PageSection, SectionTitle, StatCard, TrendBadge } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
 import { getCachedAcquisitionTraffic, rangeCacheArgs } from '@/lib/cachedDb';
@@ -40,16 +38,16 @@ export default async function AcquisitionTrafficPage({
         {metrics ? (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
-              <MetricCard label="Sessions" value={formatNumber(metrics.sessions.current)} hint={<TrendBadge trend={metrics.sessions} />} />
-              <MetricCard label="Total users" value={formatNumber(metrics.users.current)} hint={<TrendBadge trend={metrics.users} />} />
-              <MetricCard label="Engaged sessions" value={formatNumber(metrics.engagedSessions.current)} hint={<TrendBadge trend={metrics.engagedSessions} />} />
-              <MetricCard label="Engagement rate" value={formatPercent(metrics.engagementRate.current)} hint={<TrendBadge trend={metrics.engagementRate} />} />
-              <MetricCard label="Events / session" value={formatNumber(metrics.eventsPerSession.current, 2)} hint={<TrendBadge trend={metrics.eventsPerSession} />} />
-              <MetricCard label="Page views" value={formatNumber(metrics.pageViews.current)} hint={<TrendBadge trend={metrics.pageViews} />} />
-              <MetricCard label="Avg engagement sec." value={formatNumber(metrics.averageEngagementDuration.current)} hint={<TrendBadge trend={metrics.averageEngagementDuration} />} />
-              <MetricCard label="Conversions" value={formatNumber(metrics.conversions.current)} hint={<TrendBadge trend={metrics.conversions} />} />
-              <MetricCard label="Conversion rate" value={formatPercent(metrics.conversionRate.current)} hint={<TrendBadge trend={metrics.conversionRate} />} />
-              <MetricCard label="GA4 revenue" value={formatEuro(metrics.revenue.current)} hint={<TrendBadge trend={metrics.revenue} />} />
+              <StatCard label="Sessions" value={formatNumber(metrics.sessions.current)} hint={<TrendBadge trend={metrics.sessions} />} />
+              <StatCard label="Total users" value={formatNumber(metrics.users.current)} hint={<TrendBadge trend={metrics.users} />} />
+              <StatCard label="Engaged sessions" value={formatNumber(metrics.engagedSessions.current)} hint={<TrendBadge trend={metrics.engagedSessions} />} />
+              <StatCard label="Engagement rate" value={formatPercent(metrics.engagementRate.current)} hint={<TrendBadge trend={metrics.engagementRate} />} />
+              <StatCard label="Events / session" value={formatNumber(metrics.eventsPerSession.current, 2)} hint={<TrendBadge trend={metrics.eventsPerSession} />} />
+              <StatCard label="Page views" value={formatNumber(metrics.pageViews.current)} hint={<TrendBadge trend={metrics.pageViews} />} />
+              <StatCard label="Avg engagement sec." value={formatNumber(metrics.averageEngagementDuration.current)} hint={<TrendBadge trend={metrics.averageEngagementDuration} />} />
+              <StatCard label="Conversions" value={formatNumber(metrics.conversions.current)} hint={<TrendBadge trend={metrics.conversions} />} />
+              <StatCard label="Conversion rate" value={formatPercent(metrics.conversionRate.current)} hint={<TrendBadge trend={metrics.conversionRate} />} />
+              <StatCard label="GA4 revenue" value={formatEuro(metrics.revenue.current)} hint={<TrendBadge trend={metrics.revenue} />} />
             </div>
             <AcquisitionTrafficClient metrics={metrics} />
           </>

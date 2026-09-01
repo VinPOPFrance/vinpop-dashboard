@@ -1,7 +1,6 @@
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
+import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getShopifyProductsSummary } from '@/lib/db';
 import { formatEuro, formatNumber } from '@/lib/format';
@@ -25,7 +24,7 @@ type ProductTableRow = Record<string, unknown> & {
   averageNetPrice: number;
 };
 
-const productColumns: SortableColumn<ProductTableRow>[] = [
+const productColumns: DataTableColumn<ProductTableRow>[] = [
   { key: 'product', label: 'Product', type: 'text', width: 220 },
   { key: 'sku', label: 'SKU', type: 'text' },
   { key: 'vendor', label: 'Vendor', type: 'text' },
@@ -108,7 +107,7 @@ export default async function ShopifyProductsSummaryPage() {
 
         {result.ok && result.products.length > 0 ? (
           <Card style={{ padding: 0, overflow: 'hidden' }}>
-            <SortableDataTable
+            <DataTable
               columns={productColumns}
               rows={result.products.map((product) => ({
                 product: product.productName,

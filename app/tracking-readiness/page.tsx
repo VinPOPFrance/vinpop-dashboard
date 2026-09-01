@@ -1,8 +1,6 @@
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
-import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
+import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getTrackingReadiness } from '@/lib/db';
 import { formatNumber } from '@/lib/format';
@@ -17,7 +15,7 @@ type TrackingTableRow = Record<string, unknown> & {
   matchedColumns: string;
 };
 
-const columns: SortableColumn<TrackingTableRow>[] = [
+const columns: DataTableColumn<TrackingTableRow>[] = [
   { key: 'table', label: 'Table', type: 'text', width: 260 },
   { key: 'rows', label: 'Rows', type: 'number' },
   { key: 'firstDate', label: 'First date', type: 'date' },
@@ -60,10 +58,10 @@ export default async function TrackingReadinessPage() {
         {metrics ? (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-              <MetricCard label="GA4 connected" value={metrics.ga4Connected ? 'Yes' : 'No rows'} tone={metrics.ga4Connected ? 'good' : 'warning'} />
-              <MetricCard label="GA4 tables with rows" value={formatNumber(metrics.ga4TablesWithRows.length)} />
-              <MetricCard label="Matched tables" value={formatNumber(metrics.availableTables.length)} />
-              <MetricCard label="Missing core tables" value={formatNumber(metrics.missingTables.length)} tone={metrics.missingTables.length ? 'warning' : 'good'} />
+              <StatCard label="GA4 connected" value={metrics.ga4Connected ? 'Yes' : 'No rows'} tone={metrics.ga4Connected ? 'good' : 'warning'} />
+              <StatCard label="GA4 tables with rows" value={formatNumber(metrics.ga4TablesWithRows.length)} />
+              <StatCard label="Matched tables" value={formatNumber(metrics.availableTables.length)} />
+              <StatCard label="Missing core tables" value={formatNumber(metrics.missingTables.length)} tone={metrics.missingTables.length ? 'warning' : 'good'} />
             </div>
 
             <PageSection>
@@ -87,7 +85,7 @@ export default async function TrackingReadinessPage() {
             <PageSection>
               <SectionTitle sub="Tables discovered through information_schema">Available Tables</SectionTitle>
               <Card style={{ padding: 0, overflow: 'hidden' }}>
-                <SortableDataTable columns={columns} rows={rows} initialSortKey="rows" searchPlaceholder="Search tables or columns..." />
+                <DataTable columns={columns} rows={rows} initialSortKey="rows" searchPlaceholder="Search tables or columns..." />
               </Card>
             </PageSection>
 

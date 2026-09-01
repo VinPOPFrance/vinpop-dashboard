@@ -3,10 +3,8 @@
 import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { BarChart } from '@/components/BarChart';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
+import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { DonutChart } from '@/components/DonutChart';
-import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
 import { formatDate, formatEuro, formatNumber, formatPercent } from '@/lib/format';
 import type { CustomerProductSummary, CustomerRatingsSummary, RatingsIntelligenceMetrics, RatedWineDetail } from '@/lib/db';
 
@@ -50,7 +48,7 @@ type CustomerTableRow = Record<string, unknown> & {
 type ProductRow = Record<string, unknown> & CustomerProductSummary;
 type RatedWineRow = Record<string, unknown> & RatedWineDetail;
 
-const wineColumns: SortableColumn<RatingTableRow>[] = [
+const wineColumns: DataTableColumn<RatingTableRow>[] = [
   { key: 'wine', label: 'Wine', type: 'text', width: 220 },
   { key: 'ratings', label: 'Ratings', type: 'number' },
   { key: 'love', label: 'Love', type: 'number' },
@@ -61,7 +59,7 @@ const wineColumns: SortableColumn<RatingTableRow>[] = [
   { key: 'action', label: 'Action', type: 'text' },
 ];
 
-const customerColumns: SortableColumn<CustomerTableRow>[] = [
+const customerColumns: DataTableColumn<CustomerTableRow>[] = [
   { key: 'email', label: 'Customer email', type: 'text', width: 220 },
   { key: 'lastOrderDate', label: 'Last order', type: 'date' },
   { key: 'lastRatingDate', label: 'Last rating', type: 'date' },
@@ -73,7 +71,7 @@ const customerColumns: SortableColumn<CustomerTableRow>[] = [
   { key: 'nextAction', label: 'Next action', type: 'text', width: 240 },
 ];
 
-const productColumns: SortableColumn<ProductRow>[] = [
+const productColumns: DataTableColumn<ProductRow>[] = [
   { key: 'productName', label: 'Product / wine', type: 'text', width: 220 },
   { key: 'shopifyProductId', label: 'Shopify product ID', type: 'text' },
   { key: 'quantityBought', label: 'Qty bought', type: 'number' },
@@ -85,7 +83,7 @@ const productColumns: SortableColumn<ProductRow>[] = [
   { key: 'ratingStatus', label: 'Rating status', type: 'text' },
 ];
 
-const ratedWineColumns: SortableColumn<RatedWineRow>[] = [
+const ratedWineColumns: DataTableColumn<RatedWineRow>[] = [
   { key: 'wineName', label: 'Wine / product', type: 'text', width: 220 },
   { key: 'shopifyProductId', label: 'Shopify product ID', type: 'text' },
   { key: 'color', label: 'Color', type: 'text' },
@@ -218,7 +216,7 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
           ['Dislike %', formatPercent(metrics.dislikeRate)],
           ['Positive rating rate', formatPercent(metrics.positiveRatingRate)],
         ].map(([label, value]) => (
-          <MetricCard key={label} label={label} value={value} />
+          <StatCard key={label} label={label} value={value} />
         ))}
       </div>
 
@@ -324,7 +322,7 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
         <SectionTitle sub="Click a row to inspect wine/product details">Wine/Product Ratings</SectionTitle>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px', gap: 16 }}>
           <Card style={{ padding: 0, overflow: 'hidden' }}>
-            <SortableDataTable
+            <DataTable
               columns={wineColumns}
               rows={wineRows}
               searchPlaceholder="Search wine, product ID, color..."
@@ -362,7 +360,7 @@ export function RatingsDashboardClient({ metrics }: { metrics: RatingsIntelligen
         <SectionTitle sub="Estimated bottles remaining = bought quantity minus rated wine count">Customer-Linked Ratings</SectionTitle>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16 }}>
           <Card style={{ padding: 0, overflow: 'hidden' }}>
-            <SortableDataTable
+            <DataTable
               columns={customerColumns}
               rows={customerRows}
               searchPlaceholder="Search customer email or stage..."
@@ -427,11 +425,11 @@ function CustomerDetail({ customer }: { customer?: CustomerRatingsSummary }) {
       </p>
       <SectionTitle sub={customer.wineColorsRated}>Rated Wines</SectionTitle>
       <div style={{ border: '1px solid #E8E6E1', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
-        <SortableDataTable columns={ratedWineColumns} rows={customer.ratedWines as RatedWineRow[]} enableSearch={false} initialSortKey="ratingDate" maxHeight={260} />
+        <DataTable columns={ratedWineColumns} rows={customer.ratedWines as RatedWineRow[]} enableSearch={false} initialSortKey="ratingDate" maxHeight={260} />
       </div>
       <SectionTitle sub="Purchased product context">Products Bought</SectionTitle>
       <div style={{ border: '1px solid #E8E6E1', borderRadius: 8, overflow: 'hidden' }}>
-        <SortableDataTable columns={productColumns} rows={customer.purchasedProducts as ProductRow[]} enableSearch={false} initialSortKey="quantityBought" maxHeight={260} />
+        <DataTable columns={productColumns} rows={customer.purchasedProducts as ProductRow[]} enableSearch={false} initialSortKey="quantityBought" maxHeight={260} />
       </div>
     </Card>
   );

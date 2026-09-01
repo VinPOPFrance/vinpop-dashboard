@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import { connection } from 'next/server';
 import { CustomersDashboardClient } from '@/components/CustomersDashboardClient';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
+import { Card, PageSection, SectionTitle } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getCachedCustomerIntelligence } from '@/lib/cachedDb';
 import { timeAsync } from '@/lib/performance';

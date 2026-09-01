@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart } from '@/components/BarChart';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
+import { Card, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { formatNumber, formatPercent } from '@/lib/format';
 
 type LandingDay = {
@@ -92,7 +91,9 @@ export function MetaLandingTimingClient({
   label: string;
 }) {
   const [data, setData] = useState<LandingTimingResponse | null>(null);
-  const [changeDate, setChangeDate] = useState('');
+  // Date de bascule choisie par l utilisateur. `null` signifie "pas encore
+  // choisie" : on retombe alors sur la date par defaut calculee plus bas.
+  const [changeDateOverride, setChangeDateOverride] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,13 +118,18 @@ export function MetaLandingTimingClient({
   }, [period]);
 
   const metrics = data?.ok ? data.metrics : null;
-  useEffect(() => {
-    if (!metrics || changeDate) return;
-    const daily = metrics.highIntentConversion.daily;
-    if (!daily.length) return;
-    const midpointIndex = Math.floor(daily.length / 2);
-    setChangeDate(daily[midpointIndex]?.date ?? '');
-  }, [metrics, changeDate]);
+
+  // Par defaut on coupe la periode en deux : c est la comparaison avant/apres la
+  // plus neutre tant que l utilisateur n a pas designe une date de changement.
+  // Valeur derivee plutot que posee par un effet : un `setState` dans un effet
+  // declenche un rendu en cascade a chaque chargement de donnees.
+  const defaultChangeDate = useMemo(() => {
+    const daily = metrics?.highIntentConversion.daily ?? [];
+    if (!daily.length) return '';
+    return daily[Math.floor(daily.length / 2)]?.date ?? '';
+  }, [metrics]);
+
+  const changeDate = changeDateOverride ?? defaultChangeDate;
 
   const selectedBeforeAfter = useMemo(() => {
     if (!metrics || !changeDate) return metrics?.highIntentConversion.beforeAfter ?? null;
@@ -194,12 +200,12 @@ export function MetaLandingTimingClient({
         </p>
       </Card>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-        <MetricCard label="Best weekday" value={bestWeekday && bestWeekday.arrivals > 0 ? `${bestWeekday.weekday} (${formatNumber(bestWeekday.arrivals)})` : 'No data'} />
-        <MetricCard label="Best hour" value={metrics?.topHour ? `${metrics.topHour.hour.toString().padStart(2, '0')}:00 (${formatNumber(metrics.topHour.arrivals)})` : 'No data'} />
-        <MetricCard label="Total arrivals" value={metrics ? formatNumber(metrics.totalArrivals) : 'No data'} />
-        <MetricCard label="Sessions >3 interactions (proxy)" value={metrics ? formatNumber(metrics.highIntentConversion.highIntentSessions) : 'No data'} />
-        <MetricCard label="CR all sessions" value={metrics ? formatPercent(metrics.highIntentConversion.conversionRateAllSessions) : 'No data'} />
-        <MetricCard label="CR sessions >3 interactions" value={metrics ? formatPercent(metrics.highIntentConversion.conversionRateHighIntentSessions) : 'No data'} />
+        <StatCard label="Best weekday" value={bestWeekday && bestWeekday.arrivals > 0 ? `${bestWeekday.weekday} (${formatNumber(bestWeekday.arrivals)})` : 'No data'} />
+        <StatCard label="Best hour" value={metrics?.topHour ? `${metrics.topHour.hour.toString().padStart(2, '0')}:00 (${formatNumber(metrics.topHour.arrivals)})` : 'No data'} />
+        <StatCard label="Total arrivals" value={metrics ? formatNumber(metrics.totalArrivals) : 'No data'} />
+        <StatCard label="Sessions >3 interactions (proxy)" value={metrics ? formatNumber(metrics.highIntentConversion.highIntentSessions) : 'No data'} />
+        <StatCard label="CR all sessions" value={metrics ? formatPercent(metrics.highIntentConversion.conversionRateAllSessions) : 'No data'} />
+        <StatCard label="CR sessions >3 interactions" value={metrics ? formatPercent(metrics.highIntentConversion.conversionRateHighIntentSessions) : 'No data'} />
       </div>
       <Card style={{ marginBottom: 12, borderColor: '#E8E6E1', background: '#F8F7F4' }}>
         <p style={{ margin: 0, color: '#1A1A1A', fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
@@ -215,7 +221,7 @@ export function MetaLandingTimingClient({
         <input
           type="date"
           value={changeDate}
-          onChange={(event) => setChangeDate(event.target.value)}
+          onChange={(event) => setChangeDateOverride(event.target.value)}
           min={metrics?.highIntentConversion.daily[0]?.date}
           max={metrics?.highIntentConversion.daily[metrics.highIntentConversion.daily.length - 1]?.date}
           style={{
@@ -232,11 +238,11 @@ export function MetaLandingTimingClient({
         <Card style={{ marginBottom: 12 }}>
           <SectionTitle>Landing Page Change Impact (Before vs After)</SectionTitle>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-            <MetricCard label={`Before (${selectedBeforeAfter.beforeLabel})`} value={formatPercent(selectedBeforeAfter.beforeConversionRateHighIntent)} />
-            <MetricCard label={`After (${selectedBeforeAfter.afterLabel})`} value={formatPercent(selectedBeforeAfter.afterConversionRateHighIntent)} />
-            <MetricCard label="Delta CR high intent" value={formatPercent(selectedBeforeAfter.deltaConversionRateHighIntent)} />
-            <MetricCard label="Before high-intent sessions" value={formatNumber(selectedBeforeAfter.beforeHighIntentSessions)} />
-            <MetricCard label="After high-intent sessions" value={formatNumber(selectedBeforeAfter.afterHighIntentSessions)} />
+            <StatCard label={`Before (${selectedBeforeAfter.beforeLabel})`} value={formatPercent(selectedBeforeAfter.beforeConversionRateHighIntent)} />
+            <StatCard label={`After (${selectedBeforeAfter.afterLabel})`} value={formatPercent(selectedBeforeAfter.afterConversionRateHighIntent)} />
+            <StatCard label="Delta CR high intent" value={formatPercent(selectedBeforeAfter.deltaConversionRateHighIntent)} />
+            <StatCard label="Before high-intent sessions" value={formatNumber(selectedBeforeAfter.beforeHighIntentSessions)} />
+            <StatCard label="After high-intent sessions" value={formatNumber(selectedBeforeAfter.afterHighIntentSessions)} />
           </div>
         </Card>
       ) : null}

@@ -2,9 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { BarChart } from '@/components/BarChart';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
-import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
+import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
 import type { CustomerProductSummary, CustomerRatingsSummary, RatedWineDetail } from '@/lib/db';
 
@@ -31,7 +29,7 @@ type CustomerRow = Record<string, unknown> & {
 type ProductRow = Record<string, unknown> & CustomerProductSummary;
 type RatedWineRow = Record<string, unknown> & RatedWineDetail;
 
-const customerColumns: SortableColumn<CustomerRow>[] = [
+const customerColumns: DataTableColumn<CustomerRow>[] = [
   { key: 'email', label: 'Email', type: 'text', width: 240 },
   { key: 'totalSpent', label: 'Total spent', type: 'money' },
   { key: 'ordersCount', label: 'Orders', type: 'number' },
@@ -49,7 +47,7 @@ const customerColumns: SortableColumn<CustomerRow>[] = [
   { key: 'nextAction', label: 'Next action', type: 'text', width: 260 },
 ];
 
-const productColumns: SortableColumn<ProductRow>[] = [
+const productColumns: DataTableColumn<ProductRow>[] = [
   { key: 'productName', label: 'Product / wine', type: 'text', width: 220 },
   { key: 'shopifyProductId', label: 'Shopify product ID', type: 'text' },
   { key: 'quantityBought', label: 'Quantity bought', type: 'number' },
@@ -61,7 +59,7 @@ const productColumns: SortableColumn<ProductRow>[] = [
   { key: 'ratingStatus', label: 'Rating status', type: 'text' },
 ];
 
-const ratedWineColumns: SortableColumn<RatedWineRow>[] = [
+const ratedWineColumns: DataTableColumn<RatedWineRow>[] = [
   { key: 'wineName', label: 'Wine / product', type: 'text', width: 220 },
   { key: 'shopifyProductId', label: 'Shopify product ID', type: 'text' },
   { key: 'color', label: 'Color', type: 'text' },
@@ -127,13 +125,13 @@ export function CustomersDashboardClient({ customers }: { customers: CustomerRat
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 12 }}>
-        <MetricCard label="Customers" value={formatNumber(customers.length)} />
-        <MetricCard label="Total spent" value={formatEuro(totals.revenue)} />
-        <MetricCard label="Orders" value={formatNumber(totals.orders)} />
-        <MetricCard label="Bottles bought" value={formatNumber(totals.bought)} />
-        <MetricCard label="Bottles rated" value={formatNumber(totals.rated)} />
-        <MetricCard label="Overall % rated" value={formatPercent(totals.bought === 0 ? null : (totals.rated / totals.bought) * 100)} />
-        <MetricCard label="Repeat customers" value={formatNumber(totals.repeat)} />
+        <StatCard label="Customers" value={formatNumber(customers.length)} />
+        <StatCard label="Total spent" value={formatEuro(totals.revenue)} />
+        <StatCard label="Orders" value={formatNumber(totals.orders)} />
+        <StatCard label="Bottles bought" value={formatNumber(totals.bought)} />
+        <StatCard label="Bottles rated" value={formatNumber(totals.rated)} />
+        <StatCard label="Overall % rated" value={formatPercent(totals.bought === 0 ? null : (totals.rated / totals.bought) * 100)} />
+        <StatCard label="Repeat customers" value={formatNumber(totals.repeat)} />
       </div>
 
       <PageSection>
@@ -193,7 +191,7 @@ export function CustomersDashboardClient({ customers }: { customers: CustomerRat
         <SectionTitle sub="Click a customer to inspect purchases and ratings">Customers</SectionTitle>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 380px', gap: 16 }}>
           <Card style={{ padding: 0, overflow: 'hidden' }}>
-            <SortableDataTable
+            <DataTable
               columns={customerColumns}
               rows={rows}
               initialSortKey="totalSpent"
@@ -229,11 +227,11 @@ export function CustomersDashboardClient({ customers }: { customers: CustomerRat
                 </p>
                 <SectionTitle sub={selectedCustomer.wineColorsRated}>Rated Products</SectionTitle>
                 <div style={{ border: '1px solid #E8E6E1', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
-                  <SortableDataTable columns={ratedWineColumns} rows={selectedCustomer.ratedWines as RatedWineRow[]} enableSearch={false} initialSortKey="ratingDate" />
+                  <DataTable columns={ratedWineColumns} rows={selectedCustomer.ratedWines as RatedWineRow[]} enableSearch={false} initialSortKey="ratingDate" />
                 </div>
                 <SectionTitle sub="Best-effort bought minus rated estimate">Purchased Products</SectionTitle>
                 <div style={{ border: '1px solid #E8E6E1', borderRadius: 8, overflow: 'hidden' }}>
-                  <SortableDataTable columns={productColumns} rows={selectedCustomer.purchasedProducts as ProductRow[]} enableSearch={false} initialSortKey="quantityBought" />
+                  <DataTable columns={productColumns} rows={selectedCustomer.purchasedProducts as ProductRow[]} enableSearch={false} initialSortKey="quantityBought" />
                 </div>
               </>
             ) : null}

@@ -1,7 +1,6 @@
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
+import { Card, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import {
   buildCopyVersionPeriods,
@@ -149,27 +148,27 @@ export default async function CopyHistoryPage() {
         <div
           style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}
         >
-          <MetricCard label="Screens tracked" value={formatNumber(copySurfaces.length)} hint="Homepage, quiz intro, results" />
-          <MetricCard label="Versions found" value={formatNumber(totalVersions)} hint="Since 18 November 2025" />
-          <MetricCard
+          <StatCard label="Screens tracked" value={formatNumber(copySurfaces.length)} hint="Homepage, quiz intro, results" />
+          <StatCard label="Versions found" value={formatNumber(totalVersions)} hint="Since 18 November 2025" />
+          <StatCard
             label="Live but absent from Git"
             value={formatNumber(untrackedSurfaces.length)}
             hint={untrackedSurfaces.length > 0 ? 'Edited straight in Shopify, never committed' : undefined}
             tone={untrackedSurfaces.length > 0 ? 'warning' : 'good'}
           />
-          <MetricCard
+          <StatCard
             label="Committed, not published"
             value={formatNumber(unpublishedCount)}
             hint={unpublishedCount > 0 ? 'Written in Git but not on the live theme' : undefined}
             tone={unpublishedCount > 0 ? 'warning' : 'default'}
           />
-          <MetricCard
+          <StatCard
             label="Events pipeline"
             value={eventsAreFresh ? 'Working' : 'Stale'}
             hint={lastEventDay ? `Last event ${lastEventDay}` : 'No events recorded'}
             tone={eventsAreFresh ? 'good' : 'warning'}
           />
-          <MetricCard
+          <StatCard
             label="Orders sync"
             value={ordersAreStale ? 'Stopped' : 'Working'}
             hint={lastSyncDay ? `Last Airbyte sync ${lastSyncDay}` : 'Never synced'}

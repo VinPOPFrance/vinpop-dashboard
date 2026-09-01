@@ -2,9 +2,8 @@
 
 import { BarChart } from '@/components/BarChart';
 import { DonutChart } from '@/components/DonutChart';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
+import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle } from '@/components/ui';
 import { LineChart } from '@/components/dashboard/LineChart';
-import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
 import { formatNumber, formatPercent } from '@/lib/format';
 import type { AcquisitionTrafficDimensionRow, AcquisitionTrafficMetrics } from '@/lib/db';
 
@@ -12,7 +11,7 @@ type TrafficRow = Record<string, unknown> & AcquisitionTrafficDimensionRow & {
   change: number | null;
 };
 
-const columns: SortableColumn<TrafficRow>[] = [
+const columns: DataTableColumn<TrafficRow>[] = [
   { key: 'name', label: 'Source / segment', type: 'text', width: 220 },
   { key: 'sessions', label: 'Sessions', type: 'number' },
   { key: 'users', label: 'Users', type: 'number' },
@@ -102,19 +101,19 @@ export function AcquisitionTrafficClient({ metrics }: { metrics: AcquisitionTraf
             <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}>
               <SectionTitle>Source / Medium</SectionTitle>
             </div>
-            <SortableDataTable columns={columns} rows={toRows(metrics.sources).slice(0, 20)} initialSortKey="sessions" searchPlaceholder="Search source, medium..." maxHeight={420} />
+            <DataTable columns={columns} rows={toRows(metrics.sources).slice(0, 20)} initialSortKey="sessions" searchPlaceholder="Search source, medium..." maxHeight={420} />
           </Card>
           <Card style={{ padding: 0, overflow: 'hidden' }}>
             <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}>
               <SectionTitle>Campaigns</SectionTitle>
             </div>
-            <SortableDataTable columns={columns} rows={toRows(metrics.campaigns).slice(0, 20)} initialSortKey="sessions" searchPlaceholder="Search campaign..." maxHeight={420} />
+            <DataTable columns={columns} rows={toRows(metrics.campaigns).slice(0, 20)} initialSortKey="sessions" searchPlaceholder="Search campaign..." maxHeight={420} />
           </Card>
           <Card style={{ padding: 0, overflow: 'hidden' }}>
             <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}>
               <SectionTitle>Device / Geo</SectionTitle>
             </div>
-            <SortableDataTable columns={columns} rows={toRows([...metrics.devices, ...locationRows]).slice(0, 24)} initialSortKey="sessions" searchPlaceholder="Search device or place..." maxHeight={420} />
+            <DataTable columns={columns} rows={toRows([...metrics.devices, ...locationRows]).slice(0, 24)} initialSortKey="sessions" searchPlaceholder="Search device or place..." maxHeight={420} />
           </Card>
         </div>
       </PageSection>

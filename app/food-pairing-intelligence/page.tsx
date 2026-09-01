@@ -1,8 +1,7 @@
 import { connection } from 'next/server';
 import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
+import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getFoodPairingIntelligence } from '@/lib/db';
 import { formatNumber, formatPercent } from '@/lib/format';
@@ -30,7 +29,7 @@ type WinePairingRow = Record<string, unknown> & {
   action: string;
 };
 
-const pairingColumns: SortableColumn<PairingRow>[] = [
+const pairingColumns: DataTableColumn<PairingRow>[] = [
   { key: 'pairing', label: 'Pairing', type: 'text' },
   { key: 'wines', label: 'Wines', type: 'number' },
   { key: 'ratings', label: 'Ratings', type: 'number' },
@@ -41,7 +40,7 @@ const pairingColumns: SortableColumn<PairingRow>[] = [
   { key: 'action', label: 'Suggested action', type: 'text' },
 ];
 
-const winePairingColumns: SortableColumn<WinePairingRow>[] = [
+const winePairingColumns: DataTableColumn<WinePairingRow>[] = [
   { key: 'wine', label: 'Wine', type: 'text', width: 220 },
   { key: 'vendor', label: 'Vendor', type: 'text' },
   { key: 'pairings', label: 'Pairings', type: 'text' },
@@ -131,7 +130,7 @@ export default async function FoodPairingIntelligencePage() {
             <PageSection>
               <SectionTitle sub="Pairing categories">Pairing Performance</SectionTitle>
               <Card style={{ padding: 0, overflow: 'hidden' }}>
-                <SortableDataTable
+                <DataTable
                   columns={pairingColumns}
                   rows={metrics.pairings.map((pairing) => ({
                     pairing: pairing.pairingCategory,
@@ -150,7 +149,7 @@ export default async function FoodPairingIntelligencePage() {
             <PageSection>
               <SectionTitle sub="Wine-level pairing tags">Wine Pairing Table</SectionTitle>
               <Card style={{ padding: 0, overflow: 'hidden' }}>
-                <SortableDataTable
+                <DataTable
                   columns={winePairingColumns}
                   rows={metrics.wines.map((wine) => ({
                     wine: wine.wineName,

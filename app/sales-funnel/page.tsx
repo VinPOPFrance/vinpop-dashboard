@@ -1,6 +1,6 @@
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
+import { Card, PageSection, SectionTitle } from '@/components/ui';
 import { SalesFunnelClient } from '@/components/SalesFunnelClient';
 import { TopBar } from '@/components/TopBar';
 import { getCachedCustomerIntelligence } from '@/lib/cachedDb';

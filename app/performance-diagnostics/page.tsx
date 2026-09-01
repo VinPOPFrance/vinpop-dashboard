@@ -1,8 +1,6 @@
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
-import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
+import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { formatDate, formatNumber } from '@/lib/format';
 import { getPerformanceSummaries, getRecentPerformanceMeasurements, type PerformanceMeasurement, type PerformanceSummary } from '@/lib/performance';
@@ -12,7 +10,7 @@ export const runtime = 'nodejs';
 type PerfRow = PerformanceMeasurement & Record<string, unknown>;
 type PerfSummaryRow = PerformanceSummary & Record<string, unknown> & { likelyCause: string; recommendation: string };
 
-const columns: SortableColumn<PerfRow>[] = [
+const columns: DataTableColumn<PerfRow>[] = [
   { key: 'createdAt', label: 'Logged at', type: 'date', width: 140 },
   { key: 'label', label: 'Helper / page', type: 'text', width: 360 },
   { key: 'durationMs', label: 'Duration ms', type: 'number' },
@@ -20,7 +18,7 @@ const columns: SortableColumn<PerfRow>[] = [
   { key: 'cacheStatus', label: 'Cache', type: 'text' },
 ];
 
-const summaryColumns: SortableColumn<PerfSummaryRow>[] = [
+const summaryColumns: DataTableColumn<PerfSummaryRow>[] = [
   { key: 'label', label: 'Helper / page', type: 'text', width: 340 },
   { key: 'callCount', label: 'Calls', type: 'number' },
   { key: 'averageDurationMs', label: 'Avg ms', type: 'number' },
@@ -94,22 +92,22 @@ export default async function PerformanceDiagnosticsPage() {
         </Card>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-          <MetricCard label="Measurements" value={formatNumber(measurements.length)} />
-          <MetricCard label="Unique helpers/routes" value={formatNumber(summaries.length)} />
-          <MetricCard label="Average duration" value={`${formatNumber(Math.round(average))} ms`} />
-          <MetricCard label="Slowest duration" value={slowest ? `${formatNumber(slowest.durationMs)} ms` : 'No data yet'} tone={slowest && slowest.durationMs > 2000 ? 'warning' : 'default'} />
-          <MetricCard label="Latest log" value={measurements[0] ? formatDate(measurements[0].createdAt) : 'No data yet'} />
+          <StatCard label="Measurements" value={formatNumber(measurements.length)} />
+          <StatCard label="Unique helpers/routes" value={formatNumber(summaries.length)} />
+          <StatCard label="Average duration" value={`${formatNumber(Math.round(average))} ms`} />
+          <StatCard label="Slowest duration" value={slowest ? `${formatNumber(slowest.durationMs)} ms` : 'No data yet'} tone={slowest && slowest.durationMs > 2000 ? 'warning' : 'default'} />
+          <StatCard label="Latest log" value={measurements[0] ? formatDate(measurements[0].createdAt) : 'No data yet'} />
         </div>
 
         {helperSummaries.length ? (
           <Card style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-            <SortableDataTable columns={summaryColumns} rows={helperSummaries as PerfSummaryRow[]} initialSortKey="averageDurationMs" initialSortDirection="desc" enableSearch={false} />
+            <DataTable columns={summaryColumns} rows={helperSummaries as PerfSummaryRow[]} initialSortKey="averageDurationMs" initialSortDirection="desc" enableSearch={false} />
           </Card>
         ) : null}
 
         {measurements.length ? (
           <Card style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-            <SortableDataTable columns={columns} rows={measurements as PerfRow[]} initialSortKey="durationMs" initialSortDirection="desc" enableSearch={false} />
+            <DataTable columns={columns} rows={measurements as PerfRow[]} initialSortKey="durationMs" initialSortDirection="desc" enableSearch={false} />
           </Card>
         ) : (
           <Card style={{ marginBottom: 16 }}>

@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
+import { Card, PageSection, SectionTitle } from '@/components/ui';
 import { MetaAdsDashboardClient } from '@/components/MetaAdsDashboardClient';
 import { MetaLandingTimingClient } from '@/components/MetaLandingTimingClient';
 import { TopBar } from '@/components/TopBar';

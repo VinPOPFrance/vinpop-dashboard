@@ -1,9 +1,7 @@
 import { connection } from 'next/server';
 import { BusinessOverviewDailyClient } from '@/components/BusinessOverviewDailyClient';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
-import { TrendBadge } from '@/components/dashboard/TrendBadge';
+import { Card, PageSection, SectionTitle, StatCard, TrendBadge } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
 import { getCachedGa4OverviewTrends, getCachedMetaAdsOverviewSummary, getCachedSiteBehavior, rangeCacheArgs } from '@/lib/cachedDb';
@@ -138,7 +136,7 @@ export default async function BusinessOverviewPage({
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 20 }}>
               {cards.map((card) => (
-                <MetricCard
+                <StatCard
                   key={card.label}
                   label={`${card.label}: ${card.status}`}
                   value={card.value}
@@ -158,16 +156,16 @@ export default async function BusinessOverviewPage({
             <PageSection>
               <SectionTitle sub="GA4 trend status for selected range">Traffic Trend Indicators</SectionTitle>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
-                <MetricCard label="Sessions" value={ga4?.dataAvailable ? formatNumber(ga4.sessions.current) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.sessions} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.sessions ?? null)} />
-                <MetricCard label="Total users" value={ga4?.dataAvailable ? formatNumber(ga4.users.current) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.users} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.users ?? null)} />
-                <MetricCard label="Engaged sessions" value={ga4?.dataAvailable ? formatNumber(ga4.engagedSessions.current) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.engagedSessions} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.engagedSessions ?? null)} />
-                <MetricCard label="Page views" value={ga4?.dataAvailable ? formatNumber(ga4.pageViews.current) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.pageViews} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.pageViews ?? null)} />
-                <MetricCard label="Engagement rate" value={ga4?.dataAvailable ? formatPercent(ga4.engagementRate.current) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.engagementRate} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.engagementRate ?? null)} />
-                <MetricCard label="Events / session" value={ga4?.dataAvailable ? formatNumber(ga4.eventsPerSession.current, 2) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.eventsPerSession} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.eventsPerSession ?? null)} />
-                <MetricCard label="Conversions/events" value={ga4?.dataAvailable ? formatNumber(ga4.conversions.current) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.conversions} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.conversions ?? null)} />
-                <MetricCard label="Top source / medium" value={ga4?.topSourceMedium || 'Missing data'} hint={ga4?.topSourceMedium ? 'Top acquisition source in selected period.' : 'No source-medium mapping in this period.'} />
-                <MetricCard label="Meta spend" value={meta ? formatEuro(meta.totalSpend) : 'Missing data'} hint={meta?.daily.length ? `${formatNumber(meta.daily.length)} daily points` : 'No Meta rows for this period'} />
-                <MetricCard label="Meta clicks" value={meta ? formatNumber(meta.clicks) : 'Missing data'} hint={meta ? `CTR ${formatPercent(meta.ctr)}` : 'Meta unavailable'} />
+                <StatCard label="Sessions" value={ga4?.dataAvailable ? formatNumber(ga4.sessions.current) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.sessions} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.sessions ?? null)} />
+                <StatCard label="Total users" value={ga4?.dataAvailable ? formatNumber(ga4.users.current) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.users} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.users ?? null)} />
+                <StatCard label="Engaged sessions" value={ga4?.dataAvailable ? formatNumber(ga4.engagedSessions.current) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.engagedSessions} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.engagedSessions ?? null)} />
+                <StatCard label="Page views" value={ga4?.dataAvailable ? formatNumber(ga4.pageViews.current) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.pageViews} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.pageViews ?? null)} />
+                <StatCard label="Engagement rate" value={ga4?.dataAvailable ? formatPercent(ga4.engagementRate.current) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.engagementRate} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.engagementRate ?? null)} />
+                <StatCard label="Events / session" value={ga4?.dataAvailable ? formatNumber(ga4.eventsPerSession.current, 2) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.eventsPerSession} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.eventsPerSession ?? null)} />
+                <StatCard label="Conversions/events" value={ga4?.dataAvailable ? formatNumber(ga4.conversions.current) : 'Missing data'} hint={ga4?.dataAvailable ? <TrendBadge trend={ga4.conversions} /> : 'No GA4 data for this period'} tone={trendTone(ga4?.conversions ?? null)} />
+                <StatCard label="Top source / medium" value={ga4?.topSourceMedium || 'Missing data'} hint={ga4?.topSourceMedium ? 'Top acquisition source in selected period.' : 'No source-medium mapping in this period.'} />
+                <StatCard label="Meta spend" value={meta ? formatEuro(meta.totalSpend) : 'Missing data'} hint={meta?.daily.length ? `${formatNumber(meta.daily.length)} daily points` : 'No Meta rows for this period'} />
+                <StatCard label="Meta clicks" value={meta ? formatNumber(meta.clicks) : 'Missing data'} hint={meta ? `CTR ${formatPercent(meta.ctr)}` : 'Meta unavailable'} />
               </div>
               <p style={{ margin: '10px 0 0', color: '#6B6B6B', fontSize: 12 }}>
                 Comparison logic: today vs yesterday, 7d vs previous 7d, and for 30d selection the previous 30d baseline.
@@ -197,10 +195,10 @@ export default async function BusinessOverviewPage({
               <SectionTitle sub="Technical checks live in Data Quality">Data Quality</SectionTitle>
               <Card>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
-                  <MetricCard label="GA4 status" value={siteBehavior?.hasGa4Rows ? 'Connected' : 'Missing data'} tone={siteBehavior?.hasGa4Rows ? 'good' : 'warning'} />
-                  <MetricCard label="Meta platform attribution" value={meta?.attributionAvailable ? 'Available' : 'Missing data'} tone={meta?.attributionAvailable ? 'good' : 'warning'} />
-                  <MetricCard label="True Shopify CAC/ROAS attribution" value="Missing" tone="warning" />
-                  <MetricCard label="Tracking status" value={siteBehavior?.hasSessionData ? 'Sessions visible' : 'Needs review'} tone={siteBehavior?.hasSessionData ? 'good' : 'warning'} />
+                  <StatCard label="GA4 status" value={siteBehavior?.hasGa4Rows ? 'Connected' : 'Missing data'} tone={siteBehavior?.hasGa4Rows ? 'good' : 'warning'} />
+                  <StatCard label="Meta platform attribution" value={meta?.attributionAvailable ? 'Available' : 'Missing data'} tone={meta?.attributionAvailable ? 'good' : 'warning'} />
+                  <StatCard label="True Shopify CAC/ROAS attribution" value="Missing" tone="warning" />
+                  <StatCard label="Tracking status" value={siteBehavior?.hasSessionData ? 'Sessions visible' : 'Needs review'} tone={siteBehavior?.hasSessionData ? 'good' : 'warning'} />
                 </div>
                 <p style={{ margin: '14px 0 0', color: '#6B6B6B', fontSize: 13 }}>
                   Need diagnostics? Open <a href="/data-quality" style={{ color: '#722F37', fontWeight: 800 }}>Data Quality</a>.

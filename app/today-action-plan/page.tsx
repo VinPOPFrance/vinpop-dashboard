@@ -1,7 +1,6 @@
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
+import { Card, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getTodayActionPlan, type TodayAction } from '@/lib/db';
 
@@ -59,7 +58,7 @@ export default async function TodayActionPlanPage() {
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
               {priorityCounts.map((item) => (
-                <MetricCard
+                <StatCard
                   key={item.label}
                   label={`${item.label} actions`}
                   value={item.value.toString()}

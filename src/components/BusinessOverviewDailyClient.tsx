@@ -1,8 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Card, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
+import { Card, SectionTitle, StatCard } from '@/components/ui';
 import { LineChart } from '@/components/dashboard/LineChart';
 import { formatDate, formatNumber } from '@/lib/format';
 import type { SiteBehaviorSeriesPoint } from '@/lib/db';
@@ -61,13 +60,13 @@ export function BusinessOverviewDailyClient({ siteSeries, hasGa4Rows }: Props) {
               </button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-              <MetricCard label="Date" value={formatDate(selectedDay.date)} />
-              <MetricCard label="Orders" value={formatNumber(selectedDay.orders)} />
-              <MetricCard label="Abandoned checkouts" value={formatNumber(selectedDay.abandonedCheckouts)} />
-              <MetricCard label="Ratings" value={formatNumber(selectedDay.ratings)} />
-              {hasGa4Rows ? <MetricCard label="Sessions" value={formatNumber(selectedDay.sessions)} /> : null}
-              {hasGa4Rows ? <MetricCard label="Users" value={formatNumber(selectedDay.users)} /> : null}
-              {hasGa4Rows ? <MetricCard label="Page views" value={formatNumber(selectedDay.pageViews)} /> : null}
+              <StatCard label="Date" value={formatDate(selectedDay.date)} />
+              <StatCard label="Orders" value={formatNumber(selectedDay.orders)} />
+              <StatCard label="Abandoned checkouts" value={formatNumber(selectedDay.abandonedCheckouts)} />
+              <StatCard label="Ratings" value={formatNumber(selectedDay.ratings)} />
+              {hasGa4Rows ? <StatCard label="Sessions" value={formatNumber(selectedDay.sessions)} /> : null}
+              {hasGa4Rows ? <StatCard label="Users" value={formatNumber(selectedDay.users)} /> : null}
+              {hasGa4Rows ? <StatCard label="Page views" value={formatNumber(selectedDay.pageViews)} /> : null}
             </div>
           </>
         ) : (

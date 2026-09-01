@@ -1,7 +1,6 @@
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
+import { Card, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getMetaAdsPerformance, getTrackingReadiness } from '@/lib/db';
 
@@ -63,10 +62,10 @@ export default async function AttributionReadinessPage() {
         </Card>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-          <MetricCard label="Campaign → order attribution" value={campaignOrderAttribution ? 'Possible' : 'Missing'} tone={campaignOrderAttribution ? 'good' : 'warning'} />
-          <MetricCard label="CAC" value={canCalculateCac ? 'Possible' : 'Unavailable'} tone={canCalculateCac ? 'good' : 'warning'} />
-          <MetricCard label="ROAS" value={canCalculateRoas ? 'Possible' : 'Unavailable'} tone={canCalculateRoas ? 'good' : 'warning'} />
-          <MetricCard label="Meta action attribution" value={meta?.attributionAvailable ? 'Available' : 'Unavailable'} tone={meta?.attributionAvailable ? 'good' : 'warning'} />
+          <StatCard label="Campaign → order attribution" value={campaignOrderAttribution ? 'Possible' : 'Missing'} tone={campaignOrderAttribution ? 'good' : 'warning'} />
+          <StatCard label="CAC" value={canCalculateCac ? 'Possible' : 'Unavailable'} tone={canCalculateCac ? 'good' : 'warning'} />
+          <StatCard label="ROAS" value={canCalculateRoas ? 'Possible' : 'Unavailable'} tone={canCalculateRoas ? 'good' : 'warning'} />
+          <StatCard label="Meta action attribution" value={meta?.attributionAvailable ? 'Available' : 'Unavailable'} tone={meta?.attributionAvailable ? 'good' : 'warning'} />
         </div>
 
         <PageSection>

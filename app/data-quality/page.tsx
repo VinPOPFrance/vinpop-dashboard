@@ -1,7 +1,6 @@
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
+import { Card, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
 import { getCachedMetaAdsOverviewSummary, rangeCacheArgs } from '@/lib/cachedDb';
@@ -47,13 +46,13 @@ export default async function DataQualityPage() {
         </Card>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 18 }}>
-          <MetricCard label="GA4 aggregate reports" value={ga4Rows > 0 ? 'Available' : 'Missing'} tone={ga4Rows ? 'good' : 'warning'} />
-          <MetricCard label="True visitor/session tracking" value={hasTrueSessionTracking ? 'Available' : 'Missing'} tone={hasTrueSessionTracking ? 'good' : 'warning'} />
-          <MetricCard label="Meta platform attribution" value={meta?.attributionAvailable ? 'Available' : 'Missing'} tone={meta?.attributionAvailable ? 'good' : 'warning'} />
-          <MetricCard label="True Shopify CAC/ROAS attribution" value="Missing" tone="warning" />
-          <MetricCard label="Shopify orders" value={orders ? formatNumber(orders.totalOrders) : 'Unavailable'} tone={orders ? 'good' : 'warning'} />
-          <MetricCard label="Ratings mapping" value={ratingsMappingReady ? 'Available' : 'Needs review'} tone={ratingsMappingReady ? 'good' : 'warning'} />
-          <MetricCard label="Food pairing coverage" value={foodPairing ? formatPercent(foodPairing.pairingCoverageRate) : 'Unavailable'} tone={(foodPairing?.pairingCoverageRate ?? 0) >= 80 ? 'good' : 'warning'} />
+          <StatCard label="GA4 aggregate reports" value={ga4Rows > 0 ? 'Available' : 'Missing'} tone={ga4Rows ? 'good' : 'warning'} />
+          <StatCard label="True visitor/session tracking" value={hasTrueSessionTracking ? 'Available' : 'Missing'} tone={hasTrueSessionTracking ? 'good' : 'warning'} />
+          <StatCard label="Meta platform attribution" value={meta?.attributionAvailable ? 'Available' : 'Missing'} tone={meta?.attributionAvailable ? 'good' : 'warning'} />
+          <StatCard label="True Shopify CAC/ROAS attribution" value="Missing" tone="warning" />
+          <StatCard label="Shopify orders" value={orders ? formatNumber(orders.totalOrders) : 'Unavailable'} tone={orders ? 'good' : 'warning'} />
+          <StatCard label="Ratings mapping" value={ratingsMappingReady ? 'Available' : 'Needs review'} tone={ratingsMappingReady ? 'good' : 'warning'} />
+          <StatCard label="Food pairing coverage" value={foodPairing ? formatPercent(foodPairing.pairingCoverageRate) : 'Unavailable'} tone={(foodPairing?.pairingCoverageRate ?? 0) >= 80 ? 'good' : 'warning'} />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>

@@ -1,9 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
-import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
+import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { LineChart } from '@/components/dashboard/LineChart';
 import { formatDate, formatEuro, formatNumber, formatPercent } from '@/lib/format';
 import type { MetaAdsPerformanceMetrics, MetaDailyPerformancePoint, MetaPerformanceRow } from '@/lib/db';
@@ -25,7 +23,7 @@ type WeekdayRow = {
 } & Record<string, unknown>;
 type StatusFilter = 'All' | 'Scale candidate' | 'Keep testing' | 'Watch' | 'Weak creative' | 'Insufficient spend' | 'Attribution missing';
 
-const drillColumns: SortableColumn<MetaRow>[] = [
+const drillColumns: DataTableColumn<MetaRow>[] = [
   { key: 'name', label: 'Name', type: 'text', width: 220 },
   { key: 'postClickQuality', label: 'Traffic quality post-click', type: 'text', description: 'Simple score based on active clickers %, cost per add to cart, and purchases.' },
   { key: 'spend', label: 'Spend', type: 'money' },
@@ -40,7 +38,7 @@ const drillColumns: SortableColumn<MetaRow>[] = [
   { key: 'performanceLabel', label: 'Status', type: 'text' },
 ];
 
-const decisionColumns: SortableColumn<MetaRow>[] = [
+const decisionColumns: DataTableColumn<MetaRow>[] = [
   { key: 'name', label: 'Ad', type: 'text', width: 220 },
   { key: 'postClickQuality', label: 'Traffic quality post-click', type: 'text', description: 'Simple score based on active clickers %, cost per add to cart, and purchases.' },
   { key: 'spend', label: 'Spend', type: 'money' },
@@ -53,7 +51,7 @@ const decisionColumns: SortableColumn<MetaRow>[] = [
   { key: 'recommendedAction', label: 'Action', type: 'text', width: 260 },
 ];
 
-const bestAdsColumns: SortableColumn<MetaRow>[] = [
+const bestAdsColumns: DataTableColumn<MetaRow>[] = [
   { key: 'name', label: 'Ad', type: 'text', width: 220 },
   { key: 'spend', label: 'Spend', type: 'money' },
   { key: 'landingPageViews', label: 'LPV', type: 'number', description: 'Landing page views after ad click.' },
@@ -65,7 +63,7 @@ const bestAdsColumns: SortableColumn<MetaRow>[] = [
   { key: 'purchases', label: 'Purchases', type: 'number', description: 'Purchases reported by Meta.' },
 ];
 
-const dailyColumns: SortableColumn<DailyRow>[] = [
+const dailyColumns: DataTableColumn<DailyRow>[] = [
   { key: 'date', label: 'Date', type: 'date' },
   { key: 'spend', label: 'Spend', type: 'money' },
   { key: 'clicks', label: 'Clicks', type: 'number' },
@@ -80,7 +78,7 @@ const dailyColumns: SortableColumn<DailyRow>[] = [
   { key: 'cpa', label: 'Cost per purchase', type: 'money', description: 'Spend / purchases.' },
 ];
 
-const weekdayColumns: SortableColumn<WeekdayRow>[] = [
+const weekdayColumns: DataTableColumn<WeekdayRow>[] = [
   { key: 'weekday', label: 'Weekday', type: 'text' },
   { key: 'spend', label: 'Spend', type: 'money' },
   { key: 'clicks', label: 'Clicks', type: 'number' },
@@ -227,16 +225,6 @@ function aggregateWeekday(rows: DailyRow[]): WeekdayRow[] {
     .sort((a, b) => a.weekdayIndex - b.weekdayIndex);
 }
 
-function trafficQuality(ctr: number | null, cpc: number | null) {
-  if ((ctr ?? 0) >= 2 && (cpc ?? 99) <= 0.5) return 'Good';
-  if ((ctr ?? 0) >= 1 && (cpc ?? 99) <= 1.5) return 'Watch';
-  return 'Weak';
-}
-
-function metricTone(status: string): 'default' | 'good' | 'warning' {
-  return status === 'Good' ? 'good' : status === 'Weak' ? 'warning' : 'default';
-}
-
 function rowStatus(row: MetaPerformanceRow, minSpend: number): StatusFilter {
   if (row.spend < minSpend) return 'Insufficient spend';
   if (row.performanceLabel === 'Scale candidate') return 'Scale candidate';
@@ -300,7 +288,7 @@ function DecisionTable({
         <SectionTitle sub={`${formatNumber(rows.length)} ads`}>{title}</SectionTitle>
       </div>
       {rows.length ? (
-        <SortableDataTable columns={decisionColumns} rows={rows as MetaRow[]} initialSortKey={initialSortKey} searchPlaceholder={`Search ${title.toLowerCase()}...`} />
+        <DataTable columns={decisionColumns} rows={rows as MetaRow[]} initialSortKey={initialSortKey} searchPlaceholder={`Search ${title.toLowerCase()}...`} />
       ) : (
         <p style={{ margin: 0, padding: 16, color: '#6B6B6B', fontSize: 13 }}>No ads in this group for the current filters.</p>
       )}
@@ -435,18 +423,18 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
       <PageSection>
         <SectionTitle sub="Current selection KPIs">Are Meta Ads Working?</SectionTitle>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-          <MetricCard label="Spend" value={formatEuro(kpis.spend)} />
-          <MetricCard label="Clicks" value={formatNumber(kpis.clicks)} />
-          <MetricCard label="Landing page views" value={formatNumber(kpis.landingPageViews)} />
-          <MetricCard label="Active clickers %" value={formatPercent(kpis.activeClickRate)} />
-          <MetricCard label="Video plays" value={formatNumber(kpis.videoPlays)} />
-          <MetricCard label="Video play to LPV %" value={formatPercent(kpis.videoPlayToLandingRate)} />
-          <MetricCard label="Cost per LPV" value={formatEuro(kpis.costPerLandingPageView)} />
-          <MetricCard label="Add to cart" value={formatNumber(kpis.addToCart)} />
-          <MetricCard label="Cost per add to cart" value={formatEuro(kpis.costPerAddToCart)} />
-          <MetricCard label="Number of purchases" value={formatNumber(kpis.purchases)} />
-          <MetricCard label="Cost per purchase" value={formatEuro(kpis.cpa)} />
-          <MetricCard label="Shopify attribution" value="True CAC/ROAS unavailable" tone="warning" />
+          <StatCard label="Spend" value={formatEuro(kpis.spend)} />
+          <StatCard label="Clicks" value={formatNumber(kpis.clicks)} />
+          <StatCard label="Landing page views" value={formatNumber(kpis.landingPageViews)} />
+          <StatCard label="Active clickers %" value={formatPercent(kpis.activeClickRate)} />
+          <StatCard label="Video plays" value={formatNumber(kpis.videoPlays)} />
+          <StatCard label="Video play to LPV %" value={formatPercent(kpis.videoPlayToLandingRate)} />
+          <StatCard label="Cost per LPV" value={formatEuro(kpis.costPerLandingPageView)} />
+          <StatCard label="Add to cart" value={formatNumber(kpis.addToCart)} />
+          <StatCard label="Cost per add to cart" value={formatEuro(kpis.costPerAddToCart)} />
+          <StatCard label="Number of purchases" value={formatNumber(kpis.purchases)} />
+          <StatCard label="Cost per purchase" value={formatEuro(kpis.cpa)} />
+          <StatCard label="Shopify attribution" value="True CAC/ROAS unavailable" tone="warning" />
         </div>
       </PageSection>
 
@@ -475,7 +463,7 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
         ) : null}
         <Card style={{ padding: 0, overflow: 'hidden' }}>
           {bestAds.length ? (
-            <SortableDataTable
+            <DataTable
               columns={bestAdsColumns}
               rows={bestAds as MetaRow[]}
               initialSortKey="costPerLandingPageView"
@@ -502,7 +490,7 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
         </Card>
         <Card style={{ padding: 0, overflow: 'hidden' }}>
           {weekdayRows.length ? (
-            <SortableDataTable
+            <DataTable
               columns={weekdayColumns}
               rows={weekdayRows}
               initialSortKey="weekdayIndex"
@@ -562,7 +550,7 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
                 />
               </label>
             </div>
-            <SortableDataTable columns={drillColumns} rows={campaigns as MetaRow[]} initialSortKey="spend" selectedRowKey={selectedCampaignId} getRowKey={(row) => row.id} onRowClick={(row) => { setSelectedCampaignId(String(row.id)); setSelectedAdSetId(''); setSelectedAdId(''); }} searchPlaceholder="Search campaigns..." />
+            <DataTable columns={drillColumns} rows={campaigns as MetaRow[]} initialSortKey="spend" selectedRowKey={selectedCampaignId} getRowKey={(row) => row.id} onRowClick={(row) => { setSelectedCampaignId(String(row.id)); setSelectedAdSetId(''); setSelectedAdId(''); }} searchPlaceholder="Search campaigns..." />
           </Card>
           <Card style={{ padding: 0, overflow: 'hidden' }}>
             <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}>
@@ -579,7 +567,7 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
                 />
               </label>
             </div>
-            <SortableDataTable columns={drillColumns} rows={adSets as MetaRow[]} initialSortKey="spend" selectedRowKey={selectedAdSetId} getRowKey={(row) => row.id} onRowClick={(row) => { setSelectedCampaignId(String(row.campaignId)); setSelectedAdSetId(String(row.id)); setSelectedAdId(''); }} searchPlaceholder="Search ad sets..." />
+            <DataTable columns={drillColumns} rows={adSets as MetaRow[]} initialSortKey="spend" selectedRowKey={selectedAdSetId} getRowKey={(row) => row.id} onRowClick={(row) => { setSelectedCampaignId(String(row.campaignId)); setSelectedAdSetId(String(row.id)); setSelectedAdId(''); }} searchPlaceholder="Search ad sets..." />
           </Card>
           <Card style={{ padding: 0, overflow: 'hidden' }}>
             <div style={{ padding: '14px 16px', borderBottom: '1px solid #E8E6E1' }}>
@@ -596,7 +584,7 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
                 />
               </label>
             </div>
-            <SortableDataTable columns={drillColumns} rows={ads as MetaRow[]} initialSortKey="spend" selectedRowKey={selectedAdId} getRowKey={(row) => row.id} onRowClick={(row) => { setSelectedCampaignId(String(row.campaignId)); setSelectedAdSetId(String(row.adSetId)); setSelectedAdId(String(row.id)); }} searchPlaceholder="Search ads..." />
+            <DataTable columns={drillColumns} rows={ads as MetaRow[]} initialSortKey="spend" selectedRowKey={selectedAdId} getRowKey={(row) => row.id} onRowClick={(row) => { setSelectedCampaignId(String(row.campaignId)); setSelectedAdSetId(String(row.adSetId)); setSelectedAdId(String(row.id)); }} searchPlaceholder="Search ads..." />
           </Card>
         </div>
       </PageSection>
@@ -607,19 +595,19 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
           {selectedItem ? (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-                <MetricCard label="Selected type" value={selectedType} />
-                <MetricCard label="Spend" value={formatEuro(selectedItem.spend)} />
-                <MetricCard label="Clicks" value={formatNumber(selectedItem.clicks)} />
-                <MetricCard label="Landing page views" value={formatNumber(selectedItem.landingPageViews)} />
-                <MetricCard label="Active clickers %" value={formatPercent(selectedItem.activeClickRate)} />
-                <MetricCard label="Video plays" value={formatNumber(selectedItem.videoPlays)} />
-                <MetricCard label="Video play to LPV %" value={formatPercent(selectedItem.videoPlayToLandingRate)} />
-                <MetricCard label="Cost per LPV" value={formatEuro(selectedItem.costPerLandingPageView)} />
-                <MetricCard label="Add to cart" value={formatNumber(selectedItem.addToCart)} />
-                <MetricCard label="Cost per add to cart" value={formatEuro(selectedItem.costPerAddToCart)} />
-                <MetricCard label="Number of purchases" value={formatNumber(selectedItem.purchases)} />
-                <MetricCard label="Cost per purchase" value={formatEuro(selectedItem.cpa)} />
-                <MetricCard label="Meta ROAS" value={formatNumber(selectedItem.roas, 2)} />
+                <StatCard label="Selected type" value={selectedType} />
+                <StatCard label="Spend" value={formatEuro(selectedItem.spend)} />
+                <StatCard label="Clicks" value={formatNumber(selectedItem.clicks)} />
+                <StatCard label="Landing page views" value={formatNumber(selectedItem.landingPageViews)} />
+                <StatCard label="Active clickers %" value={formatPercent(selectedItem.activeClickRate)} />
+                <StatCard label="Video plays" value={formatNumber(selectedItem.videoPlays)} />
+                <StatCard label="Video play to LPV %" value={formatPercent(selectedItem.videoPlayToLandingRate)} />
+                <StatCard label="Cost per LPV" value={formatEuro(selectedItem.costPerLandingPageView)} />
+                <StatCard label="Add to cart" value={formatNumber(selectedItem.addToCart)} />
+                <StatCard label="Cost per add to cart" value={formatEuro(selectedItem.costPerAddToCart)} />
+                <StatCard label="Number of purchases" value={formatNumber(selectedItem.purchases)} />
+                <StatCard label="Cost per purchase" value={formatEuro(selectedItem.cpa)} />
+                <StatCard label="Meta ROAS" value={formatNumber(selectedItem.roas, 2)} />
               </div>
               <div style={{ marginTop: 16, color: '#1A1A1A', fontSize: 14, fontWeight: 800 }}>{selectedItem.name}</div>
               <p style={{ margin: '6px 0', color: '#6B6B6B', fontSize: 13 }}>
@@ -665,18 +653,18 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
                 </button>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
-                <MetricCard label="Date" value={formatDate(selectedDay.date)} />
-                <MetricCard label="Spend" value={formatEuro(selectedDay.spend)} />
-                <MetricCard label="Clicks" value={formatNumber(selectedDay.clicks)} />
-                <MetricCard label="Landing page views" value={formatNumber(selectedDay.landingPageViews)} />
-                <MetricCard label="Active clickers %" value={formatPercent(selectedDay.activeClickRate)} />
-                <MetricCard label="Video plays" value={formatNumber(selectedDay.videoPlays)} />
-                <MetricCard label="Video play to LPV %" value={formatPercent(selectedDay.videoPlayToLandingRate)} />
-                <MetricCard label="Add to cart" value={formatNumber(selectedDay.addToCart)} />
-                <MetricCard label="Cost per LPV" value={formatEuro(selectedDay.costPerLandingPageView)} />
-                <MetricCard label="Cost per add to cart" value={formatEuro(selectedDay.costPerAddToCart)} />
-                <MetricCard label="Purchases" value={formatNumber(selectedDay.purchases)} />
-                <MetricCard label="Cost per purchase" value={formatEuro(selectedDay.cpa)} />
+                <StatCard label="Date" value={formatDate(selectedDay.date)} />
+                <StatCard label="Spend" value={formatEuro(selectedDay.spend)} />
+                <StatCard label="Clicks" value={formatNumber(selectedDay.clicks)} />
+                <StatCard label="Landing page views" value={formatNumber(selectedDay.landingPageViews)} />
+                <StatCard label="Active clickers %" value={formatPercent(selectedDay.activeClickRate)} />
+                <StatCard label="Video plays" value={formatNumber(selectedDay.videoPlays)} />
+                <StatCard label="Video play to LPV %" value={formatPercent(selectedDay.videoPlayToLandingRate)} />
+                <StatCard label="Add to cart" value={formatNumber(selectedDay.addToCart)} />
+                <StatCard label="Cost per LPV" value={formatEuro(selectedDay.costPerLandingPageView)} />
+                <StatCard label="Cost per add to cart" value={formatEuro(selectedDay.costPerAddToCart)} />
+                <StatCard label="Purchases" value={formatNumber(selectedDay.purchases)} />
+                <StatCard label="Cost per purchase" value={formatEuro(selectedDay.cpa)} />
               </div>
             </>
           ) : (
@@ -696,7 +684,7 @@ export function MetaAdsDashboardClient({ metrics }: { metrics: MetaAdsPerformanc
         <details style={{ marginTop: 12 }}>
           <summary style={{ cursor: 'pointer', color: '#722F37', fontSize: 13, fontWeight: 800 }}>Daily metric table</summary>
           <Card style={{ padding: 0, overflow: 'hidden', marginTop: 8 }}>
-            <SortableDataTable columns={dailyColumns} rows={dailyRows as DailyRow[]} initialSortKey="date" initialSortDirection="desc" searchPlaceholder="Search daily rows..." />
+            <DataTable columns={dailyColumns} rows={dailyRows as DailyRow[]} initialSortKey="date" initialSortDirection="desc" searchPlaceholder="Search daily rows..." />
           </Card>
         </details>
       </PageSection>

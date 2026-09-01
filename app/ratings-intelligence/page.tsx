@@ -2,8 +2,7 @@ import { connection } from 'next/server';
 import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { DonutChart } from '@/components/DonutChart';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
+import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getRatingsIntelligence } from '@/lib/db';
 import { formatDate, formatNumber, formatPercent } from '@/lib/format';
@@ -25,7 +24,7 @@ type IntelligenceWineRow = Record<string, unknown> & {
   label: string;
 };
 
-const wineColumns: SortableColumn<IntelligenceWineRow>[] = [
+const wineColumns: DataTableColumn<IntelligenceWineRow>[] = [
   { key: 'productId', label: 'Shopify product ID', type: 'text' },
   { key: 'wine', label: 'Wine', type: 'text', width: 220 },
   { key: 'color', label: 'Color', type: 'text' },
@@ -136,7 +135,7 @@ export default async function RatingsIntelligencePage() {
             <PageSection>
               <SectionTitle sub="Top 100 rated wines">Wine Ratings</SectionTitle>
               <Card style={{ padding: 0, overflow: 'hidden' }}>
-                <SortableDataTable
+                <DataTable
                   columns={wineColumns}
                   rows={metrics.wines.map((wine) => ({
                     productId: wine.shopifyProductId,

@@ -2,8 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
+import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle } from '@/components/ui';
 import { CUSTOMER_STAGE_DEFINITIONS, type CustomerStageDefinition } from '@/lib/customerStages';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
 import type { CustomerProductSummary, CustomerRatingsSummary, RatedWineDetail } from '@/lib/db';
@@ -26,7 +25,7 @@ type ProductRow = Record<string, unknown> & CustomerProductSummary;
 type RatedWineRow = Record<string, unknown> & RatedWineDetail;
 type StageWithCount = CustomerStageDefinition & { count: number };
 
-const customerColumns: SortableColumn<FunnelCustomerRow>[] = [
+const customerColumns: DataTableColumn<FunnelCustomerRow>[] = [
   { key: 'email', label: 'Email', type: 'text', width: 240 },
   { key: 'totalSpent', label: 'Total spent', type: 'money' },
   { key: 'ordersCount', label: 'Orders', type: 'number' },
@@ -39,7 +38,7 @@ const customerColumns: SortableColumn<FunnelCustomerRow>[] = [
   { key: 'nextAction', label: 'Next action', type: 'text', width: 260 },
 ];
 
-const productColumns: SortableColumn<ProductRow>[] = [
+const productColumns: DataTableColumn<ProductRow>[] = [
   { key: 'productName', label: 'Product / wine', type: 'text', width: 220 },
   { key: 'quantityBought', label: 'Bought', type: 'number' },
   { key: 'netRevenue', label: 'Net revenue', type: 'money' },
@@ -48,7 +47,7 @@ const productColumns: SortableColumn<ProductRow>[] = [
   { key: 'ratingStatus', label: 'Status', type: 'text' },
 ];
 
-const ratedWineColumns: SortableColumn<RatedWineRow>[] = [
+const ratedWineColumns: DataTableColumn<RatedWineRow>[] = [
   { key: 'wineName', label: 'Wine / product', type: 'text', width: 220 },
   { key: 'color', label: 'Color', type: 'text' },
   { key: 'ratingLabel', label: 'Rating', type: 'text' },
@@ -229,7 +228,7 @@ export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSum
               </div>
             </div>
             {rows.length ? (
-              <SortableDataTable
+              <DataTable
                 columns={customerColumns}
                 rows={rows}
                 initialSortKey="totalSpent"
@@ -297,13 +296,13 @@ export function SalesFunnelClient({ customers }: { customers: CustomerRatingsSum
                 <div>
                   <SectionTitle sub={selectedCustomer.wineColorsRated}>Wines Rated</SectionTitle>
                   <div style={{ border: '1px solid #E8E6E1', borderRadius: 8, overflow: 'hidden' }}>
-                    <SortableDataTable columns={ratedWineColumns} rows={selectedCustomer.ratedWines as RatedWineRow[]} enableSearch={false} initialSortKey="ratingDate" />
+                    <DataTable columns={ratedWineColumns} rows={selectedCustomer.ratedWines as RatedWineRow[]} enableSearch={false} initialSortKey="ratingDate" />
                   </div>
                 </div>
                 <div>
                   <SectionTitle sub="Best-effort bought minus rated estimate">Products Bought</SectionTitle>
                   <div style={{ border: '1px solid #E8E6E1', borderRadius: 8, overflow: 'hidden' }}>
-                    <SortableDataTable columns={productColumns} rows={selectedCustomer.purchasedProducts as ProductRow[]} enableSearch={false} initialSortKey="quantityBought" />
+                    <DataTable columns={productColumns} rows={selectedCustomer.purchasedProducts as ProductRow[]} enableSearch={false} initialSortKey="quantityBought" />
                   </div>
                 </div>
               </div>

@@ -2,9 +2,7 @@ import { connection } from 'next/server';
 import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { DonutChart } from '@/components/DonutChart';
-import { Card, PageSection, SectionTitle } from '@/components/Layout';
-import { MetricCard } from '@/components/MetricCard';
-import { SortableDataTable, type SortableColumn } from '@/components/SortableDataTable';
+import { Card, DataTable, type DataTableColumn, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
 import { getGeoInsights } from '@/lib/db';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
@@ -20,7 +18,7 @@ type GeoRow = Record<string, unknown> & {
   classification: string;
 };
 
-const columns: SortableColumn<GeoRow>[] = [
+const columns: DataTableColumn<GeoRow>[] = [
   { key: 'city', label: 'City', type: 'text', width: 180 },
   { key: 'region', label: 'Region', type: 'text' },
   { key: 'customers', label: 'Customers', type: 'number' },
@@ -58,12 +56,12 @@ export default async function GeoInsightsPage() {
         {metrics ? (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-              <MetricCard label="Buyers with city" value={formatNumber(metrics.buyersWithCityData)} />
-              <MetricCard label="Missing city" value={formatNumber(metrics.buyersMissingCityData)} tone={metrics.buyersMissingCityData > 0 ? 'warning' : 'good'} />
-              <MetricCard label="Big city customers" value={formatPercent(metrics.bigCityCustomerShare)} />
-              <MetricCard label="Periphery customers" value={formatPercent(metrics.peripheryCustomerShare)} />
-              <MetricCard label="Big city revenue" value={formatEuro(metrics.bigCityRevenue)} />
-              <MetricCard label="Periphery revenue" value={formatEuro(metrics.peripheryRevenue)} />
+              <StatCard label="Buyers with city" value={formatNumber(metrics.buyersWithCityData)} />
+              <StatCard label="Missing city" value={formatNumber(metrics.buyersMissingCityData)} tone={metrics.buyersMissingCityData > 0 ? 'warning' : 'good'} />
+              <StatCard label="Big city customers" value={formatPercent(metrics.bigCityCustomerShare)} />
+              <StatCard label="Periphery customers" value={formatPercent(metrics.peripheryCustomerShare)} />
+              <StatCard label="Big city revenue" value={formatEuro(metrics.bigCityRevenue)} />
+              <StatCard label="Periphery revenue" value={formatEuro(metrics.peripheryRevenue)} />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 16 }}>
@@ -101,7 +99,7 @@ export default async function GeoInsightsPage() {
             <PageSection>
               <SectionTitle sub="Aggregate table by city">City Table</SectionTitle>
               <Card style={{ padding: 0, overflow: 'hidden' }}>
-                <SortableDataTable columns={columns} rows={rows} initialSortKey="revenue" searchPlaceholder="Search city or region..." />
+                <DataTable columns={columns} rows={rows} initialSortKey="revenue" searchPlaceholder="Search city or region..." />
               </Card>
             </PageSection>
           </>
