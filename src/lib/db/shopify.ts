@@ -387,6 +387,13 @@ export async function getShopifyLineItemsSample(): Promise<ShopifyLineItemsSampl
   }
 }
 
+/**
+ * Agregat des commandes Shopify : volumes, statuts et chiffre d affaires.
+ *
+ * Le corps de la requete a ete restaure depuis d510bda au Lot 3bis : deux blocs
+ * de SQL Meta Ads y avaient ete colles par erreur, ecrasant les sommes de
+ * total_price et subtotal_price et rendant la requete invalide.
+ */
 export async function getShopifyOrdersSummary(): Promise<ShopifyOrdersSummaryResult> {
   const databaseUrl = process.env.DATABASE_URL;
 
@@ -406,50 +413,18 @@ export async function getShopifyOrdersSummary(): Promise<ShopifyOrdersSummaryRes
           WHERE fulfillment_status IS NULL OR lower(coalesce(fulfillment_status::text, '')) <> 'fulfilled'
         )::text AS unfulfilled_orders,
         COALESCE(
-            COALESCE(
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'omni_purchase'
-                LIMIT 1
-              ),
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'purchase'
-                LIMIT 1
-              ),
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
-                LIMIT 1
-              ),
-              0
-            )
+          SUM(
+            CASE
+              WHEN total_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN total_price::text::numeric
+              ELSE NULL
+            END
           ),
           0
-            COALESCE(
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'omni_purchase'
-                LIMIT 1
-              ),
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'purchase'
-                LIMIT 1
-              ),
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
-                LIMIT 1
-              ),
-              0
-            )
+        )::text AS total_revenue,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN subtotal_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN subtotal_price::text::numeric
               ELSE NULL
             END
           ),
@@ -546,6 +521,7 @@ export async function getShopifyOrdersSummary(): Promise<ShopifyOrdersSummaryRes
     return { ok: false, reason: 'connection-failed' };
   }
 }
+
 
 export async function getShopifyProductsSummary(): Promise<ShopifyProductsSummaryResult> {
   const databaseUrl = process.env.DATABASE_URL;

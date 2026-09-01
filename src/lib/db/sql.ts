@@ -89,6 +89,13 @@ export const lineItemsBaseCte = `
   )
 `;
 
+/**
+ * Historique de commandes par client, en CTE autonome (commence par WITH).
+ *
+ * Reconstruit pour chaque client : nombre de commandes, chiffre d affaires,
+ * revenu de la premiere commande contre les suivantes, et dates extremes.
+ * Une commande annulee ou sans client identifie est exclue.
+ */
 export const customerOrdersCte = `
   WITH orders_base AS (
     SELECT
@@ -100,50 +107,18 @@ export const customerOrdersCte = `
         ELSE 0
       END AS order_revenue,
       COALESCE(
-            COALESCE(
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'omni_purchase'
-                LIMIT 1
-              ),
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'purchase'
-                LIMIT 1
-              ),
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
-                LIMIT 1
-              ),
-              0
-            )
+        NULLIF(customer::jsonb->>'id', ''),
+        NULLIF(email::text, '')
+      ) AS customer_key
+    FROM shopify.orders
+  ),
   identified_non_cancelled_orders AS (
     SELECT *
-            COALESCE(
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'omni_purchase'
-                LIMIT 1
-              ),
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'purchase'
-                LIMIT 1
-              ),
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
-                LIMIT 1
-              ),
-              0
-            )
+    FROM orders_base
+    WHERE cancelled_at IS NULL AND customer_key IS NOT NULL
+  ),
+  customer_order_positions AS (
+    SELECT
       *,
       ROW_NUMBER() OVER (PARTITION BY customer_key ORDER BY created_at, order_id) AS order_number,
       COUNT(*) OVER (PARTITION BY customer_key) AS customer_order_count
@@ -163,6 +138,12 @@ export const customerOrdersCte = `
   )
 `;
 
+
+/**
+ * Meme chose, mais a enchainer apres `lineItemsBaseCte` (commence donc par
+ * une virgule, pas par WITH). Ajoute `order_flags`, qui indique pour chaque
+ * commande si elle contient un coffret de decouverte ou une box.
+ */
 export const customerOrdersAfterLineItemsCtes = `,
   orders_base AS (
     SELECT
@@ -174,50 +155,18 @@ export const customerOrdersAfterLineItemsCtes = `,
         ELSE 0
       END AS order_revenue,
       COALESCE(
-            COALESCE(
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'omni_purchase'
-                LIMIT 1
-              ),
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'purchase'
-                LIMIT 1
-              ),
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(actions, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
-                LIMIT 1
-              ),
-              0
-            )
+        NULLIF(customer::jsonb->>'id', ''),
+        NULLIF(email::text, '')
+      ) AS customer_key
+    FROM shopify.orders
+  ),
   identified_non_cancelled_orders AS (
     SELECT *
-            COALESCE(
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'omni_purchase'
-                LIMIT 1
-              ),
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'purchase'
-                LIMIT 1
-              ),
-              (
-                SELECT NULLIF(elem->>'value', '')::numeric
-                FROM jsonb_array_elements(COALESCE(action_values, '[]'::jsonb)) elem
-                WHERE elem->>'action_type' = 'offsite_conversion.fb_pixel_purchase'
-                LIMIT 1
-              ),
-              0
-            )
+    FROM orders_base
+    WHERE cancelled_at IS NULL AND customer_key IS NOT NULL
+  ),
+  customer_order_positions AS (
+    SELECT
       *,
       ROW_NUMBER() OVER (PARTITION BY customer_key ORDER BY created_at, order_id) AS order_number,
       COUNT(*) OVER (PARTITION BY customer_key) AS customer_order_count
@@ -252,3 +201,4 @@ export const customerOrdersAfterLineItemsCtes = `,
       customer_order_positions.order_revenue
   )
 `;
+
