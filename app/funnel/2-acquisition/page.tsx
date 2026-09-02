@@ -1,7 +1,9 @@
+import { Suspense } from 'react';
 import { connection } from 'next/server';
 import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { AcquisitionTabs, parseAcquisitionTab } from '@/components/funnel/AcquisitionTabs';
+import { FunnelPipelineBar, FunnelPipelineBarSkeleton } from '@/components/funnel/FunnelPipelineBar';
 import { TopBar } from '@/components/TopBar';
 import {
   AlertBanner,
@@ -131,6 +133,13 @@ export default async function Step2Page({
         subtitle="Meta Ads et Google Ads : ce que coute une visite reellement qualifiee"
         step={STEP.step}
       />
+
+      {/* La bande des 7 etapes lit sept sources : elle ne doit jamais retarder
+          le contenu de la page, qui n en lit qu une. */}
+      <Suspense fallback={<FunnelPipelineBarSkeleton />}>
+        <FunnelPipelineBar currentStep={STEP.step} searchParams={params} />
+      </Suspense>
+
       <AcquisitionTabs active={tab} searchParams={params} />
 
       {tab === 'meta' ? <MetaTab range={range} /> : <GoogleTab range={range} />}

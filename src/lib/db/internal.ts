@@ -6,7 +6,7 @@
 import 'server-only';
 import { dateFromPg, getPool, numberFromPg, rate, ratio } from './client';
 import { isSmartBoxLineItem, isTasteKitLineItem } from './sql';
-import { type CustomerProductSummary, type CustomerRatingsSummary, type FoodPairingIntelligenceResult, type QuizFunnelResult, type QuizFunnelSegment, type RatedWineDetail, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type WineRatingSummary } from './types';
+import { type CustomerDetailedRatingsResult, type CustomerProductSummary, type CustomerRatingsSummary, type CustomerWineRating, type FoodPairingIntelligenceResult, type QuizFunnelResult, type QuizFunnelSegment, type RatedWineDetail, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type WineRatingSummary } from './types';
 import { dateToSql, type DateRange } from '@/lib/analytics/dateRanges';
 import { classifyCustomerStage } from '@/lib/customerStages';
 
@@ -927,6 +927,194 @@ export async function getQuizFunnel(range: DateRange): Promise<QuizFunnelResult>
       typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
 
     console.error('Quiz funnel lookup failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+/** Couleurs du profil labo : `public.wines.wine->>'colour'` est un code d une lettre. */
+const WINE_COLOUR_LABELS: Record<string, string> = {
+  R: 'Rouge',
+  W: 'Blanc',
+  P: 'Rose',
+};
+
+/**
+ * Detail des bouteilles d un client : ce qu il a recu, ce qu il en a dit.
+ *
+ * Alimente le panneau de droite du split view des etapes 5 et 6. La liste de
+ * gauche affiche `email || customerId`, l identifiant recu ici peut donc etre
+ * l un ou l autre : la fonction resout d abord l email en id client Shopify,
+ * puis retombe sur l identifiant brut (prefixe `order:` retire) quand aucun
+ * compte VinPop ne porte cet email.
+ *
+ * L ensemble des lignes est l union des produits commandes et des produits
+ * notes, jamais leur intersection : une note sans commande correspondante doit
+ * rester visible, c est le symptome d un rapprochement incomplet.
+ */
+export async function getCustomerDetailedRatings(email: string): Promise<CustomerDetailedRatingsResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  const identifier = email.trim();
+  if (!identifier) return { ok: false, reason: 'unknown-customer' };
+
+  try {
+    const pool = getPool(databaseUrl);
+
+    // Etape 1 : trouver la cle client Shopify. L email n est qu une facade,
+    // toutes les jointures se font sur l id client.
+    const identityResult = await pool.query<{ customer_key: string; email: string | null }>(
+      `SELECT id::text AS customer_key, email
+       FROM public.users
+       WHERE LOWER(email) = LOWER($1)
+       ORDER BY id
+       LIMIT 1`,
+      [identifier],
+    );
+
+    // Client sans compte VinPop : la liste de gauche l affiche par son id, on
+    // le reprend tel quel apres avoir retire le prefixe pose a l etape 5.
+    const customerKey = identityResult.rows[0]?.customer_key ?? identifier.replace(/^order:/, '');
+    let accountEmail = identityResult.rows[0]?.email ?? null;
+
+    if (!accountEmail) {
+      const fallback = await pool.query<{ email: string | null }>(
+        `SELECT email FROM public.users WHERE id::text = $1 LIMIT 1`,
+        [customerKey],
+      );
+      accountEmail = fallback.rows[0]?.email ?? null;
+    }
+
+    const winesResult = await pool.query<Record<string, string | boolean | Date | null>>(
+      `
+      WITH order_lines AS (
+        SELECT
+          orders.created_at AS order_date,
+          NULLIF(item->>'product_id', '') AS product_id,
+          COALESCE(NULLIF(item->>'title', ''), NULLIF(item->>'name', ''), 'Produit inconnu') AS title,
+          CASE
+            WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
+            ELSE 0
+          END AS quantity
+        FROM public.orders AS orders
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE
+            WHEN jsonb_typeof(orders.line_items::jsonb) = 'array' THEN orders.line_items::jsonb
+            ELSE '[]'::jsonb
+          END
+        ) AS item
+        -- Meme definition d achat qu aux etapes 5 et 6 : une commande annulee
+        -- n a jamais ete recue, elle ne doit rien ajouter au compteur.
+        WHERE orders.cancelled_at IS NULL
+          AND COALESCE(
+            NULLIF(orders.customer::jsonb->>'id', ''),
+            NULLIF(orders.email::text, '')
+          ) = $1
+      ),
+      purchased AS (
+        SELECT
+          product_id,
+          MIN(title) AS title,
+          SUM(quantity) AS quantity,
+          MAX(order_date) AS last_order_date
+        FROM order_lines
+        GROUP BY product_id
+      ),
+      -- Un client peut noter deux fois le meme vin : seule la note la plus
+      -- recente fait foi, sinon la bouteille apparaitrait en double.
+      customer_ratings AS (
+        SELECT DISTINCT ON (id::text)
+          id::text AS product_id,
+          rating,
+          created_at
+        FROM public.ratings
+        WHERE customer_id = $1
+        ORDER BY id::text, created_at DESC NULLS LAST
+      ),
+      universe AS (
+        SELECT product_id FROM purchased WHERE product_id IS NOT NULL
+        UNION
+        SELECT product_id FROM customer_ratings
+      )
+      SELECT
+        universe.product_id,
+        COALESCE(purchased.title, wines.name, public.mapping.name, 'Vin inconnu') AS wine_name,
+        COALESCE(purchased.quantity, 0)::text AS quantity,
+        (purchased.product_id IS NOT NULL) AS purchased,
+        purchased.last_order_date AS order_date,
+        NULLIF(wines.wine->>'region', '') AS region,
+        NULLIF(wines.wine->>'country', '') AS country,
+        NULLIF(wines.wine->>'winery', '') AS winery,
+        NULLIF(wines.wine->>'vintage', '') AS vintage,
+        NULLIF(wines.wine->>'colour', '') AS colour,
+        NULLIF(wines.wine->>'astringency_index', '') AS astringency_index,
+        customer_ratings.rating::text AS rating,
+        customer_ratings.created_at AS rating_date
+      FROM universe
+      LEFT JOIN purchased ON purchased.product_id = universe.product_id
+      LEFT JOIN customer_ratings ON customer_ratings.product_id = universe.product_id
+      LEFT JOIN public.mapping ON public.mapping.vp_id::text = universe.product_id
+      LEFT JOIN public.wines AS wines ON wines.id::text = public.mapping.wl_id::text
+      ORDER BY
+        customer_ratings.created_at DESC NULLS LAST,
+        purchased.last_order_date DESC NULLS LAST,
+        wine_name
+      LIMIT 200
+      `,
+      [customerKey],
+    );
+
+    const wines: CustomerWineRating[] = winesResult.rows.map((row) => {
+      const ratingValue = numberFromPg(row.rating as string | null);
+      const astringency = row.astringency_index as string | null;
+      const region = row.region as string | null;
+      const country = row.country as string | null;
+
+      return {
+        productId: (row.product_id as string | null) ?? '',
+        wineName: (row.wine_name as string | null) ?? 'Vin inconnu',
+        // "S/D" est la valeur posee par le laboratoire quand la region est
+        // inconnue : l afficher telle quelle n apprendrait rien au lecteur.
+        appellation:
+          [region && region !== 'S/D' ? region : null, country].filter(Boolean).join(', ') || null,
+        winery: (row.winery as string | null) ?? null,
+        vintage: (row.vintage as string | null) ?? null,
+        colour:
+          WINE_COLOUR_LABELS[(row.colour as string | null) ?? ''] ?? ((row.colour as string | null) || null),
+        astringencyIndex: astringency === null ? null : numberFromPg(astringency),
+        quantity: numberFromPg(row.quantity as string | null),
+        purchased: row.purchased === true,
+        orderDate: dateFromPg((row.order_date as Date | string | null) ?? null),
+        ratingLabel:
+          ratingValue === 3 ? 'Love' : ratingValue === 2 ? 'Like' : ratingValue === 1 ? 'Dislike' : null,
+        ratingDate: dateFromPg((row.rating_date as Date | string | null) ?? null),
+      };
+    });
+
+    // Bouteilles recues : la somme des quantites commandees, exactement la
+    // definition de `bottlesBought` a l etape 5, pour que le resume du panneau
+    // de droite ne contredise jamais la ligne selectionnee a gauche.
+    const bottlesReceived = wines.reduce((sum, wine) => sum + wine.quantity, 0);
+    const bottlesRated = wines.filter((wine) => wine.ratingLabel !== null).length;
+
+    return {
+      ok: true,
+      detail: {
+        identifier,
+        email: accountEmail,
+        customerKey,
+        bottlesReceived,
+        bottlesRated,
+        bottlesRemaining: Math.max(bottlesReceived - bottlesRated, 0),
+        loveCount: wines.filter((wine) => wine.ratingLabel === 'Love').length,
+        likeCount: wines.filter((wine) => wine.ratingLabel === 'Like').length,
+        dislikeCount: wines.filter((wine) => wine.ratingLabel === 'Dislike').length,
+        wines,
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Customer detailed ratings failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }

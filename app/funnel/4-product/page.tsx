@@ -1,5 +1,7 @@
+import { Suspense } from 'react';
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
+import { FunnelPipelineBar, FunnelPipelineBarSkeleton } from '@/components/funnel/FunnelPipelineBar';
 import { ProductConversionTable } from '@/components/funnel/ProductConversionTable';
 import { TopBar } from '@/components/TopBar';
 import {
@@ -36,7 +38,8 @@ export default async function Step4Page({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await connection();
-  const range = getDateRangeFromSearchParams(await searchParams);
+  const params = await searchParams;
+  const range = getDateRangeFromSearchParams(params);
 
   const result = await timeAsync(
     'page:/funnel/4-product getProductConversion',
@@ -83,6 +86,12 @@ export default async function Step4Page({
         subtitle="Ce que la fiche produit et le catalogue transforment reellement"
         step={STEP.step}
       />
+
+      {/* La bande des 7 etapes lit sept sources : elle ne doit jamais retarder
+          le contenu de la page, qui n en lit qu une. */}
+      <Suspense fallback={<FunnelPipelineBarSkeleton />}>
+        <FunnelPipelineBar currentStep={STEP.step} searchParams={params} />
+      </Suspense>
 
       {metrics.underperformingProducts.length > 0 ? (
         <PageSection>

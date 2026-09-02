@@ -1,10 +1,12 @@
+import { Suspense } from 'react';
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { TopBar } from '@/components/TopBar';
+import { CustomerRatingsSplitView } from '@/components/funnel/CustomerRatingsSplitView';
+import { FunnelPipelineBar, FunnelPipelineBarSkeleton } from '@/components/funnel/FunnelPipelineBar';
 import {
   AlertBanner,
   Card,
-  DataTable,
   PageSection,
   Section,
   StatCard,
@@ -32,15 +34,19 @@ export const runtime = 'nodejs';
 
 const STEP = FUNNEL_STEPS[5];
 
+/**
+ * Une ligne de la liste des clients convertis.
+ *
+ * Les compteurs Love / Like / Dislike ont quitte cette table : le panneau de
+ * droite du split view les detaille bouteille par bouteille, ce qui est la
+ * lecture utile pour composer la box suivante.
+ */
 type ConvertedRow = {
   customer: string;
   tasteKitOrderDate: string | null;
   smartBoxOrderDate: string | null;
   daysToConvert: number | null;
   ratingsCount: number;
-  loveCount: number;
-  likeCount: number;
-  dislikeCount: number;
   positiveRate: number | null;
 };
 
@@ -56,9 +62,6 @@ const convertedColumns: DataTableColumn<ConvertedRow>[] = [
     type: 'percent',
     description: 'Part de Love + Like dans les notes du client : a quel point la box lui correspond.',
   },
-  { key: 'loveCount', label: 'Love', type: 'number' },
-  { key: 'likeCount', label: 'Like', type: 'number' },
-  { key: 'dislikeCount', label: 'Dislike', type: 'number' },
 ];
 
 export default async function Step6Page({
@@ -67,7 +70,8 @@ export default async function Step6Page({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await connection();
-  const range = getDateRangeFromSearchParams(await searchParams);
+  const params = await searchParams;
+  const range = getDateRangeFromSearchParams(params);
 
   const result = await timeAsync(
     'page:/funnel/6-smart-box getSmartBoxConversion',
@@ -99,9 +103,6 @@ export default async function Step6Page({
     smartBoxOrderDate: customer.smartBoxOrderDate,
     daysToConvert: customer.daysToConvert,
     ratingsCount: customer.ratingsCount,
-    loveCount: customer.loveCount,
-    likeCount: customer.likeCount,
-    dislikeCount: customer.dislikeCount,
     positiveRate: customer.positiveRate,
   }));
 
@@ -113,6 +114,12 @@ export default async function Step6Page({
         step={STEP.step}
         showDateRange={false}
       />
+
+      {/* La bande des 7 etapes ne doit jamais retarder le contenu de la page :
+          elle lit sept sources, la page n en lit qu une. */}
+      <Suspense fallback={<FunnelPipelineBarSkeleton />}>
+        <FunnelPipelineBar currentStep={STEP.step} searchParams={params} />
+      </Suspense>
 
       {/* Controle zero-Dislike : le bloc le plus important de la page */}
       <PageSection>
@@ -218,19 +225,16 @@ export default async function Step6Page({
 
       <Section
         title="Clients convertis a la Smart Box"
-        sub="Profil aromatique de chacun : la concordance mesure la part de Love et Like dans ses notes."
+        sub="Profil aromatique de chacun : la concordance mesure la part de Love et Like dans ses notes. Cliquer une ligne affiche le detail de ses bouteilles a droite."
         bare
       >
-        <Card style={{ padding: 0, overflow: 'hidden' }}>
-          <DataTable
-            columns={convertedColumns}
-            rows={convertedRows}
-            initialSortKey="smartBoxOrderDate"
-            searchPlaceholder="Filtrer un client..."
-            emptyMessage="Aucun client n a encore commande de Smart Wine Box."
-            rowKey="customer"
-          />
-        </Card>
+        <CustomerRatingsSplitView
+          columns={convertedColumns}
+          rows={convertedRows}
+          identifierKey="customer"
+          initialSortKey="smartBoxOrderDate"
+          emptyMessage="Aucun client n a encore commande de Smart Wine Box."
+        />
       </Section>
     </DashboardLayout>
   );

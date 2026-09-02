@@ -679,3 +679,55 @@ export type RetentionMetrics = {
 export type RetentionResult =
   | { ok: true; metrics: RetentionMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+/**
+ * Une bouteille du client, vue depuis le panneau de detail des etapes 5 et 6.
+ *
+ * La ligne existe des qu il y a soit une ligne de commande, soit une note :
+ * `purchased` distingue les deux cas. Une note sans achat correspondant n est
+ * pas une anomalie a masquer, c est au contraire un signal de rapprochement
+ * incomplet entre `public.ratings` et les commandes Shopify.
+ */
+export type CustomerWineRating = {
+  /** Identifiant produit Shopify, cle de rapprochement avec `public.mapping`. */
+  productId: string;
+  wineName: string;
+  /** Region et pays issus du profil labo (`public.wines.wine`). */
+  appellation: string | null;
+  winery: string | null;
+  vintage: string | null;
+  /** Couleur traduite depuis le code labo (R / W / P). */
+  colour: string | null;
+  /** Indice d astringence mesure au laboratoire, absent pour les blancs. */
+  astringencyIndex: number | null;
+  /** Bouteilles recues pour ce vin, toutes commandes non annulees confondues. */
+  quantity: number;
+  /** false quand la note existe sans ligne de commande correspondante. */
+  purchased: boolean;
+  /** Derniere commande contenant ce vin. */
+  orderDate: string | null;
+  /** null tant que le client n a pas note ce vin. */
+  ratingLabel: 'Love' | 'Like' | 'Dislike' | null;
+  ratingDate: string | null;
+};
+
+/** Detail des bouteilles d un client, pour le panneau de droite du split view. */
+export type CustomerDetailedRatings = {
+  /** Identifiant tel qu il a ete demande (email ou cle client). */
+  identifier: string;
+  /** Email du compte VinPop, quand le client en a un. */
+  email: string | null;
+  /** Id client Shopify : la cle de rapprochement reelle. */
+  customerKey: string;
+  bottlesReceived: number;
+  bottlesRated: number;
+  bottlesRemaining: number;
+  loveCount: number;
+  likeCount: number;
+  dislikeCount: number;
+  wines: CustomerWineRating[];
+};
+
+export type CustomerDetailedRatingsResult =
+  | { ok: true; detail: CustomerDetailedRatings }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' | 'unknown-customer' };

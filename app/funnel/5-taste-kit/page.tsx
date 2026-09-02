@@ -1,10 +1,12 @@
+import { Suspense } from 'react';
 import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { TopBar } from '@/components/TopBar';
+import { CustomerRatingsSplitView } from '@/components/funnel/CustomerRatingsSplitView';
+import { FunnelPipelineBar, FunnelPipelineBarSkeleton } from '@/components/funnel/FunnelPipelineBar';
 import {
   AlertBanner,
   Card,
-  DataTable,
   PageSection,
   Section,
   StatCard,
@@ -34,15 +36,19 @@ export const runtime = 'nodejs';
 
 const STEP = FUNNEL_STEPS[4];
 
+/**
+ * Une ligne du pipeline de relance.
+ *
+ * Les compteurs Love / Like / Dislike ne figurent plus ici : le panneau de
+ * droite du split view les detaille vin par vin, ce qui est la seule lecture
+ * actionnable ("laquelle de ses bouteilles reste a noter ?").
+ */
 type PipelineRow = {
   email: string;
   bottlesBought: number;
   bottlesRated: number;
   remaining: number;
   ratedPercentage: number | null;
-  loveCount: number;
-  likeCount: number;
-  dislikeCount: number;
   lastRatingDate: string | null;
   nextAction: string;
 };
@@ -59,9 +65,6 @@ const pipelineColumns: DataTableColumn<PipelineRow>[] = [
     description: 'Bouteilles achetees et pas encore evaluees. C est le volume de relance.',
   },
   { key: 'ratedPercentage', label: 'Avancement', type: 'percent' },
-  { key: 'loveCount', label: 'Love', type: 'number' },
-  { key: 'likeCount', label: 'Like', type: 'number' },
-  { key: 'dislikeCount', label: 'Dislike', type: 'number' },
   { key: 'lastRatingDate', label: 'Derniere note', type: 'date' },
   { key: 'nextAction', label: 'Action', type: 'text' },
 ];
@@ -104,9 +107,6 @@ export default async function Step5Page() {
     bottlesRated: customer.bottlesRated,
     remaining: customer.unratedBottlesRemaining,
     ratedPercentage: customer.ratedPercentage,
-    loveCount: customer.loveCount,
-    likeCount: customer.likeCount,
-    dislikeCount: customer.dislikeCount,
     lastRatingDate: customer.lastRatingDate,
     nextAction: customer.nextAction,
   }));
@@ -129,6 +129,12 @@ export default async function Step5Page() {
         step={STEP.step}
         showDateRange={false}
       />
+
+      {/* La bande des 7 etapes ne doit jamais retarder le contenu de la page :
+          elle lit sept sources, la page n en lit qu une. */}
+      <Suspense fallback={<FunnelPipelineBarSkeleton />}>
+        <FunnelPipelineBar currentStep={STEP.step} />
+      </Suspense>
 
       {pipeline.length > 0 ? (
         <PageSection>
@@ -192,19 +198,16 @@ export default async function Step5Page() {
 
       <Section
         title="Pipeline de relance"
-        sub="Clients ayant recu des bouteilles et ne les ayant pas toutes notees, classes par volume restant."
+        sub="Clients ayant recu des bouteilles et ne les ayant pas toutes notees, classes par volume restant. Cliquer une ligne affiche le detail de ses bouteilles a droite."
         bare
       >
-        <Card style={{ padding: 0, overflow: 'hidden' }}>
-          <DataTable
-            columns={pipelineColumns}
-            rows={pipelineRows}
-            initialSortKey="remaining"
-            searchPlaceholder="Filtrer un client..."
-            emptyMessage="Aucun client en attente de notation : tout le monde est a jour."
-            rowKey="email"
-          />
-        </Card>
+        <CustomerRatingsSplitView
+          columns={pipelineColumns}
+          rows={pipelineRows}
+          identifierKey="email"
+          initialSortKey="remaining"
+          emptyMessage="Aucun client en attente de notation : tout le monde est a jour."
+        />
       </Section>
 
       {metrics.missingData.length > 0 ? (
