@@ -7,7 +7,8 @@ import 'server-only';
 import { dateFromPg, getPool, numberFromPg, rate, ratio } from './client';
 import { getRepeatCustomerMetrics, getStartupPackRetention, getStockMovementSummary } from './shopify';
 import { customerOrdersAfterLineItemsCtes, lineItemsBaseCte } from './sql';
-import { type CustomerIntelligenceResult, type CustomerLifecycleResult, type CustomerProductSummary, type CustomerRatingsSummary, type FoodPairingIntelligenceResult, type RatedWineDetail, type RatingActivityBucket, type RatingsConversionResult, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type WineRatingSummary } from './types';
+import { type CustomerIntelligenceResult, type CustomerLifecycleResult, type CustomerProductSummary, type CustomerRatingsSummary, type FoodPairingIntelligenceResult, type RatedWineDetail, type RatingActivityBucket, type RatingsConversionResult, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type QuizFunnelResult, type QuizFunnelSegment, type WineRatingSummary } from './types';
+import { dateToSql, type DateRange } from '@/lib/analytics/dateRanges';
 import { classifyCustomerStage } from '@/lib/customerStages';
 
 export type RatingsAggregateRow = {
@@ -1304,6 +1305,184 @@ export async function getFoodPairingIntelligence(): Promise<FoodPairingIntellige
   } catch (error) {
     const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
     console.error('Food pairing intelligence failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+/** Au-dela de ce taux d abandon, le funnel quiz declenche une alerte. */
+const QUIZ_DROP_OFF_ALERT_THRESHOLD = 80;
+
+type QuizSegmentRow = {
+  label: string | null;
+  started_sessions: string | null;
+  completed_sessions: string | null;
+};
+
+type QuizTotalsRow = {
+  started_sessions: string | null;
+  completed_sessions: string | null;
+  started_visitors: string | null;
+};
+
+type QuizDailyRow = {
+  date: string | null;
+  started_sessions: string | null;
+  completed_sessions: string | null;
+};
+
+/**
+ * Construit un segment a partir d une ligne agregee.
+ *
+ * Le taux de completion reste `null` quand aucune session n a demarre : afficher
+ * 0 % laisserait croire a un echec alors qu il n y a rien a mesurer.
+ */
+function toQuizSegment(row: QuizSegmentRow, fallbackLabel: string): QuizFunnelSegment {
+  const startedSessions = numberFromPg(row.started_sessions);
+  const completedSessions = numberFromPg(row.completed_sessions);
+  const completionRate = rate(completedSessions, startedSessions);
+
+  return {
+    label: row.label || fallbackLabel,
+    startedSessions,
+    completedSessions,
+    completionRate,
+    dropOffRate: completionRate === null ? null : 100 - completionRate,
+  };
+}
+
+/**
+ * Etape 3 du funnel : quiz demarres contre quiz termines.
+ *
+ * La source est `public.site_events`, alimentee en direct par le theme Shopify.
+ * On compte des SESSIONS distinctes, pas des evenements : un visiteur qui
+ * relance le quiz dans la meme session ne doit pas gonfler le denominateur.
+ *
+ * La table `public.quizz` n alimente pas le funnel : elle ne contient que les
+ * resultats enregistres, sans trace des abandons. Elle sert de controle de
+ * coherence via `storedQuizResults`.
+ */
+export async function getQuizFunnel(range: DateRange): Promise<QuizFunnelResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  const start = dateToSql(range.start);
+  const end = dateToSql(range.end);
+
+  try {
+    const pool = getPool(databaseUrl);
+
+    // Les six lectures portent sur la meme fenetre : les lancer en parallele
+    // evite d additionner six allers-retours reseau.
+    const [totalsResult, byTypeResult, bySourceResult, byPageResult, dailyResult, storedResult] =
+      await Promise.all([
+        pool.query<QuizTotalsRow>(
+          `SELECT
+             COUNT(DISTINCT session_id) FILTER (WHERE event_name = 'vinpop_quiz_started')::text AS started_sessions,
+             COUNT(DISTINCT session_id) FILTER (WHERE event_name = 'vinpop_quiz_completed')::text AS completed_sessions,
+             COUNT(DISTINCT visitor_id) FILTER (WHERE event_name = 'vinpop_quiz_started')::text AS started_visitors
+           FROM public.site_events
+           WHERE event_name IN ('vinpop_quiz_started', 'vinpop_quiz_completed')
+             AND event_time::date BETWEEN $1::date AND $2::date`,
+          [start, end],
+        ),
+        pool.query<QuizSegmentRow>(
+          `SELECT
+             payload->'payload'->>'quiz_type' AS label,
+             COUNT(DISTINCT session_id) FILTER (WHERE event_name = 'vinpop_quiz_started')::text AS started_sessions,
+             COUNT(DISTINCT session_id) FILTER (WHERE event_name = 'vinpop_quiz_completed')::text AS completed_sessions
+           FROM public.site_events
+           WHERE event_name IN ('vinpop_quiz_started', 'vinpop_quiz_completed')
+             AND event_time::date BETWEEN $1::date AND $2::date
+           GROUP BY 1
+           ORDER BY 2 DESC`,
+          [start, end],
+        ),
+        pool.query<QuizSegmentRow>(
+          `SELECT
+             COALESCE(NULLIF(utm_source, ''), '(direct)') AS label,
+             COUNT(DISTINCT session_id) FILTER (WHERE event_name = 'vinpop_quiz_started')::text AS started_sessions,
+             COUNT(DISTINCT session_id) FILTER (WHERE event_name = 'vinpop_quiz_completed')::text AS completed_sessions
+           FROM public.site_events
+           WHERE event_name IN ('vinpop_quiz_started', 'vinpop_quiz_completed')
+             AND event_time::date BETWEEN $1::date AND $2::date
+           GROUP BY 1
+           ORDER BY 2 DESC`,
+          [start, end],
+        ),
+        // Les URL portent des parametres UTM : on ne garde que le chemin, sinon
+        // chaque campagne creerait sa propre page d entree.
+        pool.query<QuizSegmentRow>(
+          `SELECT
+             regexp_replace(split_part(COALESCE(page_url, ''), '?', 1), '^https?://[^/]+', '') AS label,
+             COUNT(DISTINCT session_id) FILTER (WHERE event_name = 'vinpop_quiz_started')::text AS started_sessions,
+             COUNT(DISTINCT session_id) FILTER (WHERE event_name = 'vinpop_quiz_completed')::text AS completed_sessions
+           FROM public.site_events
+           WHERE event_name IN ('vinpop_quiz_started', 'vinpop_quiz_completed')
+             AND event_time::date BETWEEN $1::date AND $2::date
+           GROUP BY 1
+           ORDER BY 2 DESC
+           LIMIT 25`,
+          [start, end],
+        ),
+        pool.query<QuizDailyRow>(
+          `SELECT
+             event_time::date::text AS date,
+             COUNT(DISTINCT session_id) FILTER (WHERE event_name = 'vinpop_quiz_started')::text AS started_sessions,
+             COUNT(DISTINCT session_id) FILTER (WHERE event_name = 'vinpop_quiz_completed')::text AS completed_sessions
+           FROM public.site_events
+           WHERE event_name IN ('vinpop_quiz_started', 'vinpop_quiz_completed')
+             AND event_time::date BETWEEN $1::date AND $2::date
+           GROUP BY 1
+           ORDER BY 1`,
+          [start, end],
+        ),
+        pool.query<{ stored: string | null }>(
+          `SELECT COUNT(*)::text AS stored
+           FROM public.quizz
+           WHERE created_at::date BETWEEN $1::date AND $2::date`,
+          [start, end],
+        ),
+      ]);
+
+    const totals = totalsResult.rows[0];
+    const startedSessions = numberFromPg(totals?.started_sessions);
+    const completedSessions = numberFromPg(totals?.completed_sessions);
+    const completionRate = rate(completedSessions, startedSessions);
+
+    return {
+      ok: true,
+      metrics: {
+        periodLabel: range.label,
+        dataAvailable: startedSessions > 0,
+        startedSessions,
+        completedSessions,
+        startedVisitors: numberFromPg(totals?.started_visitors),
+        completionRate,
+        dropOffRate: completionRate === null ? null : 100 - completionRate,
+        dropOffAlertThreshold: QUIZ_DROP_OFF_ALERT_THRESHOLD,
+        byQuizType: byTypeResult.rows.map((row) => toQuizSegment(row, '(type non renseigne)')),
+        bySource: bySourceResult.rows.map((row) => toQuizSegment(row, '(direct)')),
+        byEntryPage: byPageResult.rows.map((row) => toQuizSegment(row, '(page inconnue)')),
+        daily: dailyResult.rows.map((row) => ({
+          date: row.date ?? '',
+          startedSessions: numberFromPg(row.started_sessions),
+          completedSessions: numberFromPg(row.completed_sessions),
+        })),
+        storedQuizResults: numberFromPg(storedResult.rows[0]?.stored),
+        // Le payload des evenements ne transporte que `quiz_type` : il n existe
+        // aucune trace de la question atteinte avant l abandon. Passer ce drapeau
+        // a true demandera d emettre un evenement par question depuis le theme.
+        perQuestionAvailable: false,
+      },
+    };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Quiz funnel lookup failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }

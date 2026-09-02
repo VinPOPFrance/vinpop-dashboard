@@ -1,4 +1,5 @@
-import { StatusBadge, colors, radius } from '@/components/ui';
+import { ClarityButtons } from './ClarityButtons';
+import { StatusBadge, colors } from '@/components/ui';
 import type { ClarityLinks } from '@/lib/clarity';
 import { formatNumber } from '@/lib/format';
 
@@ -35,30 +36,6 @@ const headerStyle: React.CSSProperties = {
   color: colors.textSecondary,
   whiteSpace: 'nowrap',
 };
-
-/** Petit lien-bouton vers la console Clarity. */
-function ClarityButton({ href, label }: { href: string; label: string }) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer noopener"
-      style={{
-        display: 'inline-block',
-        padding: '3px 8px',
-        borderRadius: radius.sm,
-        border: `1px solid ${colors.border}`,
-        background: colors.surface,
-        color: colors.brand,
-        fontSize: 11,
-        fontWeight: 600,
-        textDecoration: 'none',
-      }}
-    >
-      {label}
-    </a>
-  );
-}
 
 export function ExperiencePagesTable({
   rows,
@@ -124,14 +101,7 @@ export function ExperiencePagesTable({
                 )}
               </td>
               <td style={cellStyle}>
-                {row.clarity ? (
-                  <span style={{ display: 'inline-flex', gap: 6 }}>
-                    <ClarityButton href={row.clarity.heatmap} label="Heatmap" />
-                    <ClarityButton href={row.clarity.recordings} label="Sessions" />
-                  </span>
-                ) : (
-                  <span style={{ color: colors.textMuted, fontSize: 11 }}>non configure</span>
-                )}
+                <ClarityButtons links={row.clarity} />
               </td>
             </tr>
           ))}

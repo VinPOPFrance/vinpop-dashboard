@@ -1177,3 +1177,97 @@ export type GoogleAdsKeywordMetrics = {
 export type GoogleAdsKeywordResult =
   | { ok: true; metrics: GoogleAdsKeywordMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+/** Etape 3 : une decomposition du funnel quiz selon une dimension. */
+export type QuizFunnelSegment = {
+  label: string;
+  startedSessions: number;
+  completedSessions: number;
+  /** Part des sessions demarrees qui vont au bout, en pourcentage. */
+  completionRate: number | null;
+  /** Complement du taux de completion. C est lui qui declenche l alerte. */
+  dropOffRate: number | null;
+};
+
+export type QuizFunnelDailyPoint = {
+  date: string;
+  startedSessions: number;
+  completedSessions: number;
+};
+
+export type QuizFunnelMetrics = {
+  periodLabel: string;
+  dataAvailable: boolean;
+  startedSessions: number;
+  completedSessions: number;
+  /** Visiteurs distincts ayant demarre, pour distinguer volume et audience. */
+  startedVisitors: number;
+  completionRate: number | null;
+  dropOffRate: number | null;
+  /** Seuil d abandon au-dela duquel l alerte se declenche (80 %). */
+  dropOffAlertThreshold: number;
+  byQuizType: QuizFunnelSegment[];
+  bySource: QuizFunnelSegment[];
+  byEntryPage: QuizFunnelSegment[];
+  daily: QuizFunnelDailyPoint[];
+  /**
+   * Nombre de resultats de quiz enregistres en base sur la periode.
+   *
+   * A comparer aux quiz termines : un ecart durable signale que les reponses
+   * ne sont pas persistees, ou que la synchronisation de la table accuse du
+   * retard.
+   */
+  storedQuizResults: number;
+  /**
+   * false tant que le site n emet pas d evenement par question : le payload des
+   * evenements quiz ne contient aujourd hui que `quiz_type`.
+   */
+  perQuestionAvailable: boolean;
+};
+
+export type QuizFunnelResult =
+  | { ok: true; metrics: QuizFunnelMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+/** Etape 4 : un produit et son entonnoir de conversion mesure par GA4. */
+export type ProductConversionRow = {
+  /** Identifiant produit Shopify, extrait de l itemId GA4. */
+  productId: string;
+  itemName: string;
+  /** Chemin de la fiche produit, ou null si le handle Shopify est introuvable. */
+  pagePath: string | null;
+  itemsViewed: number;
+  itemsAddedToCart: number;
+  itemsPurchased: number;
+  itemRevenue: number;
+  /** Quantite vendue selon Shopify. Controle, jamais un denominateur : voir getProductConversion. */
+  shopifyQuantitySold: number | null;
+  /** Ajouts au panier / vues, en pourcentage. */
+  cartToViewRate: number | null;
+  /** Achats / vues, en pourcentage : le taux de conversion de la fiche. */
+  purchaseToViewRate: number | null;
+  /** true si la fiche a du trafic mais ne convertit pas. */
+  underperforming: boolean;
+};
+
+export type ProductConversionMetrics = {
+  periodLabel: string;
+  dataAvailable: boolean;
+  totalViews: number;
+  totalAddedToCart: number;
+  totalPurchased: number;
+  totalRevenue: number;
+  /** Taux de conversion moyen des fiches : achats / vues. */
+  averageConversionRate: number | null;
+  averageCartToViewRate: number | null;
+  /** Vues minimales pour qu une fiche soit jugee sous-performante. */
+  underperformingViewsThreshold: number;
+  /** Taux de conversion sous lequel une fiche a fort trafic est signalee. */
+  underperformingConversionThreshold: number;
+  products: ProductConversionRow[];
+  underperformingProducts: ProductConversionRow[];
+};
+
+export type ProductConversionResult =
+  | { ok: true; metrics: ProductConversionMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };

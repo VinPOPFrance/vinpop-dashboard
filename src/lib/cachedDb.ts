@@ -9,6 +9,8 @@ import {
   getGoogleAdsKeywordPerformance,
   getLandingPageArrivals,
   getLastAirbyteSync,
+  getProductConversion,
+  getQuizFunnel,
   getMetaAdsOverviewSummary,
   getMetaAdsPerformance,
   getRatingsIntelligence,
@@ -199,4 +201,18 @@ export const getCachedGoogleAdsKeywordPerformance = cachedByRange(
   'getGoogleAdsKeywordPerformance',
   getGoogleAdsKeywordPerformance,
   (result) => (result.ok ? result.metrics.keywords.length : null),
+);
+
+export const getCachedQuizFunnel = cachedByRange(
+  'quiz-funnel',
+  'getQuizFunnel',
+  getQuizFunnel,
+  (result) => (result.ok ? result.metrics.daily.length : null),
+);
+
+export const getCachedProductConversion = cachedByRange(
+  'product-conversion',
+  'getProductConversion',
+  getProductConversion,
+  (result) => (result.ok ? result.metrics.products.length : null),
 );

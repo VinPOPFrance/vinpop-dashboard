@@ -11,7 +11,7 @@ import { getFoodPairingIntelligence, getRatingsConversion, getRatingsIntelligenc
 import { getMetaAdsPerformance } from './meta';
 import { getRepeatCustomerMetrics, getShopifyFunnelBasic, getShopifyOrdersSummary, getShopifyProductsSummary, getStartupPackAnalysis, getStartupPackRetention, getStockMovementSummary } from './shopify';
 import { lineItemsBaseCte } from './sql';
-import { type AcquisitionEconomicsBasicResult, type BusinessOverviewPeriodTrendsResult, type BusinessOverviewResult, type CopyVersionPerformanceResult, type CopyVersionPeriodInput, type RatingsConversionMetrics, type RepeatCustomerMetrics, type ShopifyFunnelBasicMetrics, type ShopifyOrdersAggregateMetrics, type ShopifyProductsSummaryResult, type StartupPackAnalysisMetrics, type StartupPackRetentionMetrics, type StockMovementSummaryMetrics, type TodayAction, type TodayActionPlanResult, type TrackingReadinessResult, type TrackingReadinessTable } from './types';
+import { type AcquisitionEconomicsBasicResult, type BusinessOverviewPeriodTrendsResult, type BusinessOverviewResult, type CopyVersionPerformanceResult, type CopyVersionPeriodInput, type RatingsConversionMetrics, type RepeatCustomerMetrics, type ShopifyFunnelBasicMetrics, type ShopifyOrdersAggregateMetrics, type ShopifyProductsSummaryResult, type StartupPackAnalysisMetrics, type StartupPackRetentionMetrics, type StockMovementSummaryMetrics, type TodayAction, type TodayActionPlanResult, type TrackingReadinessResult, type ProductConversionResult, type ProductConversionRow, type TrackingReadinessTable } from './types';
 import { dateToSql, getPreviousDateRange, type DateRange } from '@/lib/analytics/dateRanges';
 import { calculateTrend } from '@/lib/analytics/trends';
 
@@ -1228,6 +1228,166 @@ export async function getCopyVersionPerformance(
   } catch (error) {
     const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
     console.error('Copy version performance failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+/**
+ * Vues minimales pour qu une fiche produit soit jugee.
+ *
+ * Sous ce volume, un taux de conversion nul ne veut rien dire : trois visiteurs
+ * qui n achetent pas, c est du hasard, pas un probleme de fiche.
+ */
+const PRODUCT_UNDERPERFORMING_VIEWS = 50;
+
+/** Taux de conversion sous lequel une fiche a fort trafic est signalee. */
+const PRODUCT_UNDERPERFORMING_CVR = 1.5;
+
+type ProductItemRow = {
+  product_id: string | null;
+  item_name: string | null;
+  product_handle: string | null;
+  items_viewed: string | null;
+  items_added_to_cart: string | null;
+  items_purchased: string | null;
+  item_revenue: string | null;
+  shopify_quantity_sold: string | null;
+};
+
+/**
+ * Etape 4 du funnel : conversion des fiches produit.
+ *
+ * Croise deux sources sur l identifiant produit Shopify :
+ *
+ *  - GA4 (`ecommerce_purchases_item_id_report`) porte les trois etapes de
+ *    l entonnoir produit : vues, ajouts au panier, achats. Son `itemId` est de
+ *    la forme `shopify_ZZ_{productId}_{variantId}`, ce qui permet de remonter
+ *    au produit Shopify sans rapprochement par libelle.
+ *  - Shopify (`shopify.products`) fournit le titre et le `handle`, donc l URL
+ *    reelle de la fiche — indispensable pour ouvrir la bonne heatmap Clarity.
+ *
+ * Le taux de conversion affiche vient entierement de GA4 : les trois volumes
+ * sont mesures par le meme outil sur la meme fenetre, le quotient est donc
+ * coherent. Les quantites vendues cote Shopify sont exposees a part, comme
+ * controle : leur synchronisation Airbyte n a pas le meme rythme que GA4, et
+ * diviser des achats Shopify par des vues GA4 melangerait deux fenetres.
+ */
+export async function getProductConversion(range: DateRange): Promise<ProductConversionResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  const { start, end } = ga4Bounds(range);
+
+  try {
+    const pool = getPool(databaseUrl);
+
+    const result = await pool.query<ProductItemRow>(
+      `WITH ga4_items AS (
+         SELECT
+           -- itemId = shopify_ZZ_{productId}_{variantId} : on isole le produit.
+           split_part("itemId", '_', 3) AS product_id,
+           SUM("itemsViewed"::numeric) AS items_viewed,
+           SUM("itemsAddedToCart"::numeric) AS items_added_to_cart,
+           SUM("itemsPurchased"::numeric) AS items_purchased,
+           SUM("itemRevenue"::numeric) AS item_revenue
+         FROM public.ecommerce_purchases_item_id_report
+         WHERE date BETWEEN $1 AND $2
+         GROUP BY 1
+         HAVING SUM("itemsViewed"::numeric) > 0
+       ),
+       shopify_products AS (
+         SELECT id::text AS product_id, title, handle
+         FROM shopify.products
+       ),
+       shopify_sales AS (
+         SELECT
+           line_item->>'product_id' AS product_id,
+           SUM(COALESCE(NULLIF(line_item->>'quantity', '')::numeric, 0)) AS quantity_sold
+         FROM shopify.orders,
+           LATERAL jsonb_array_elements(
+             CASE
+               WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN line_items::jsonb
+               ELSE '[]'::jsonb
+             END
+           ) AS line_item
+         WHERE cancelled_at IS NULL
+           AND created_at::date BETWEEN $3::date AND $4::date
+         GROUP BY 1
+       )
+       SELECT
+         ga4_items.product_id,
+         shopify_products.title AS item_name,
+         shopify_products.handle AS product_handle,
+         ga4_items.items_viewed::text AS items_viewed,
+         ga4_items.items_added_to_cart::text AS items_added_to_cart,
+         ga4_items.items_purchased::text AS items_purchased,
+         ga4_items.item_revenue::text AS item_revenue,
+         shopify_sales.quantity_sold::text AS shopify_quantity_sold
+       FROM ga4_items
+       LEFT JOIN shopify_products ON shopify_products.product_id = ga4_items.product_id
+       LEFT JOIN shopify_sales ON shopify_sales.product_id = ga4_items.product_id
+       ORDER BY ga4_items.items_viewed DESC
+       LIMIT 200`,
+      [start, end, dateToSql(range.start), dateToSql(range.end)],
+    );
+
+    const products: ProductConversionRow[] = result.rows.map((row) => {
+      const itemsViewed = numberFromPg(row.items_viewed);
+      const itemsAddedToCart = numberFromPg(row.items_added_to_cart);
+      const itemsPurchased = numberFromPg(row.items_purchased);
+      const purchaseToViewRate = rate(itemsPurchased, itemsViewed);
+
+      return {
+        productId: row.product_id || '',
+        itemName: row.item_name || `Produit ${row.product_id ?? 'inconnu'}`,
+        // Sans handle, pas d URL de fiche : le lien Clarity sera masque.
+        pagePath: row.product_handle ? `/products/${row.product_handle}` : null,
+        itemsViewed,
+        itemsAddedToCart,
+        itemsPurchased,
+        itemRevenue: numberFromPg(row.item_revenue),
+        shopifyQuantitySold: row.shopify_quantity_sold ? numberFromPg(row.shopify_quantity_sold) : null,
+        cartToViewRate: rate(itemsAddedToCart, itemsViewed),
+        purchaseToViewRate,
+        // Fort trafic mais conversion en berne : c est cette fiche qui merite une
+        // heatmap, pas celle qui n a que trois visiteurs.
+        underperforming:
+          itemsViewed >= PRODUCT_UNDERPERFORMING_VIEWS &&
+          (purchaseToViewRate === null || purchaseToViewRate < PRODUCT_UNDERPERFORMING_CVR),
+      };
+    });
+
+    const totalViews = products.reduce((sum, row) => sum + row.itemsViewed, 0);
+    const totalAddedToCart = products.reduce((sum, row) => sum + row.itemsAddedToCart, 0);
+    const totalPurchased = products.reduce((sum, row) => sum + row.itemsPurchased, 0);
+
+    return {
+      ok: true,
+      metrics: {
+        periodLabel: range.label,
+        dataAvailable: products.length > 0,
+        totalViews,
+        totalAddedToCart,
+        totalPurchased,
+        totalRevenue: products.reduce((sum, row) => sum + row.itemRevenue, 0),
+        averageConversionRate: rate(totalPurchased, totalViews),
+        averageCartToViewRate: rate(totalAddedToCart, totalViews),
+        underperformingViewsThreshold: PRODUCT_UNDERPERFORMING_VIEWS,
+        underperformingConversionThreshold: PRODUCT_UNDERPERFORMING_CVR,
+        products,
+        underperformingProducts: products
+          .filter((row) => row.underperforming)
+          .sort((a, b) => b.itemsViewed - a.itemsViewed),
+      },
+    };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Product conversion lookup failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }
