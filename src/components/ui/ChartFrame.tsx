@@ -3,8 +3,8 @@ import { colors, radius } from './tokens';
 /**
  * Cadre commun a tous les graphiques.
  *
- * Les graphiques (`BarChart`, `DonutChart`, `LineChart`) ne dessinent que la
- * donnee ; ce cadre fournit le titre, la legende, la hauteur et surtout l'etat
+ * Les graphiques ne dessinent que la donnee ; ce cadre fournit le titre, la
+ * legende, la hauteur et surtout l'etat
  * vide. Sans lui, chaque page reinventait son propre "no data" et affichait
  * parfois un graphique vide sans dire pourquoi.
  */

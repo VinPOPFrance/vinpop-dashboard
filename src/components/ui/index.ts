@@ -9,7 +9,6 @@
 
 export { AlertBanner } from './AlertBanner';
 export { ChartFrame } from './ChartFrame';
-export { Collapsible } from './Collapsible';
 export { DataTable, type DataTableColumn } from './DataTable';
 export { Card, PageSection, Section, SectionTitle } from './Section';
 export { StatCard, StatGrid } from './StatCard';

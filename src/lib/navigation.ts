@@ -4,9 +4,10 @@
  * Source unique de verite pour la barre laterale et pour l'en-tete de page :
  * ajouter une etape ou deplacer une page se fait ici, pas dans les composants.
  *
- * Le dashboard est organise autour du parcours client en 7 etapes. Tout ce qui
- * ne sert pas directement a lire ce parcours est range dans les annexes, pour
- * que la navigation principale reste courte et sequentielle.
+ * Le dashboard est organise autour du parcours client en 7 etapes. La
+ * navigation ne contient plus que cela : les 7 etapes, le module financier et
+ * le controle qualite des donnees. Les anciennes pages, conservees en annexes
+ * pendant la transition, ont ete supprimees au Lot 9.
  */
 
 export type NavLink = {
@@ -90,69 +91,6 @@ export const DATA_QUALITY_LINKS: NavLink[] = [
   { href: '/performance-diagnostics', label: 'Performance' },
   { href: '/customer-activity-readiness', label: 'Customer Activity' },
 ];
-
-export type AnnexGroup = {
-  title: string;
-  links: NavLink[];
-};
-
-/**
- * Annexes : pages conservees mais sorties de la navigation principale.
- *
- * Le premier groupe contient les vues actuelles dont le contenu sera absorbe
- * par les etapes 1 a 7 au fil des lots suivants ; elles restent accessibles
- * pour ne rien perdre pendant la transition.
- */
-export const ANNEX_GROUPS: AnnexGroup[] = [
-  {
-    title: 'Vues actuelles',
-    links: [
-      { href: '/business-overview', label: 'Business Overview' },
-      { href: '/today-action-plan', label: 'Today Action Plan' },
-      { href: '/sales-funnel', label: 'Sales Funnel' },
-      { href: '/acquisition-traffic', label: 'Acquisition & Traffic' },
-      { href: '/meta', label: 'Meta Ads' },
-      { href: '/customers', label: 'Customers' },
-      { href: '/ratings', label: 'Ratings' },
-      { href: '/copy-history', label: 'Copy History' },
-      { href: '/shopify-products-summary', label: 'Products & Stock' },
-    ],
-  },
-  {
-    title: 'Analyses ponctuelles',
-    links: [
-      { href: '/ratings-intelligence', label: 'Ratings Intelligence' },
-      { href: '/ratings-conversion', label: 'Ratings Conversion' },
-      { href: '/customer-lifecycle', label: 'Customer Lifecycle' },
-      { href: '/customer-counts', label: 'Customer Counts' },
-      { href: '/repeat-customers', label: 'Repeat Customers' },
-      { href: '/product-repeat-signals', label: 'Product Repeat Signals' },
-      { href: '/food-pairing-intelligence', label: 'Food Pairing' },
-      { href: '/geo-insights', label: 'Geo Insights' },
-      { href: '/site-behavior', label: 'Site Behavior' },
-      { href: '/startup-pack-analysis', label: 'Startup Pack Analysis' },
-      { href: '/startup-pack-retention', label: 'Startup Pack Retention' },
-      { href: '/stock-movement-summary', label: 'Stock Movement' },
-      { href: '/acquisition-economics-basic', label: 'Acquisition Economics' },
-    ],
-  },
-  {
-    title: 'Inspection base de donnees',
-    links: [
-      { href: '/db-test', label: 'DB Test' },
-      { href: '/db-inspect', label: 'DB Inspect' },
-      { href: '/db-schema', label: 'DB Schema' },
-      { href: '/shopify-orders-schema', label: 'Shopify Orders Schema' },
-      { href: '/shopify-orders-summary', label: 'Shopify Orders Summary' },
-      { href: '/shopify-line-items-sample', label: 'Shopify Line Items' },
-      { href: '/shopify-table-search', label: 'Shopify Table Search' },
-      { href: '/shopify-funnel-basic', label: 'Shopify Funnel Basic' },
-    ],
-  },
-];
-
-/** Toutes les URL rangees dans les annexes, pour deplier la section au bon moment. */
-export const ANNEX_HREFS = new Set(ANNEX_GROUPS.flatMap((group) => group.links.map((link) => link.href)));
 
 /** Retrouve l'etape correspondant a une URL, pour l'en-tete de page. */
 export function findFunnelStep(pathname: string): FunnelStep | null {

@@ -1,25 +1,17 @@
 import { unstable_cache } from 'next/cache';
 import {
-  getAcquisitionTraffic,
-  getBusinessOverview,
-  getBusinessOverviewPeriodTrends,
-  getCustomerIntelligence,
-  getFoodPairingIntelligence,
-  getGa4OverviewTrends,
-  getGoogleAdsKeywordPerformance,
-  getLandingPageArrivals,
-  getLastAirbyteSync,
   getChurnRisk,
-  getProductConversion,
-  getQuizFunnel,
+  getFoodPairingIntelligence,
+  getGoogleAdsKeywordPerformance,
+  getLastAirbyteSync,
   getMetaAdsOverviewSummary,
   getMetaAdsPerformance,
+  getProductConversion,
+  getQuizFunnel,
   getRatingsIntelligence,
   getShopifyOrdersSummary,
-  getSmartBoxConversion,
-  getSiteBehavior,
   getSiteExperience,
-  getTodayActionPlan,
+  getSmartBoxConversion,
   getTrackingReadiness,
 } from '@/lib/db';
 import type { DateRange, DateRangePeriod } from '@/lib/analytics/dateRanges';
@@ -31,8 +23,7 @@ import { timeAsync } from '@/lib/performance';
  * Regle du projet : une page ne doit jamais importer un getter depuis
  * `@/lib/db` directement. Plusieurs pages lisaient la meme metrique, certaines
  * via le cache et d autres non, ce qui rejouait la meme requete lourde deux ou
- * trois fois par navigation (`getRatingsIntelligence` etait ainsi executee par
- * `/ratings`, `/ratings-intelligence` et `/data-quality`). Chaque getter n a
+ * trois fois par navigation. Chaque getter n a
  * plus qu un seul point d entree cache, defini ici.
  */
 
@@ -96,22 +87,6 @@ export function rangeCacheArgs(range: DateRange): [DateRangePeriod, string, stri
 
 // --------------------------------------------------------------- sans periode
 
-export const getCachedBusinessOverview = cached('business-overview', 'getBusinessOverview', getBusinessOverview);
-
-export const getCachedTodayActionPlan = cached(
-  'today-action-plan',
-  'getTodayActionPlan',
-  getTodayActionPlan,
-  (result) => (result.ok ? result.metrics.topActions.length : null),
-);
-
-export const getCachedCustomerIntelligence = cached(
-  'customer-intelligence-v2',
-  'getCustomerIntelligence',
-  getCustomerIntelligence,
-  (result) => (result.ok ? result.metrics.customers.length : null),
-);
-
 export const getCachedMetaAdsPerformance = cached(
   'meta-ads-performance-v2',
   'getMetaAdsPerformance',
@@ -154,40 +129,6 @@ export const getCachedMetaAdsOverviewSummary = cachedByRange(
   'meta-ads-overview-summary-v2',
   'getMetaAdsOverviewSummary',
   getMetaAdsOverviewSummary,
-  (result) => (result.ok ? result.metrics.daily.length : null),
-);
-
-export const getCachedBusinessOverviewPeriodTrends = cachedByRange(
-  'business-overview-period-trends',
-  'getBusinessOverviewPeriodTrends',
-  getBusinessOverviewPeriodTrends,
-);
-
-export const getCachedSiteBehavior = cachedByRange(
-  'site-behavior',
-  'getSiteBehavior',
-  getSiteBehavior,
-  (result) => (result.ok ? result.metrics.series.length : null),
-);
-
-export const getCachedGa4OverviewTrends = cachedByRange(
-  'ga4-overview-trends',
-  'getGa4OverviewTrends',
-  getGa4OverviewTrends,
-  (result) => (result.ok ? result.metrics.daily.length : null),
-);
-
-export const getCachedAcquisitionTraffic = cachedByRange(
-  'acquisition-traffic',
-  'getAcquisitionTraffic',
-  getAcquisitionTraffic,
-  (result) => (result.ok ? result.metrics.series.length : null),
-);
-
-export const getCachedLandingPageArrivals = cachedByRange(
-  'landing-page-arrivals',
-  'getLandingPageArrivals',
-  getLandingPageArrivals,
   (result) => (result.ok ? result.metrics.daily.length : null),
 );
 

@@ -57,13 +57,13 @@ export default async function DataQualityPage() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
           {[
-            ['GA4 aggregate reports', ga4Rows > 0, ga4Rows > 0 ? `${formatNumber(ga4Rows)} GA4 aggregate report tables have rows.` : 'GA4 aggregate report tables need sync or date-range review.', '/acquisition-traffic'],
+            ['GA4 aggregate reports', ga4Rows > 0, ga4Rows > 0 ? `${formatNumber(ga4Rows)} GA4 aggregate report tables have rows.` : 'GA4 aggregate report tables need sync or date-range review.', '/funnel/1-experience'],
             ['True visitor/session tracking', hasTrueSessionTracking, hasTrueSessionTracking ? 'Visitor/session identifiers were detected in tracking-ready tables.' : 'Missing visitor_id/session_id level tracking tables.', '/tracking-readiness'],
             ['Meta platform attribution', Boolean(meta?.attributionAvailable), meta?.attributionAvailable ? 'Meta reports include purchase/action attribution fields.' : 'Meta spend/click rows exist but purchase attribution fields are missing.', '/attribution-readiness'],
             ['True Shopify CAC/ROAS attribution', false, 'Missing until UTM/session/order join exists between ad touchpoints and Shopify orders.', '/attribution-readiness'],
-            ['Shopify data status', Boolean(orders), orders ? `${formatNumber(orders.totalOrders)} orders loaded.` : 'Shopify aggregate data could not be loaded.', '/shopify-orders-summary'],
-            ['Ratings mapping status', ratingsMappingReady, ratingsMappingReady ? `${formatNumber(ratings?.uniqueRatedWines)} rated wines mapped.` : ratings?.wineLevelUnavailableReason ?? 'Ratings mapping could not be loaded.', '/ratings'],
-            ['Food pairing coverage', (foodPairing?.pairingCoverageRate ?? 0) >= 80, foodPairing ? `${formatPercent(foodPairing.pairingCoverageRate)} of wines have pairing coverage.` : 'Food pairing data could not be loaded.', '/food-pairing-intelligence'],
+            ['Shopify data status', Boolean(orders), orders ? `${formatNumber(orders.totalOrders)} orders loaded.` : 'Shopify aggregate data could not be loaded.', '/funnel/7-retention'],
+            ['Ratings mapping status', ratingsMappingReady, ratingsMappingReady ? `${formatNumber(ratings?.uniqueRatedWines)} rated wines mapped.` : ratings?.wineLevelUnavailableReason ?? 'Ratings mapping could not be loaded.', '/funnel/5-taste-kit'],
+            ['Food pairing coverage', (foodPairing?.pairingCoverageRate ?? 0) >= 80, foodPairing ? `${formatPercent(foodPairing.pairingCoverageRate)} of wines have pairing coverage.` : 'Food pairing data could not be loaded.', null],
           ].map(([title, good, body, href]) => (
             <Card key={title as string}>
               <div style={{ color: statusColor(Boolean(good)), fontSize: 12, fontWeight: 900, textTransform: 'uppercase' }}>
@@ -71,7 +71,9 @@ export default async function DataQualityPage() {
               </div>
               <div style={{ marginTop: 6, color: '#1A1A1A', fontSize: 14, fontWeight: 800 }}>{title as string}</div>
               <p style={{ margin: '8px 0 10px', color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>{body as string}</p>
-              <a href={href as string} style={{ color: '#722F37', fontSize: 12, fontWeight: 800, textDecoration: 'none' }}>Open detail</a>
+              {href ? (
+                <a href={href as string} style={{ color: '#722F37', fontSize: 12, fontWeight: 800, textDecoration: 'none' }}>Open detail</a>
+              ) : null}
             </Card>
           ))}
           <Card>

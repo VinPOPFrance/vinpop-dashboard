@@ -35,7 +35,7 @@ function likelyCauseAndFix(label: string) {
   if (lower.includes('metaadsperformance')) {
     return {
       cause: 'Full Meta drilldown (campaign/adset/ad plus JSON aggregation) is expensive.',
-      fix: 'Keep full helper only on /meta and use lightweight overview helper elsewhere.',
+      fix: 'Reserver ce helper complet a l etape 2 du funnel et utiliser un agregat leger ailleurs.',
     };
   }
   if (lower.includes('customerintelligence') || lower.includes('ratingsintelligence')) {
@@ -112,7 +112,7 @@ export default async function PerformanceDiagnosticsPage() {
         ) : (
           <Card style={{ marginBottom: 16 }}>
             <p style={{ margin: 0, color: '#6B6B6B', fontSize: 13, fontWeight: 700 }}>
-              No timings recorded in this server process yet. Visit /meta, /business-overview, /sales-funnel, /customers, or /ratings, then reload this page.
+              No timings recorded in this server process yet. Visit a funnel step or the Forecast pages, then reload this page.
             </p>
           </Card>
         )}
@@ -122,7 +122,7 @@ export default async function PerformanceDiagnosticsPage() {
             <SectionTitle>Likely Bottlenecks</SectionTitle>
             {[
               'Customer intelligence and ratings intelligence can dominate latency when lifecycle tables are large.',
-              'Full Meta helper is intentionally heavy; keep it on /meta only.',
+              'Le helper Meta complet est volontairement lourd : le reserver a l etape 2 du funnel.',
               'GA4 aggregate scans are usually moderate, but become slow when broad ranges or many dimensions are fetched.',
             ].map((item) => (
               <p key={item} style={{ margin: '0 0 8px', color: '#6B6B6B', fontSize: 13, lineHeight: 1.5 }}>{item}</p>

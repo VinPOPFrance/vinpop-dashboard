@@ -31,18 +31,6 @@ export function quoteIdentifier(identifier: string): string {
   return `"${identifier}"`;
 }
 
-export function getValueType(value: unknown): string {
-  if (Array.isArray(value)) {
-    return 'array';
-  }
-
-  if (value === null) {
-    return 'null';
-  }
-
-  return typeof value;
-}
-
 export function numberFromPg(value: string | null | undefined): number {
   if (!value) {
     return 0;

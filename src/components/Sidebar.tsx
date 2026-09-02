@@ -3,22 +3,14 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { colors, radius } from '@/components/ui';
-import {
-  ANNEX_GROUPS,
-  ANNEX_HREFS,
-  DATA_QUALITY_LINKS,
-  FORECAST_LINKS,
-  FUNNEL_STEPS,
-  type NavLink,
-} from '@/lib/navigation';
-import { useState } from 'react';
+import { DATA_QUALITY_LINKS, FORECAST_LINKS, FUNNEL_STEPS, type NavLink } from '@/lib/navigation';
 
 /**
  * Barre laterale du dashboard.
  *
  * Organisee comme le parcours client : les 7 etapes du funnel dans l'ordre,
- * puis le module financier, puis les annexes repliees et le controle qualite
- * des donnees. La structure vient de `@/lib/navigation`.
+ * puis le module financier, puis le controle qualite des donnees. La
+ * structure vient de `@/lib/navigation`.
  */
 
 /** Libelle de section (Funnel, Forecast, Data Quality). */
@@ -124,10 +116,6 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
 
-  // Les annexes sont repliees par defaut, sauf si on consulte justement une
-  // page annexe : sinon le lien actif serait invisible.
-  const [annexesOpen, setAnnexesOpen] = useState(() => ANNEX_HREFS.has(pathname));
-
   return (
     <aside
       style={{
@@ -168,7 +156,7 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Navigation : defilante, car les annexes depliees depassent la hauteur d ecran */}
+      {/* Navigation : defilante si la hauteur d ecran ne suffit pas */}
       <nav style={{ padding: '4px 10px 12px', flex: 1, overflowY: 'auto' }}>
         <GroupLabel>Funnel client</GroupLabel>
         {FUNNEL_STEPS.map((step) => (
@@ -179,43 +167,6 @@ export function Sidebar({
         {FORECAST_LINKS.map((link) => (
           <NavItem key={link.href} link={link} active={pathname === link.href} />
         ))}
-
-        {/* Annexes : tout ce qui ne sert pas la lecture quotidienne du funnel */}
-        <GroupLabel muted>Annexes</GroupLabel>
-        <button
-          type="button"
-          onClick={() => setAnnexesOpen(!annexesOpen)}
-          aria-expanded={annexesOpen}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            width: '100%',
-            padding: '7px 10px',
-            background: 'transparent',
-            border: 'none',
-            borderRadius: radius.md,
-            color: colors.textMuted,
-            fontSize: 12.5,
-            cursor: 'pointer',
-            textAlign: 'left',
-          }}
-        >
-          <span style={{ fontSize: 9, transform: annexesOpen ? 'rotate(90deg)' : 'none' }}>▶</span>
-          Anciennes pages
-          <span style={{ marginLeft: 'auto', fontSize: 10, color: '#C0C0C0' }}>{ANNEX_HREFS.size}</span>
-        </button>
-
-        {annexesOpen
-          ? ANNEX_GROUPS.map((group) => (
-              <div key={group.title} style={{ marginBottom: 4 }}>
-                <div style={{ fontSize: 10, color: '#C0C0C0', padding: '8px 10px 4px' }}>{group.title}</div>
-                {group.links.map((link) => (
-                  <NavItem key={link.href} link={link} active={pathname === link.href} size="small" />
-                ))}
-              </div>
-            ))
-          : null}
 
         <GroupLabel muted>Data Quality</GroupLabel>
         {DATA_QUALITY_LINKS.map((link) => (

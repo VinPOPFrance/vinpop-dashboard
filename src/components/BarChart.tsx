@@ -7,7 +7,7 @@ import { formatNumber, formatPercent } from '@/lib/format';
  *
  * `format` est une chaine et non une fonction : un composant serveur ne peut
  * pas passer de fonction a un composant client (React ne sait pas la
- * serialiser), ce qui faisait planter la page /site-behavior en erreur 500.
+ * serialiser), ce qui provoquait des erreurs 500 cote serveur.
  * Les composants clients peuvent toujours passer `valueFormatter`.
  */
 export type BarChartFormat = 'raw' | 'number' | 'percent';
