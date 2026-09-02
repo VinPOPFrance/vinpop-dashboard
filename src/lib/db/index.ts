@@ -16,7 +16,8 @@
  *      +-- internal ... quiz, notes, vins, evenements site
  *      +-- meta ....... Meta Ads
  *      +-- ga4 ........ Google Analytics 4
- *      +-- googleAds .. Google Ads (branche au Lot 4)
+ *      +-- googleAds .. Google Ads
+ *      +-- forecast ... charges saisies (schema dashboard, en ecriture)
  *           |
  *           +-- overview ... vues croisant plusieurs sources
  */
@@ -30,4 +31,5 @@ export * from './internal';
 export * from './meta';
 export * from './ga4';
 export * from './googleAds';
+export * from './forecast';
 export * from './overview';
