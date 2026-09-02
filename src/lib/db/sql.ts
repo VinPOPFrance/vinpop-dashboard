@@ -20,7 +20,7 @@ export const customerOrdersCte = `
         NULLIF(customer::jsonb->>'id', ''),
         NULLIF(email::text, '')
       ) AS customer_key
-    FROM shopify.orders
+    FROM public.orders
   ),
   identified_non_cancelled_orders AS (
     SELECT *

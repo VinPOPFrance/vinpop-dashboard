@@ -71,9 +71,38 @@ export type TrackingCountRow = {
   latest_date: string | null;
 };
 
+/** Comptages issus de Shopify : ils ne doivent pas etre comptes comme tables GA4. */
+const shopifyCountLabels = new Set(['public.orders', 'public.abandoned_checkouts']);
+
 export function hasColumn(tables: TrackingReadinessTable[], columnNames: string[]) {
   const wanted = new Set(columnNames.map((column) => column.toLowerCase()));
   return tables.some((table) => table.matchedColumns.some((column) => wanted.has(column.toLowerCase())));
+}
+
+/**
+ * Comptage des paniers abandonnes.
+ *
+ * Le stream `abandoned_checkouts` n est pas toujours active dans la connexion
+ * Airbyte : la table peut ne pas exister. Un `FROM` direct ferait echouer
+ * l analyse de toute la requete de comptage, donc on verifie d abord sa
+ * presence. Renvoie `null` tant que le stream n est pas synchronise.
+ */
+async function countAbandonedCheckouts(
+  pool: ReturnType<typeof getPool>,
+): Promise<TrackingCountRow | null> {
+  const existence = await pool.query<{ table_name: string | null }>(
+    "SELECT to_regclass('public.abandoned_checkouts')::text AS table_name",
+  );
+  if (!existence.rows[0]?.table_name) {
+    return null;
+  }
+
+  const counts = await pool.query<TrackingCountRow>(`
+    SELECT 'public.abandoned_checkouts' AS table_name, COUNT(*)::text AS row_count,
+           MIN(created_at)::text AS first_date, MAX(created_at)::text AS latest_date
+    FROM public.abandoned_checkouts
+  `);
+  return counts.rows[0] ?? null;
 }
 
 export async function getTrackingReadiness(): Promise<TrackingReadinessResult> {
@@ -82,7 +111,7 @@ export async function getTrackingReadiness(): Promise<TrackingReadinessResult> {
 
   try {
     const pool = getPool(databaseUrl);
-    const [metadataResult, countsResult] = await Promise.all([
+    const [metadataResult, countsResult, abandonedCheckoutCount] = await Promise.all([
       pool.query<TrackingMetadataRow>(`
         SELECT table_schema, table_name, column_name
         FROM information_schema.columns
@@ -106,12 +135,15 @@ export async function getTrackingReadiness(): Promise<TrackingReadinessResult> {
         UNION ALL SELECT 'daily_active_users', COUNT(*)::text, MIN(date)::text, MAX(date)::text FROM public.daily_active_users
         UNION ALL SELECT 'conversions_report', COUNT(*)::text, MIN(date)::text, MAX(date)::text FROM public.conversions_report
         UNION ALL SELECT 'site_events', COUNT(*)::text, MIN(event_time)::text, MAX(event_time)::text FROM public.site_events
-        UNION ALL SELECT 'shopify.abandoned_checkouts', COUNT(*)::text, MIN(created_at)::text, MAX(created_at)::text FROM shopify.abandoned_checkouts
-        UNION ALL SELECT 'shopify.orders', COUNT(*)::text, MIN(created_at)::text, MAX(created_at)::text FROM shopify.orders
+        UNION ALL SELECT 'public.orders', COUNT(*)::text, MIN(created_at)::text, MAX(created_at)::text FROM public.orders
       `),
+      countAbandonedCheckouts(pool),
     ]);
 
-    const countMap = new Map(countsResult.rows.map((row) => [row.table_name, row]));
+    const countRows = abandonedCheckoutCount
+      ? [...countsResult.rows, abandonedCheckoutCount]
+      : countsResult.rows;
+    const countMap = new Map(countRows.map((row) => [row.table_name, row]));
     const grouped = new Map<string, TrackingReadinessTable>();
     for (const row of metadataResult.rows) {
       const key = `${row.table_schema}.${row.table_name}`;
@@ -134,10 +166,10 @@ export async function getTrackingReadiness(): Promise<TrackingReadinessResult> {
     }
 
     const availableTables = Array.from(grouped.values());
-    const ga4TablesWithRows = countsResult.rows
-      .filter((row) => !row.table_name.startsWith('shopify.') && numberFromPg(row.row_count) > 0)
+    const ga4TablesWithRows = countRows
+      .filter((row) => !shopifyCountLabels.has(row.table_name) && numberFromPg(row.row_count) > 0)
       .map((row) => row.table_name);
-    const abandonedCheckoutRows = numberFromPg(countMap.get('shopify.abandoned_checkouts')?.row_count);
+    const abandonedCheckoutRows = numberFromPg(countMap.get('public.abandoned_checkouts')?.row_count);
     const hasSessionTracking = hasColumn(availableTables, ['session_id', 'sessionId']) || ga4TablesWithRows.some((table) => table.includes('session'));
     const hasVisitorTracking = hasColumn(availableTables, ['visitor_id', 'client_id', 'user_pseudo_id']);
     const hasEvents = hasColumn(availableTables, ['event_name', 'eventName']);
@@ -196,7 +228,9 @@ export async function getTrackingReadiness(): Promise<TrackingReadinessResult> {
             label: 'Shopify abandoned checkout status',
             available: abandonedCheckoutRows > 0,
             status: abandonedCheckoutRows > 0 ? 'good' : 'missing',
-            evidence: `${abandonedCheckoutRows} abandoned checkout rows found.`,
+            evidence: abandonedCheckoutRows > 0
+              ? `${abandonedCheckoutRows} abandoned checkout rows found.`
+              : 'No abandoned_checkouts table synced by Airbyte yet.',
           },
           {
             label: 'Daily sessions possible',
@@ -272,7 +306,7 @@ type ProductItemRow = {
  *    l entonnoir produit : vues, ajouts au panier, achats. Son `itemId` est de
  *    la forme `shopify_ZZ_{productId}_{variantId}`, ce qui permet de remonter
  *    au produit Shopify sans rapprochement par libelle.
- *  - Shopify (`shopify.products`) fournit le titre et le `handle`, donc l URL
+ *  - Shopify (`public.products`) fournit le titre et le `handle`, donc l URL
  *    reelle de la fiche — indispensable pour ouvrir la bonne heatmap Clarity.
  *
  * Le taux de conversion affiche vient entierement de GA4 : les trois volumes
@@ -309,13 +343,13 @@ export async function getProductConversion(range: DateRange): Promise<ProductCon
        ),
        shopify_products AS (
          SELECT id::text AS product_id, title, handle
-         FROM shopify.products
+         FROM public.products
        ),
        shopify_sales AS (
          SELECT
            line_item->>'product_id' AS product_id,
            SUM(COALESCE(NULLIF(line_item->>'quantity', '')::numeric, 0)) AS quantity_sold
-         FROM shopify.orders,
+         FROM public.orders,
            LATERAL jsonb_array_elements(
              CASE
                WHEN jsonb_typeof(line_items::jsonb) = 'array' THEN line_items::jsonb
@@ -452,7 +486,7 @@ const smartBoxItemsCte = `
       NULLIF(orders.email::text, '') AS customer_email,
       line_item->>'title' AS title,
       line_item->>'product_id' AS product_id
-    FROM shopify.orders,
+    FROM public.orders,
       LATERAL jsonb_array_elements(
         CASE
           WHEN jsonb_typeof(orders.line_items::jsonb) = 'array' THEN orders.line_items::jsonb
@@ -531,7 +565,7 @@ export async function getSmartBoxConversion(range: DateRange): Promise<SmartBoxC
            (SELECT COUNT(DISTINCT order_id) FROM flagged_items WHERE is_smart_box)::text AS smart_box_orders,
            (
              SELECT COUNT(*)
-             FROM shopify.products
+             FROM public.products
              WHERE title ILIKE '%smart box%' OR title ILIKE '%smart wine box%'
            )::text AS catalogue_products
          FROM customer_flags`,

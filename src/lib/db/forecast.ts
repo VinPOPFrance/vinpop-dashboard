@@ -261,7 +261,7 @@ export async function getForecastActuals(range: DateRange): Promise<ForecastActu
            orders.total_price,
            line_item->>'title' AS title,
            COALESCE(NULLIF(line_item->>'quantity', '')::numeric, 0) AS quantity
-         FROM shopify.orders,
+         FROM public.orders,
            LATERAL jsonb_array_elements(
              CASE
                WHEN jsonb_typeof(orders.line_items::jsonb) = 'array' THEN orders.line_items::jsonb

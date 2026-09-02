@@ -226,7 +226,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
           COALESCE(SUM(total_price), 0)::text AS total_spent,
           MIN(created_at) AS first_order_date,
           MAX(created_at) AS last_order_date
-        FROM shopify.orders
+        FROM public.orders
         WHERE email IS NOT NULL
         GROUP BY lower(email)
       ),
@@ -251,7 +251,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
             OR COALESCE(item->>'title', item->>'name', '') ILIKE '%box%'
           )::text AS smart_box_buyer,
           BOOL_OR(COALESCE(item->>'title', item->>'name', '') ILIKE '%subscription%')::text AS subscriber
-        FROM shopify.orders AS orders
+        FROM public.orders AS orders
         CROSS JOIN LATERAL jsonb_array_elements(
           CASE
             WHEN line_items IS NULL THEN '[]'::jsonb
@@ -322,7 +322,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
             WHEN item->>'total_discount' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'total_discount')::numeric
             ELSE 0
           END AS discount_value
-        FROM shopify.orders AS orders
+        FROM public.orders AS orders
         LEFT JOIN public.users AS users ON lower(users.email) = lower(orders.email)
         CROSS JOIN LATERAL jsonb_array_elements(
           CASE

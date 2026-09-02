@@ -83,7 +83,7 @@ export async function getShopifyOrdersSummary(): Promise<ShopifyOrdersSummaryRes
         )::text AS average_order_value,
         MIN(created_at) AS first_order_date,
         MAX(created_at) AS latest_order_date
-      FROM shopify.orders
+      FROM public.orders
     `);
     const summary = summaryResult.rows[0];
 
@@ -114,7 +114,7 @@ export async function getShopifyOrdersSummary(): Promise<ShopifyOrdersSummaryRes
             ),
             0
           )::text AS average_line_items_per_order
-        FROM shopify.orders
+        FROM public.orders
       `);
       const lineItemsSummary = lineItemsResult.rows[0];
       totalLineItemsCount = numberFromPg(lineItemsSummary?.total_line_items_count);
@@ -200,14 +200,14 @@ export async function getChurnRisk(range: DateRange): Promise<RetentionResult> {
     const [referenceResult, customersResult] = await Promise.all([
       pool.query<RetentionReferenceRow>(
         `SELECT MAX(created_at) AS reference_date
-         FROM shopify.orders
+         FROM public.orders
          WHERE cancelled_at IS NULL`,
       ),
       pool.query<RetentionCustomerRow>(
         `${customerOrdersCte},
          reference AS (
            SELECT MAX(created_at) AS reference_date
-           FROM shopify.orders
+           FROM public.orders
            WHERE cancelled_at IS NULL
          )
          SELECT
