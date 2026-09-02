@@ -9,12 +9,14 @@ import {
   getGoogleAdsKeywordPerformance,
   getLandingPageArrivals,
   getLastAirbyteSync,
+  getChurnRisk,
   getProductConversion,
   getQuizFunnel,
   getMetaAdsOverviewSummary,
   getMetaAdsPerformance,
   getRatingsIntelligence,
   getShopifyOrdersSummary,
+  getSmartBoxConversion,
   getSiteBehavior,
   getSiteExperience,
   getTodayActionPlan,
@@ -215,4 +217,18 @@ export const getCachedProductConversion = cachedByRange(
   'getProductConversion',
   getProductConversion,
   (result) => (result.ok ? result.metrics.products.length : null),
+);
+
+export const getCachedSmartBoxConversion = cachedByRange(
+  'smart-box-conversion',
+  'getSmartBoxConversion',
+  getSmartBoxConversion,
+  (result) => (result.ok ? result.metrics.customers.length : null),
+);
+
+export const getCachedChurnRisk = cachedByRange(
+  'churn-risk',
+  'getChurnRisk',
+  getChurnRisk,
+  (result) => (result.ok ? result.metrics.customers.length : null),
 );

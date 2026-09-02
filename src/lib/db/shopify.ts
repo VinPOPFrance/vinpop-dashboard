@@ -5,7 +5,8 @@
 import 'server-only';
 import { dateFromPg, getPool, getValueType, numberFromPg, rate, ratio } from './client';
 import { customerOrdersAfterLineItemsCtes, customerOrdersCte, lineItemsBaseCte } from './sql';
-import { type GeoInsightCityRow, type GeoInsightsResult, type OrderBucket, type ProductRepeatSignal, type ProductRepeatSignalsResult, type RepeatCustomerMetricsResult, type ShopifyFunnelBasicResult, type ShopifyLineItemSafeField, type ShopifyLineItemSample, type ShopifyLineItemsSampleResult, type ShopifyOrdersSummaryResult, type ShopifyProductSummary, type ShopifyProductsSummaryResult, type StartupPackAnalysisResult, type StartupPackProductRow, type StartupPackRetentionCohort, type StartupPackRetentionResult, type StockMovementProduct, type StockMovementSummaryResult } from './types';
+import { type DateRange } from '@/lib/analytics/dateRanges';
+import { type GeoInsightCityRow, type GeoInsightsResult, type OrderBucket, type ProductRepeatSignal, type ProductRepeatSignalsResult, type RepeatCustomerMetricsResult, type ShopifyFunnelBasicResult, type ShopifyLineItemSafeField, type ShopifyLineItemSample, type ShopifyLineItemsSampleResult, type ShopifyOrdersSummaryResult, type ShopifyProductSummary, type ShopifyProductsSummaryResult, type StartupPackAnalysisResult, type StartupPackProductRow, type StartupPackRetentionCohort, type StartupPackRetentionResult, type StockMovementProduct, type StockMovementSummaryResult, type ChurnRiskRow, type RetentionResult } from './types';
 
 export type ShopifyOrderLineItemsSampleRow = {
   id: string | number;
@@ -1536,6 +1537,168 @@ export async function getGeoInsights(): Promise<GeoInsightsResult> {
   } catch (error) {
     const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
     console.error('Geo insights failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+/**
+ * Multiplicateur de retard au-dela duquel un client est juge a risque.
+ *
+ * Un client qui commande toutes les six semaines et qui en est a neuf semaines
+ * (1,5 x son rythme) est sorti de sa routine. En dessous de ce facteur, on
+ * signalerait des clients simplement un peu en retard.
+ */
+const CHURN_OVERDUE_FACTOR = 1.5;
+
+type RetentionCustomerRow = {
+  customer_key: string | null;
+  customer_email: string | null;
+  orders_count: string | null;
+  revenue: string | null;
+  first_order_date: Date | string | null;
+  last_order_date: Date | string | null;
+  average_interval_days: string | null;
+  days_since_last_order: string | null;
+};
+
+type RetentionReferenceRow = {
+  reference_date: Date | string | null;
+};
+
+/**
+ * Etape 7 du funnel : recurrence, valeur vie client et detection de churn.
+ *
+ * La date de reference des calculs de retard est la commande la plus recente
+ * presente dans l entrepot, PAS la date du jour. Les commandes Shopify arrivent
+ * par synchronisation Airbyte : mesurer le retard depuis aujourd hui ferait
+ * apparaitre tous les clients comme perdus des que la synchronisation prend du
+ * retard. `dataLagDays` expose cet ecart pour que la page puisse le signaler.
+ *
+ * Le rythme d achat d un client se deduit de son propre historique :
+ * (derniere commande - premiere commande) / (nombre de commandes - 1). Un client
+ * est a risque quand son silence depasse ce rythme multiplie par
+ * `CHURN_OVERDUE_FACTOR`. Un client a une seule commande n a pas de rythme : il
+ * est exclu du calcul plutot que compte comme perdu.
+ */
+export async function getChurnRisk(range: DateRange): Promise<RetentionResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  try {
+    const pool = getPool(databaseUrl);
+
+    const [referenceResult, customersResult] = await Promise.all([
+      pool.query<RetentionReferenceRow>(
+        `SELECT MAX(created_at) AS reference_date
+         FROM shopify.orders
+         WHERE cancelled_at IS NULL`,
+      ),
+      pool.query<RetentionCustomerRow>(
+        `${customerOrdersCte},
+         reference AS (
+           SELECT MAX(created_at) AS reference_date
+           FROM shopify.orders
+           WHERE cancelled_at IS NULL
+         )
+         SELECT
+           customer_rollups.customer_key,
+           users.email AS customer_email,
+           customer_rollups.order_count::text AS orders_count,
+           customer_rollups.revenue::text AS revenue,
+           customer_rollups.first_order_date,
+           customer_rollups.latest_order_date AS last_order_date,
+           -- Rythme propre au client : l intervalle moyen entre ses commandes.
+           CASE
+             WHEN customer_rollups.order_count > 1 THEN
+               (EXTRACT(EPOCH FROM customer_rollups.latest_order_date - customer_rollups.first_order_date)
+                 / 86400.0 / (customer_rollups.order_count - 1))
+             ELSE NULL
+           END::text AS average_interval_days,
+           (EXTRACT(EPOCH FROM reference.reference_date - customer_rollups.latest_order_date) / 86400.0)::text
+             AS days_since_last_order
+         FROM customer_rollups
+         CROSS JOIN reference
+         LEFT JOIN public.users ON users.id = customer_rollups.customer_key
+         ORDER BY customer_rollups.revenue DESC
+         LIMIT 500`,
+      ),
+    ]);
+
+    const referenceDate = dateFromPg(referenceResult.rows[0]?.reference_date ?? null);
+    const dataLagDays = referenceDate
+      ? Math.floor((Date.now() - new Date(referenceDate).getTime()) / (24 * 60 * 60 * 1000))
+      : null;
+
+    const customers: ChurnRiskRow[] = customersResult.rows.map((row) => {
+      const ordersCount = numberFromPg(row.orders_count);
+      const averageIntervalDays = row.average_interval_days ? numberFromPg(row.average_interval_days) : null;
+      const daysSinceLastOrder = row.days_since_last_order ? numberFromPg(row.days_since_last_order) : null;
+      const overdueRatio =
+        averageIntervalDays !== null && averageIntervalDays > 0 && daysSinceLastOrder !== null
+          ? daysSinceLastOrder / averageIntervalDays
+          : null;
+
+      return {
+        customerKey: row.customer_key ?? '',
+        customerEmail: row.customer_email,
+        ordersCount,
+        revenue: numberFromPg(row.revenue),
+        firstOrderDate: dateFromPg(row.first_order_date),
+        lastOrderDate: dateFromPg(row.last_order_date),
+        averageIntervalDays,
+        daysSinceLastOrder,
+        overdueRatio,
+        // Seul un client ayant deja un rythme peut en sortir.
+        atRisk: ordersCount > 1 && overdueRatio !== null && overdueRatio > CHURN_OVERDUE_FACTOR,
+      };
+    });
+
+    const orderingCustomers = customers.length;
+    const repeatCustomersList = customers.filter((customer) => customer.ordersCount > 1);
+    const totalRevenue = customers.reduce((sum, customer) => sum + customer.revenue, 0);
+    const totalOrders = customers.reduce((sum, customer) => sum + customer.ordersCount, 0);
+
+    const intervals = repeatCustomersList
+      .map((customer) => customer.averageIntervalDays)
+      .filter((value): value is number => value !== null && value > 0);
+
+    const atRiskCustomers = customers
+      .filter((customer) => customer.atRisk)
+      .sort((a, b) => (b.overdueRatio ?? 0) - (a.overdueRatio ?? 0));
+
+    return {
+      ok: true,
+      metrics: {
+        periodLabel: range.label,
+        referenceDate,
+        dataLagDays,
+        orderingCustomers,
+        repeatCustomers: repeatCustomersList.length,
+        repeatRate: rate(repeatCustomersList.length, orderingCustomers),
+        averageOrdersPerCustomer: ratio(totalOrders, orderingCustomers),
+        averagePurchaseIntervalDays: intervals.length
+          ? intervals.reduce((sum, value) => sum + value, 0) / intervals.length
+          : null,
+        lifetimeValue: ratio(totalRevenue, orderingCustomers),
+        repeatLifetimeValue: ratio(
+          repeatCustomersList.reduce((sum, customer) => sum + customer.revenue, 0),
+          repeatCustomersList.length,
+        ),
+        totalRevenue,
+        churnOverdueFactor: CHURN_OVERDUE_FACTOR,
+        customers,
+        atRiskCustomers,
+        revenueAtRisk: atRiskCustomers.reduce((sum, customer) => sum + customer.revenue, 0),
+      },
+    };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Churn risk lookup failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }

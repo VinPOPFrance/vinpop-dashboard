@@ -1271,3 +1271,119 @@ export type ProductConversionMetrics = {
 export type ProductConversionResult =
   | { ok: true; metrics: ProductConversionMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+/**
+ * Etape 6 : verdict du controle zero-Dislike sur un couple commande / vin.
+ *
+ * Une correspondance entre un vin note "Dislike" et une commande n est pas une
+ * erreur en soi : dans le modele VinPop, le client note precisement les vins
+ * qu il vient de recevoir. Seule une note ANTERIEURE a l expedition constitue
+ * une faute — le vin etait deja rejete au moment de l envoi.
+ */
+export type DislikeCheckVerdict = 'violation' | 'rated-after-order' | 'unknown-date';
+
+export type DislikeCheckRow = {
+  orderId: string;
+  orderDate: string | null;
+  customerKey: string;
+  customerEmail: string | null;
+  wineTitle: string;
+  productId: string;
+  ratingDate: string | null;
+  verdict: DislikeCheckVerdict;
+};
+
+/** Etape 6 : un client passe du Taste Kit a la Smart Wine Box. */
+export type SmartBoxCustomerRow = {
+  customerKey: string;
+  customerEmail: string | null;
+  tasteKitOrderDate: string | null;
+  smartBoxOrderDate: string | null;
+  /** Jours ecoules entre le Taste Kit et la premiere Smart Box. */
+  daysToConvert: number | null;
+  ratingsCount: number;
+  loveCount: number;
+  likeCount: number;
+  dislikeCount: number;
+  /** Part de Love + Like dans les notes du client, en pourcentage. */
+  positiveRate: number | null;
+};
+
+export type SmartBoxConversionMetrics = {
+  periodLabel: string;
+  /** Clients ayant achete un Taste Kit ou Starter Pack. */
+  tasteKitCustomers: number;
+  /** Clients ayant achete une Smart Wine Box. */
+  smartBoxCustomers: number;
+  /** Clients ayant fait les deux, dans cet ordre. */
+  convertedCustomers: number;
+  /** Conversion Taste Kit vers Smart Box, en pourcentage. */
+  conversionRate: number | null;
+  /** Delai median de conversion, en jours. */
+  medianDaysToConvert: number | null;
+  /** Produits Smart Box actifs au catalogue, meme sans vente. */
+  smartBoxProductsInCatalogue: number;
+  /** Commandes contenant un produit Smart Box. */
+  smartBoxOrders: number;
+  /** Couples (commande, vin) examines par le controle zero-Dislike. */
+  dislikeChecksPerformed: number;
+  /** Envois d un vin deja note Dislike : doit rester a zero. */
+  dislikeViolations: DislikeCheckRow[];
+  /** Correspondances dont la date de note est inconnue : a lever manuellement. */
+  dislikeUnknownDate: DislikeCheckRow[];
+  customers: SmartBoxCustomerRow[];
+};
+
+export type SmartBoxConversionResult =
+  | { ok: true; metrics: SmartBoxConversionMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+/** Etape 7 : un client et son rythme de reachat. */
+export type ChurnRiskRow = {
+  customerKey: string;
+  customerEmail: string | null;
+  ordersCount: number;
+  revenue: number;
+  firstOrderDate: string | null;
+  lastOrderDate: string | null;
+  /** Intervalle moyen entre deux commandes, en jours. */
+  averageIntervalDays: number | null;
+  /** Jours ecoules depuis la derniere commande, a la date de reference. */
+  daysSinceLastOrder: number | null;
+  /** daysSinceLastOrder / averageIntervalDays : au-dela de 1, le client est en retard. */
+  overdueRatio: number | null;
+  atRisk: boolean;
+};
+
+export type RetentionMetrics = {
+  periodLabel: string;
+  /**
+   * Date de reference des calculs de churn : la commande la plus recente de
+   * l entrepot, pas la date du jour. Voir `getChurnRisk`.
+   */
+  referenceDate: string | null;
+  /** Ecart entre la date de reference et aujourd hui, en jours. */
+  dataLagDays: number | null;
+  orderingCustomers: number;
+  repeatCustomers: number;
+  /** Part des clients ayant commande au moins deux fois, en pourcentage. */
+  repeatRate: number | null;
+  averageOrdersPerCustomer: number | null;
+  /** Intervalle moyen entre deux commandes, tous clients recurrents confondus. */
+  averagePurchaseIntervalDays: number | null;
+  /** Chiffre d affaires moyen par client : la LTV observee a ce jour. */
+  lifetimeValue: number | null;
+  /** LTV des clients recurrents seuls. */
+  repeatLifetimeValue: number | null;
+  totalRevenue: number;
+  /** Multiplicateur de retard au-dela duquel un client est juge a risque. */
+  churnOverdueFactor: number;
+  customers: ChurnRiskRow[];
+  atRiskCustomers: ChurnRiskRow[];
+  /** Chiffre d affaires historique des clients a risque. */
+  revenueAtRisk: number;
+};
+
+export type RetentionResult =
+  | { ok: true; metrics: RetentionMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };

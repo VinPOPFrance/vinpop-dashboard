@@ -5,13 +5,13 @@
 
 import 'server-only';
 import { getCustomerActivityReadiness } from './admin';
-import { getPool, numberFromPg, rate, ratio } from './client';
+import { dateFromPg, getPool, numberFromPg, rate, ratio } from './client';
 import { ga4Bounds } from './ga4';
 import { getFoodPairingIntelligence, getRatingsConversion, getRatingsIntelligence } from './internal';
 import { getMetaAdsPerformance } from './meta';
 import { getRepeatCustomerMetrics, getShopifyFunnelBasic, getShopifyOrdersSummary, getShopifyProductsSummary, getStartupPackAnalysis, getStartupPackRetention, getStockMovementSummary } from './shopify';
 import { lineItemsBaseCte } from './sql';
-import { type AcquisitionEconomicsBasicResult, type BusinessOverviewPeriodTrendsResult, type BusinessOverviewResult, type CopyVersionPerformanceResult, type CopyVersionPeriodInput, type RatingsConversionMetrics, type RepeatCustomerMetrics, type ShopifyFunnelBasicMetrics, type ShopifyOrdersAggregateMetrics, type ShopifyProductsSummaryResult, type StartupPackAnalysisMetrics, type StartupPackRetentionMetrics, type StockMovementSummaryMetrics, type TodayAction, type TodayActionPlanResult, type TrackingReadinessResult, type ProductConversionResult, type ProductConversionRow, type TrackingReadinessTable } from './types';
+import { type AcquisitionEconomicsBasicResult, type BusinessOverviewPeriodTrendsResult, type BusinessOverviewResult, type CopyVersionPerformanceResult, type CopyVersionPeriodInput, type RatingsConversionMetrics, type RepeatCustomerMetrics, type ShopifyFunnelBasicMetrics, type ShopifyOrdersAggregateMetrics, type ShopifyProductsSummaryResult, type StartupPackAnalysisMetrics, type StartupPackRetentionMetrics, type StockMovementSummaryMetrics, type TodayAction, type TodayActionPlanResult, type TrackingReadinessResult, type DislikeCheckRow, type DislikeCheckVerdict, type ProductConversionResult, type ProductConversionRow, type SmartBoxConversionResult, type SmartBoxCustomerRow, type TrackingReadinessTable } from './types';
 import { dateToSql, getPreviousDateRange, type DateRange } from '@/lib/analytics/dateRanges';
 import { calculateTrend } from '@/lib/analytics/trends';
 
@@ -1388,6 +1388,271 @@ export async function getProductConversion(range: DateRange): Promise<ProductCon
       typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
 
     console.error('Product conversion lookup failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+type SmartBoxCountRow = {
+  taste_kit_customers: string | null;
+  smart_box_customers: string | null;
+  converted_customers: string | null;
+  smart_box_orders: string | null;
+  catalogue_products: string | null;
+};
+
+type SmartBoxCustomerQueryRow = {
+  customer_key: string | null;
+  customer_email: string | null;
+  taste_kit_order_date: Date | string | null;
+  smart_box_order_date: Date | string | null;
+  days_to_convert: string | null;
+  ratings_count: string | null;
+  love_count: string | null;
+  like_count: string | null;
+  dislike_count: string | null;
+};
+
+type DislikeCheckQueryRow = {
+  order_id: string | null;
+  order_date: Date | string | null;
+  customer_key: string | null;
+  customer_email: string | null;
+  wine_title: string | null;
+  product_id: string | null;
+  rating_date: Date | string | null;
+  verdict: string | null;
+};
+
+/**
+ * CTE commune a l etape 6 : les lignes de commande, avec le client et le
+ * marquage Taste Kit / Smart Box.
+ *
+ * `ratings.id` porte l identifiant produit Shopify et `ratings.customer_id`
+ * l identifiant client Shopify : le rapprochement note / commande se fait donc
+ * sans passer par un libelle.
+ */
+const smartBoxItemsCte = `
+  WITH order_items AS (
+    SELECT
+      orders.id::text AS order_id,
+      orders.created_at AS order_date,
+      COALESCE(
+        NULLIF(orders.customer::jsonb->>'id', ''),
+        NULLIF(orders.email::text, '')
+      ) AS customer_key,
+      NULLIF(orders.email::text, '') AS customer_email,
+      line_item->>'title' AS title,
+      line_item->>'product_id' AS product_id
+    FROM shopify.orders,
+      LATERAL jsonb_array_elements(
+        CASE
+          WHEN jsonb_typeof(orders.line_items::jsonb) = 'array' THEN orders.line_items::jsonb
+          ELSE '[]'::jsonb
+        END
+      ) AS line_item
+    WHERE orders.cancelled_at IS NULL
+  ),
+  flagged_items AS (
+    SELECT
+      order_items.*,
+      (
+        title ILIKE '%starter pack%'
+        OR title ILIKE '%startup pack%'
+        OR title ILIKE '%taste kit%'
+        OR title ILIKE '%tasting kit%'
+        OR title ILIKE '%calibration kit%'
+      ) AS is_taste_kit,
+      (
+        title ILIKE '%smart box%'
+        OR title ILIKE '%smart wine box%'
+        OR title ILIKE '%subscription%'
+      ) AS is_smart_box
+    FROM order_items
+  )
+`;
+
+/**
+ * Etape 6 du funnel : passage du Taste Kit a la Smart Wine Box, et controle
+ * zero-Dislike.
+ *
+ * Le controle zero-Dislike est la raison d etre de cette page. Il ne suffit pas
+ * de chercher un vin note "Dislike" dans une commande : dans le modele VinPop
+ * le client note precisement les bouteilles qu il vient de recevoir, donc la
+ * plupart des correspondances sont normales. La faute, c est d expedier un vin
+ * DEJA rejete — la note doit donc etre anterieure a la commande.
+ *
+ * Trois verdicts sont distingues, jamais confondus :
+ *  - `violation`        : note anterieure a la commande. C est l erreur.
+ *  - `rated-after-order`: note posterieure. Fonctionnement normal.
+ *  - `unknown-date`     : `ratings.created_at` est nul (le cas pour une bonne
+ *                         partie des lignes), la chronologie est indecidable.
+ *                         Signale a part, jamais compte comme une violation.
+ */
+export async function getSmartBoxConversion(range: DateRange): Promise<SmartBoxConversionResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    return { ok: false, reason: 'missing-url' };
+  }
+
+  try {
+    const pool = getPool(databaseUrl);
+
+    const [countsResult, customersResult, dislikeResult] = await Promise.all([
+      pool.query<SmartBoxCountRow>(
+        `${smartBoxItemsCte},
+         customer_flags AS (
+           SELECT
+             customer_key,
+             BOOL_OR(is_taste_kit) AS bought_taste_kit,
+             BOOL_OR(is_smart_box) AS bought_smart_box,
+             MIN(order_date) FILTER (WHERE is_taste_kit) AS taste_kit_date,
+             MIN(order_date) FILTER (WHERE is_smart_box) AS smart_box_date
+           FROM flagged_items
+           WHERE customer_key IS NOT NULL
+           GROUP BY customer_key
+         )
+         SELECT
+           COUNT(*) FILTER (WHERE bought_taste_kit)::text AS taste_kit_customers,
+           COUNT(*) FILTER (WHERE bought_smart_box)::text AS smart_box_customers,
+           -- La conversion suppose l ordre chronologique : Taste Kit d abord.
+           COUNT(*) FILTER (
+             WHERE bought_taste_kit AND bought_smart_box AND smart_box_date >= taste_kit_date
+           )::text AS converted_customers,
+           (SELECT COUNT(DISTINCT order_id) FROM flagged_items WHERE is_smart_box)::text AS smart_box_orders,
+           (
+             SELECT COUNT(*)
+             FROM shopify.products
+             WHERE title ILIKE '%smart box%' OR title ILIKE '%smart wine box%'
+           )::text AS catalogue_products
+         FROM customer_flags`,
+      ),
+      pool.query<SmartBoxCustomerQueryRow>(
+        `${smartBoxItemsCte},
+         customer_flags AS (
+           SELECT
+             customer_key,
+             MIN(customer_email) AS customer_email,
+             MIN(order_date) FILTER (WHERE is_taste_kit) AS taste_kit_date,
+             MIN(order_date) FILTER (WHERE is_smart_box) AS smart_box_date
+           FROM flagged_items
+           WHERE customer_key IS NOT NULL
+           GROUP BY customer_key
+         ),
+         customer_ratings AS (
+           SELECT
+             customer_id,
+             COUNT(*) AS ratings_count,
+             COUNT(*) FILTER (WHERE rating = 3) AS love_count,
+             COUNT(*) FILTER (WHERE rating = 2) AS like_count,
+             COUNT(*) FILTER (WHERE rating = 1) AS dislike_count
+           FROM public.ratings
+           GROUP BY customer_id
+         )
+         SELECT
+           customer_flags.customer_key,
+           customer_flags.customer_email,
+           customer_flags.taste_kit_date AS taste_kit_order_date,
+           customer_flags.smart_box_date AS smart_box_order_date,
+           EXTRACT(DAY FROM customer_flags.smart_box_date - customer_flags.taste_kit_date)::text AS days_to_convert,
+           COALESCE(customer_ratings.ratings_count, 0)::text AS ratings_count,
+           COALESCE(customer_ratings.love_count, 0)::text AS love_count,
+           COALESCE(customer_ratings.like_count, 0)::text AS like_count,
+           COALESCE(customer_ratings.dislike_count, 0)::text AS dislike_count
+         FROM customer_flags
+         LEFT JOIN customer_ratings ON customer_ratings.customer_id = customer_flags.customer_key
+         WHERE customer_flags.smart_box_date IS NOT NULL
+         ORDER BY customer_flags.smart_box_date DESC
+         LIMIT 200`,
+      ),
+      pool.query<DislikeCheckQueryRow>(
+        `${smartBoxItemsCte}
+         SELECT DISTINCT
+           flagged_items.order_id,
+           flagged_items.order_date,
+           flagged_items.customer_key,
+           COALESCE(flagged_items.customer_email, users.email) AS customer_email,
+           flagged_items.title AS wine_title,
+           flagged_items.product_id,
+           ratings.created_at AS rating_date,
+           CASE
+             WHEN ratings.created_at IS NULL THEN 'unknown-date'
+             WHEN ratings.created_at < flagged_items.order_date THEN 'violation'
+             ELSE 'rated-after-order'
+           END AS verdict
+         FROM flagged_items
+         JOIN public.ratings
+           ON ratings.customer_id = flagged_items.customer_key
+          AND ratings.id = flagged_items.product_id
+         LEFT JOIN public.users ON users.id = flagged_items.customer_key
+         WHERE ratings.rating = 1
+         ORDER BY flagged_items.order_date DESC`,
+      ),
+    ]);
+
+    const counts = countsResult.rows[0];
+    const tasteKitCustomers = numberFromPg(counts?.taste_kit_customers);
+    const convertedCustomers = numberFromPg(counts?.converted_customers);
+
+    const customers: SmartBoxCustomerRow[] = customersResult.rows.map((row) => {
+      const ratingsCount = numberFromPg(row.ratings_count);
+      const loveCount = numberFromPg(row.love_count);
+      const likeCount = numberFromPg(row.like_count);
+
+      return {
+        customerKey: row.customer_key ?? '',
+        customerEmail: row.customer_email,
+        tasteKitOrderDate: dateFromPg(row.taste_kit_order_date),
+        smartBoxOrderDate: dateFromPg(row.smart_box_order_date),
+        daysToConvert: row.days_to_convert ? numberFromPg(row.days_to_convert) : null,
+        ratingsCount,
+        loveCount,
+        likeCount,
+        dislikeCount: numberFromPg(row.dislike_count),
+        positiveRate: rate(loveCount + likeCount, ratingsCount),
+      };
+    });
+
+    const dislikeRows: DislikeCheckRow[] = dislikeResult.rows.map((row) => ({
+      orderId: row.order_id ?? '',
+      orderDate: dateFromPg(row.order_date),
+      customerKey: row.customer_key ?? '',
+      customerEmail: row.customer_email,
+      wineTitle: row.wine_title ?? '(vin inconnu)',
+      productId: row.product_id ?? '',
+      ratingDate: dateFromPg(row.rating_date),
+      verdict: (row.verdict as DislikeCheckVerdict) ?? 'unknown-date',
+    }));
+
+    const daysToConvert = customers
+      .map((customer) => customer.daysToConvert)
+      .filter((value): value is number => value !== null)
+      .sort((a, b) => a - b);
+
+    return {
+      ok: true,
+      metrics: {
+        periodLabel: range.label,
+        tasteKitCustomers,
+        smartBoxCustomers: numberFromPg(counts?.smart_box_customers),
+        convertedCustomers,
+        conversionRate: rate(convertedCustomers, tasteKitCustomers),
+        medianDaysToConvert: daysToConvert.length
+          ? daysToConvert[Math.floor(daysToConvert.length / 2)]
+          : null,
+        smartBoxProductsInCatalogue: numberFromPg(counts?.catalogue_products),
+        smartBoxOrders: numberFromPg(counts?.smart_box_orders),
+        dislikeChecksPerformed: dislikeRows.length,
+        dislikeViolations: dislikeRows.filter((row) => row.verdict === 'violation'),
+        dislikeUnknownDate: dislikeRows.filter((row) => row.verdict === 'unknown-date'),
+        customers,
+      },
+    };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+
+    console.error('Smart box conversion lookup failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }
