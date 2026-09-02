@@ -5,6 +5,7 @@
 
 import 'server-only';
 import { dateFromPg, getPool, numberFromPg, rate, ratio } from './client';
+import { isSmartBoxLineItem, isTasteKitLineItem } from './sql';
 import { type CustomerProductSummary, type CustomerRatingsSummary, type FoodPairingIntelligenceResult, type QuizFunnelResult, type QuizFunnelSegment, type RatedWineDetail, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type WineRatingSummary } from './types';
 import { dateToSql, type DateRange } from '@/lib/analytics/dateRanges';
 import { classifyCustomerStage } from '@/lib/customerStages';
@@ -218,38 +219,34 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         FROM mapped_ratings
         GROUP BY customer_id
       ),
+      -- Cle de rapprochement : l id client Shopify, pas l email. Shopify ne
+      -- livre plus les donnees client protegees (emails, noms) sur le forfait
+      -- actuel, donc orders.email est systematiquement nul et toute jointure
+      -- par email renvoie zero ligne. L id client, lui, est toujours present et
+      -- c est aussi l identifiant des comptes public.users.
       order_rollups AS (
         SELECT
-          lower(email) AS email,
+          customer::jsonb->>'id' AS customer_key,
           COUNT(DISTINCT id)::text AS orders_count,
           COUNT(DISTINCT id) FILTER (WHERE cancelled_at IS NULL)::text AS non_cancelled_orders_count,
           COALESCE(SUM(total_price), 0)::text AS total_spent,
           MIN(created_at) AS first_order_date,
           MAX(created_at) AS last_order_date
         FROM public.orders
-        WHERE email IS NOT NULL
-        GROUP BY lower(email)
+        WHERE customer::jsonb->>'id' IS NOT NULL
+        GROUP BY customer::jsonb->>'id'
       ),
       bottle_rollups AS (
         SELECT
-          lower(orders.email) AS email,
+          orders.customer::jsonb->>'id' AS customer_key,
           COALESCE(SUM(
             CASE
               WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
               ELSE 0
             END
           ), 0)::text AS bottles_bought,
-          BOOL_OR(
-            COALESCE(item->>'title', item->>'name', '') ILIKE '%starter pack%'
-            OR COALESCE(item->>'title', item->>'name', '') ILIKE '%startup pack%'
-            OR COALESCE(item->>'title', item->>'name', '') ILIKE '%taste kit%'
-            OR COALESCE(item->>'title', item->>'name', '') ILIKE '%tasting kit%'
-            OR COALESCE(item->>'title', item->>'name', '') ILIKE '%calibration kit%'
-          )::text AS startup_pack_buyer,
-          BOOL_OR(
-            COALESCE(item->>'title', item->>'name', '') ILIKE '%smart box%'
-            OR COALESCE(item->>'title', item->>'name', '') ILIKE '%box%'
-          )::text AS smart_box_buyer,
+          BOOL_OR(${isTasteKitLineItem('item')})::text AS startup_pack_buyer,
+          BOOL_OR(${isSmartBoxLineItem('item')})::text AS smart_box_buyer,
           BOOL_OR(COALESCE(item->>'title', item->>'name', '') ILIKE '%subscription%')::text AS subscriber
         FROM public.orders AS orders
         CROSS JOIN LATERAL jsonb_array_elements(
@@ -259,23 +256,24 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
             ELSE '[]'::jsonb
           END
         ) AS item
-        WHERE orders.email IS NOT NULL
-        GROUP BY lower(orders.email)
+        WHERE orders.customer::jsonb->>'id' IS NOT NULL
+        GROUP BY orders.customer::jsonb->>'id'
       ),
       quiz_rollups AS (
         SELECT customer_id, COUNT(*)::text AS quiz_count
         FROM public.quizz
         GROUP BY customer_id
       ),
+      -- Un client sans compte VinPop n a plus d email exploitable : il reste
+      -- identifie par son id client Shopify, prefixe pour ne pas entrer en
+      -- collision avec les id de comptes.
       customer_base AS (
-        SELECT users.id::text AS customer_id, users.email AS email, lower(users.email) AS email_key
+        SELECT users.id::text AS customer_id, users.email AS email, users.id::text AS customer_key
         FROM public.users AS users
-        WHERE users.email IS NOT NULL
         UNION
-        SELECT 'order:' || order_rollups.email AS customer_id, order_rollups.email AS email, order_rollups.email AS email_key
+        SELECT 'order:' || order_rollups.customer_key AS customer_id, NULL::text AS email, order_rollups.customer_key AS customer_key
         FROM order_rollups
-        WHERE order_rollups.email IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM public.users AS u WHERE lower(u.email) = order_rollups.email)
+        WHERE NOT EXISTS (SELECT 1 FROM public.users AS u WHERE u.id::text = order_rollups.customer_key)
       )
       SELECT
         customer_base.customer_id AS customer_id,
@@ -298,8 +296,8 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         COALESCE(quiz_rollups.quiz_count, '0') AS quiz_count,
         COALESCE(rating_rollups.wine_colors_rated, 'None') AS wine_colors_rated
       FROM customer_base
-      LEFT JOIN order_rollups ON order_rollups.email = customer_base.email_key
-      LEFT JOIN bottle_rollups ON bottle_rollups.email = customer_base.email_key
+      LEFT JOIN order_rollups ON order_rollups.customer_key = customer_base.customer_key
+      LEFT JOIN bottle_rollups ON bottle_rollups.customer_key = customer_base.customer_key
       LEFT JOIN rating_rollups ON rating_rollups.customer_id::text = customer_base.customer_id
       LEFT JOIN quiz_rollups ON quiz_rollups.customer_id::text = customer_base.customer_id
       WHERE (
@@ -307,13 +305,13 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
           OR COALESCE(rating_rollups.total_ratings, '0') <> '0'
           OR COALESCE(quiz_rollups.quiz_count, '0') <> '0'
         )
-      ORDER BY COALESCE(order_rollups.total_spent, '0')::numeric DESC, customer_base.email
+      ORDER BY COALESCE(order_rollups.total_spent, '0')::numeric DESC, COALESCE(customer_base.email, customer_base.customer_id)
       LIMIT 200
     `);
     const customerProductResult = await pool.query<Record<string, string | null>>(`
       WITH order_items AS (
         SELECT
-          COALESCE(users.id::text, 'order:' || lower(orders.email)) AS customer_id,
+          COALESCE(users.id::text, 'order:' || (orders.customer::jsonb->>'id')) AS customer_id,
           COALESCE(NULLIF(item->>'product_id', ''), 'Unmapped') AS shopify_product_id,
           COALESCE(NULLIF(item->>'title', ''), NULLIF(item->>'name', ''), 'Unknown product') AS product_name,
           CASE WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric ELSE 0 END AS quantity_value,
@@ -323,7 +321,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
             ELSE 0
           END AS discount_value
         FROM public.orders AS orders
-        LEFT JOIN public.users AS users ON lower(users.email) = lower(orders.email)
+        LEFT JOIN public.users AS users ON users.id::text = orders.customer::jsonb->>'id'
         CROSS JOIN LATERAL jsonb_array_elements(
           CASE
             WHEN line_items IS NULL THEN '[]'::jsonb
@@ -331,7 +329,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
             ELSE '[]'::jsonb
           END
         ) AS item
-        WHERE orders.email IS NOT NULL
+        WHERE orders.customer::jsonb->>'id' IS NOT NULL
       ),
       rated_products AS (
         SELECT

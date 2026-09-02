@@ -6,6 +6,7 @@
 import 'server-only';
 import { dateFromPg, getPool, numberFromPg, rate } from './client';
 import { ga4Bounds } from './ga4';
+import { isSmartBoxLineItem, isTasteKitLineItem } from './sql';
 import { type DislikeCheckRow, type DislikeCheckVerdict, type ProductConversionResult, type ProductConversionRow, type SmartBoxConversionResult, type SmartBoxCustomerRow, type TrackingReadinessResult, type TrackingReadinessTable } from './types';
 import { dateToSql, type DateRange } from '@/lib/analytics/dateRanges';
 
@@ -474,8 +475,15 @@ type DislikeCheckQueryRow = {
  * l identifiant client Shopify : le rapprochement note / commande se fait donc
  * sans passer par un libelle.
  */
+/**
+ * Lignes de commande etiquetees Taste Kit / Smart Box.
+ *
+ * Les deux drapeaux sont poses ici, au niveau de la ligne, parce que c est le
+ * seul endroit ou `line_item` est encore accessible : la Smart Box se reconnait
+ * a une propriete de la ligne, pas a un titre de produit.
+ */
 const smartBoxItemsCte = `
-  WITH order_items AS (
+  WITH flagged_items AS (
     SELECT
       orders.id::text AS order_id,
       orders.created_at AS order_date,
@@ -485,7 +493,9 @@ const smartBoxItemsCte = `
       ) AS customer_key,
       NULLIF(orders.email::text, '') AS customer_email,
       line_item->>'title' AS title,
-      line_item->>'product_id' AS product_id
+      line_item->>'product_id' AS product_id,
+      ${isTasteKitLineItem('line_item')} AS is_taste_kit,
+      ${isSmartBoxLineItem('line_item')} AS is_smart_box
     FROM public.orders,
       LATERAL jsonb_array_elements(
         CASE
@@ -494,23 +504,6 @@ const smartBoxItemsCte = `
         END
       ) AS line_item
     WHERE orders.cancelled_at IS NULL
-  ),
-  flagged_items AS (
-    SELECT
-      order_items.*,
-      (
-        title ILIKE '%starter pack%'
-        OR title ILIKE '%startup pack%'
-        OR title ILIKE '%taste kit%'
-        OR title ILIKE '%tasting kit%'
-        OR title ILIKE '%calibration kit%'
-      ) AS is_taste_kit,
-      (
-        title ILIKE '%smart box%'
-        OR title ILIKE '%smart wine box%'
-        OR title ILIKE '%subscription%'
-      ) AS is_smart_box
-    FROM order_items
   )
 `;
 
@@ -594,7 +587,10 @@ export async function getSmartBoxConversion(range: DateRange): Promise<SmartBoxC
          )
          SELECT
            customer_flags.customer_key,
-           customer_flags.customer_email,
+           -- Shopify ne livre plus d email (donnees client protegees, hors
+           -- forfait) : le compte VinPop, joint sur l id client, est desormais
+           -- la seule facon de nommer le client autrement que par son id.
+           COALESCE(customer_flags.customer_email, users.email) AS customer_email,
            customer_flags.taste_kit_date AS taste_kit_order_date,
            customer_flags.smart_box_date AS smart_box_order_date,
            EXTRACT(DAY FROM customer_flags.smart_box_date - customer_flags.taste_kit_date)::text AS days_to_convert,
@@ -604,6 +600,7 @@ export async function getSmartBoxConversion(range: DateRange): Promise<SmartBoxC
            COALESCE(customer_ratings.dislike_count, 0)::text AS dislike_count
          FROM customer_flags
          LEFT JOIN customer_ratings ON customer_ratings.customer_id = customer_flags.customer_key
+         LEFT JOIN public.users ON users.id::text = customer_flags.customer_key
          WHERE customer_flags.smart_box_date IS NOT NULL
          ORDER BY customer_flags.smart_box_date DESC
          LIMIT 200`,
