@@ -11,7 +11,7 @@
  */
 
 /**
- * Identifiant Shopify du Taste Kit.
+ * Identifiants Shopify du Taste Kit.
  *
  * Le produit s est appele "Starter Pack" jusqu au 13/07/2026 puis "Taste kit",
  * sans changer d identifiant. Une ligne de commande fige le titre du jour de l
@@ -19,12 +19,14 @@
  * casserait silencieusement l etape 5 au prochain renommage. L identifiant, lui,
  * ne bouge pas.
  *
- * Le catalogue contient un second produit "Taste kit" (`16209518526851`, handle
- * `taste-kit-1`) qui n a jamais ete commande. Il n est volontairement pas inclus
- * ici : l ajouter reviendrait a compter deux produits distincts comme un seul
- * sans savoir lequel fait foi.
+ * Deux fiches produit coexistent au catalogue, toutes deux actives :
+ *  - `15885033767299` (handle `taste-kit`), le seul commande a ce jour ;
+ *  - `16209518526851` (handle `taste-kit-1`), sans commande.
+ *
+ * Les deux sont listes ici pour qu une vente sur la seconde fiche ne disparaisse
+ * pas du funnel sans que personne ne s en apercoive.
  */
-export const tasteKitProductId = '15885033767299';
+export const tasteKitProductIds = ['15885033767299', '16209518526851'];
 
 /**
  * Marqueur pose par le theme sur chaque bouteille choisie dans le configurateur
@@ -58,9 +60,10 @@ export function isSmartBoxLineItem(lineItem: string): string {
   )`;
 }
 
-/** Vrai si la ligne de commande porte le Taste Kit. Voir `tasteKitProductId`. */
+/** Vrai si la ligne de commande porte le Taste Kit. Voir `tasteKitProductIds`. */
 export function isTasteKitLineItem(lineItem: string): string {
-  return `${lineItem}->>'product_id' = '${tasteKitProductId}'`;
+  const idList = tasteKitProductIds.map((id) => `'${id}'`).join(', ');
+  return `${lineItem}->>'product_id' IN (${idList})`;
 }
 
 export const customerOrdersCte = `

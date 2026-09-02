@@ -256,7 +256,10 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
             ELSE '[]'::jsonb
           END
         ) AS item
+        -- Une commande annulee n est pas un achat : l etape 6 l exclut deja, et
+        -- l etape 5 comptait un acheteur de coffret de plus qu elle.
         WHERE orders.customer::jsonb->>'id' IS NOT NULL
+          AND orders.cancelled_at IS NULL
         GROUP BY orders.customer::jsonb->>'id'
       ),
       quiz_rollups AS (
@@ -330,6 +333,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
           END
         ) AS item
         WHERE orders.customer::jsonb->>'id' IS NOT NULL
+          AND orders.cancelled_at IS NULL
       ),
       rated_products AS (
         SELECT
