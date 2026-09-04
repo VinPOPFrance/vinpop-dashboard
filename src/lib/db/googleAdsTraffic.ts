@@ -96,6 +96,9 @@ export async function getGoogleAdsTrafficQuality(range: DateRange): Promise<Goog
          WHERE keyword_view.segments_date BETWEEN $1::date AND $2::date
            AND keyword_view.ad_group_criterion_negative IS NOT TRUE
          GROUP BY 1
+         -- Une campagne arretee laisse des lignes a zero pendant des semaines :
+         -- les afficher remplirait le tableau de campagnes qui ne tournent plus.
+         HAVING SUM(keyword_view.metrics_impressions) > 0 OR SUM(keyword_view.metrics_cost_micros) > 0
          ORDER BY SUM(keyword_view.metrics_cost_micros) DESC`,
         [start, end],
       ),
@@ -137,11 +140,19 @@ export async function getGoogleAdsTrafficQuality(range: DateRange): Promise<Goog
          GROUP BY 1, 2`,
         [start, end],
       ),
-      // Jusqu ou vont reellement les deux sources : sans cette borne, un
-      // rebond fige au 25 juillet passerait pour la mesure d aujourd hui.
+      // Jusqu ou vont reellement les sources.
+      //
+      // La date a retenir est celle de la derniere depense, pas celle de la
+      // derniere ligne : Google continue d envoyer une ligne par mot-cle et par
+      // jour longtemps apres l arret d une campagne, avec des zeros partout.
+      // Lire MAX(segments_date) ferait croire que la campagne tourne encore.
       pool.query<Record<string, string | null>>(
         `SELECT
-           (SELECT MAX(segments_date)::text FROM public.keyword_view) AS last_google_ads_day,
+           (
+             SELECT MAX(segments_date)::text
+             FROM public.keyword_view
+             WHERE metrics_cost_micros > 0
+           ) AS last_google_ads_day,
            (SELECT MAX(segments_date)::text FROM public.click_view) AS last_click_view_day,
            (
              SELECT MAX(date)

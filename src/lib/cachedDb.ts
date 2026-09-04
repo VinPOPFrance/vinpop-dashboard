@@ -164,7 +164,7 @@ export const getCachedGoogleAdsKeywordPerformance = cachedByRange(
 );
 
 export const getCachedGoogleAdsTrafficQuality = cachedByRange(
-  'google-ads-traffic-quality',
+  'google-ads-traffic-quality-v2',
   'getGoogleAdsTrafficQuality',
   getGoogleAdsTrafficQuality,
   (result) => (result.ok ? result.metrics.campaigns.length : null),

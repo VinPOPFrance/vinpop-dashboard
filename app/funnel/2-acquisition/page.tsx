@@ -308,7 +308,7 @@ export default async function Step2Page({
       <AcquisitionTabs active={tab} searchParams={params} />
 
       {tab === 'meta' ? <MetaTab range={range} searchParams={params} /> : null}
-      {tab === 'google' ? <GoogleTab range={range} /> : null}
+      {tab === 'google' ? <GoogleTab range={range} searchParams={params} /> : null}
       {tab === 'orders' ? <OrdersTab searchParams={params} /> : null}
     </DashboardLayout>
   );
@@ -746,9 +746,9 @@ function SalesReconciliation({ attribution }: { attribution: MetaCreativeAttribu
  */
 function GoogleCoverageNote({ traffic }: { traffic: GoogleAdsTrafficMetrics }) {
   const rows = [
-    { label: 'Depense et mots-cles (Google Ads)', day: traffic.lastGoogleAdsDay },
-    { label: 'Sessions et rebond du trafic paye (GA4)', day: traffic.lastPaidSessionDay },
-    { label: 'Journal des clics avec gclid, qui rattache les ventes aux mots-cles', day: traffic.lastClickViewDay },
+    { label: 'Derniere depense Google Ads', day: traffic.lastGoogleAdsDay },
+    { label: 'Dernieres sessions du trafic paye vues par GA4', day: traffic.lastPaidSessionDay },
+    { label: 'Dernier clic enregistre avec son gclid, qui rattache les ventes aux mots-cles', day: traffic.lastClickViewDay },
   ];
 
   return (
@@ -759,7 +759,7 @@ function GoogleCoverageNote({ traffic }: { traffic: GoogleAdsTrafficMetrics }) {
           {rows
             .map((row) => `${row.label} : jusqu au ${row.day ? formatDate(row.day) : 'aucune donnee'}`)
             .join(' · ')}
-          . Un ecart entre ces dates signifie qu une colonne decrit une periode plus courte que la depense affichee.
+. Ces trois dates doivent rester proches : un ecart signifierait qu une colonne decrit une periode plus courte que la depense affichee.
         </p>
       </Card>
     </PageSection>
@@ -873,7 +873,13 @@ async function OrdersTab({ searchParams }: { searchParams: Record<string, string
 }
 
 /** Onglet Google Ads : economie par mot-cle et detection du trafic non qualifie. */
-async function GoogleTab({ range }: { range: ReturnType<typeof getDateRangeFromSearchParams> }) {
+async function GoogleTab({
+  range,
+  searchParams,
+}: {
+  range: ReturnType<typeof getDateRangeFromSearchParams>;
+  searchParams: Record<string, string | string[] | undefined>;
+}) {
   const [result, trafficResult] = await Promise.all([
     timeAsync(
       'page:/funnel/2-acquisition getGoogleAdsKeywordPerformance',
@@ -901,6 +907,13 @@ async function GoogleTab({ range }: { range: ReturnType<typeof getDateRangeFromS
 
   const metrics = result.metrics;
   const traffic = trafficResult.ok ? trafficResult.metrics : null;
+
+  // Une periode sans depense n est pas une erreur de lecture : les campagnes
+  // Google sont a l arret depuis juillet. Le dire, et emmener d un clic vers la
+  // periode qui contient l historique, evite de conclure que le tableau est
+  // casse.
+  const hasSpendInRange = metrics.totalCost > 0 || metrics.totalImpressions > 0;
+  const lastSpendDay = traffic?.lastGoogleAdsDay ?? null;
 
   // Les ventes rattachees par gclid remontent au mot-cle exact : sans elles, le
   // tableau ne dit que ce que Google veut bien compter comme conversion.
@@ -943,6 +956,29 @@ async function GoogleTab({ range }: { range: ReturnType<typeof getDateRangeFromS
     verdict: CAMPAIGN_VERDICT_LABEL[row.verdict] ?? row.verdict,
     action: row.recommendation,
   }));
+
+  if (!hasSpendInRange) {
+    return (
+      <PageSection>
+        <AlertBanner
+          tone="info"
+          title={`Aucune depense Google Ads sur la periode selectionnee (${range.label})`}
+        >
+          {lastSpendDay
+            ? `Les campagnes Google sont a l arret : la derniere depense date du ${formatDate(lastSpendDay)}. Google continue d envoyer une ligne par mot-cle et par jour, a zero, ce qui n est pas une depense.`
+            : 'Aucune depense Google Ads dans la base.'}{' '}
+          <Link
+            href={withParam({ ...searchParams, tab: 'google' }, 'period', 'all') || '?tab=google&period=all'}
+            prefetch={false}
+            style={{ color: colors.brand, textDecoration: 'none', fontWeight: 600 }}
+          >
+            Voir tout l historique Google Ads
+          </Link>
+          .
+        </AlertBanner>
+      </PageSection>
+    );
+  }
 
   return (
     <>
