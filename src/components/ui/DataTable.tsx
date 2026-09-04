@@ -36,6 +36,15 @@ export type DataTableColumn<T extends Record<string, unknown>> = {
    * (`creative` + `creativeHref`). Une ligne sans URL reste du texte simple.
    */
   hrefKey?: keyof T & string;
+  /**
+   * Texte affiche quand la cellule est vide.
+   *
+   * Par defaut une valeur numerique absente s affiche "Unavailable", ce qui
+   * signale une mesure manquante. Certaines colonnes ont au contraire des
+   * cases vides par construction — le budget d un canal qui ne s achete pas —
+   * ou "Unavailable" ferait croire a une panne de mesure.
+   */
+  emptyLabel?: string;
 };
 
 type SortDirection = 'asc' | 'desc';
@@ -49,8 +58,14 @@ function rawComparable(value: unknown, type: DataTableColumn<Record<string, unkn
 }
 
 /** Valeur affichee : distingue "pas de valeur" (-) de "donnee indisponible". */
-function displayValue(value: unknown, type: DataTableColumn<Record<string, unknown>>['type']) {
-  if (value === null || value === undefined || value === '') return type === 'text' || !type ? '-' : 'Unavailable';
+function displayValue(
+  value: unknown,
+  type: DataTableColumn<Record<string, unknown>>['type'],
+  emptyLabel?: string,
+) {
+  if (value === null || value === undefined || value === '') {
+    return emptyLabel ?? (type === 'text' || !type ? '-' : 'Unavailable');
+  }
   if (type === 'money') return formatEuro(typeof value === 'number' ? value : Number(value));
   if (type === 'percent') return formatPercent(typeof value === 'number' ? value : Number(value));
   if (type === 'number') return formatNumber(typeof value === 'number' ? value : Number(value), 2);
@@ -226,7 +241,7 @@ export function DataTable<T extends Record<string, unknown>>({
                       const tone = column.tone ?? legacy.tone;
                       const strong = column.strong ?? legacy.strong;
                       const href = column.hrefKey ? String(row[column.hrefKey] ?? '') : '';
-                      const content = displayValue(row[column.key], column.type);
+                      const content = displayValue(row[column.key], column.type, column.emptyLabel);
                       return (
                         <td
                           key={column.key}

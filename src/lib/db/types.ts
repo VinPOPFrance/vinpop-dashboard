@@ -831,8 +831,24 @@ export type AcquisitionOrderRow = {
   landingPath: string | null;
 };
 
+/**
+ * Budgets publicitaires sur toute leur duree de vie.
+ *
+ * Les deux regies n ont pas tourne sur la meme periode : les bornes sont
+ * renvoyees avec les montants, sans quoi comparer les deux couts par vente
+ * reviendrait a comparer huit mois de Meta a dix jours de Google.
+ */
+export type AcquisitionSpend = {
+  meta: number;
+  metaFirstDay: string | null;
+  metaLastDay: string | null;
+  google: number;
+  googleFirstDay: string | null;
+  googleLastDay: string | null;
+};
+
 export type AcquisitionOrdersResult =
-  | { ok: true; metrics: { orders: AcquisitionOrderRow[] } }
+  | { ok: true; metrics: { orders: AcquisitionOrderRow[]; spend: AcquisitionSpend } }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 /** Ventes rattachees a un mot-cle Google Ads via le gclid de la commande. */

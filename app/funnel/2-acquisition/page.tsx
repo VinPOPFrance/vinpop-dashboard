@@ -267,6 +267,65 @@ const orderColumns: DataTableColumn<OrderTableRow>[] = [
   { key: 'landing', label: 'Page d arrivee', type: 'text' },
 ];
 
+/** Ligne de la comparaison des canaux : une regie ou une source par ligne. */
+type ChannelComparisonRow = {
+  /** Identifiant de ligne, non affiche : voir le prop `rowKey` de DataTable. */
+  id: string;
+  channel: string;
+  spend: number | null;
+  orders: number;
+  revenue: number;
+  costPerOrder: number | null;
+  averageOrderValue: number | null;
+  roas: number | null;
+  share: number | null;
+  reliability: string;
+};
+
+const channelComparisonColumns: DataTableColumn<ChannelComparisonRow>[] = [
+  { key: 'channel', label: 'Canal', type: 'text', strong: true, width: 180 },
+  {
+    key: 'spend',
+    label: 'Budget depense',
+    type: 'money',
+    emptyLabel: '—',
+    description: 'Depense publicitaire de la regie sur toute sa duree de vie. Vide pour les canaux qui ne s achetent pas.',
+  },
+  { key: 'orders', label: 'Ventes', type: 'number' },
+  { key: 'share', label: 'Part des ventes', type: 'percent' },
+  { key: 'revenue', label: 'CA encaisse', type: 'money' },
+  { key: 'averageOrderValue', label: 'Panier moyen', type: 'money' },
+  {
+    key: 'costPerOrder',
+    label: 'Cout par vente',
+    type: 'money',
+    emptyLabel: '—',
+    description: 'Budget de la regie divise par les ventes qui lui sont rattachees. C est le cout d acquisition attribue, a lire avec la colonne de fiabilite.',
+  },
+  {
+    key: 'roas',
+    label: 'CA / depense',
+    type: 'number',
+    emptyLabel: '—',
+    description: 'Chiffre d affaires rapporte a un euro depense. En dessous de 1, la regie coute plus qu elle ne rapporte en premiere commande.',
+  },
+  {
+    key: 'reliability',
+    label: 'Fiabilite',
+    type: 'text',
+    description: 'Un cout par vente calcule sur une poignee de commandes ne permet pas de trancher entre deux regies.',
+  },
+];
+
+/**
+ * Nombre de ventes en dessous duquel un cout par vente ne veut rien dire.
+ *
+ * Une regie a une seule vente affiche un cout par vente qui n est que le prix
+ * de cette vente-la : le comparer a une regie a quinze ventes ferait prendre
+ * une coincidence pour une performance.
+ */
+const RELIABLE_ORDER_COUNT = 5;
+
 const CAMPAIGN_VERDICT_LABEL: Record<string, string> = {
   converting: 'Convertit',
   trap: 'Piege',
@@ -805,6 +864,58 @@ async function OrdersTab({ searchParams }: { searchParams: Record<string, string
   }
   const channels = [...byChannel.entries()].sort((left, right) => right[1].orders - left[1].orders);
 
+  // Comparaison des canaux. Seules les deux regies ont un budget : les autres
+  // lignes n ont pas de cout par vente, et laisser la colonne vide vaut mieux
+  // que d y ecrire zero, qui se lirait comme "gratuit et donc meilleur".
+  const spend = result.metrics.spend;
+  const totalSpend = spend.meta + spend.google;
+  const spendByChannel: Partial<Record<AcquisitionOrderRow['channel'], number>> = {
+    meta: spend.meta,
+    'google-ads': spend.google,
+  };
+
+  const comparisonRows: ChannelComparisonRow[] = channels.map(([channel, totals]) => {
+    const channelSpend = spendByChannel[channel] ?? null;
+    return {
+      id: channel,
+      channel: acquisitionChannelLabel[channel],
+      spend: channelSpend,
+      orders: totals.orders,
+      revenue: totals.revenue,
+      share: orders.length > 0 ? (totals.orders / orders.length) * 100 : null,
+      averageOrderValue: totals.orders > 0 ? totals.revenue / totals.orders : null,
+      costPerOrder: channelSpend !== null && totals.orders > 0 ? channelSpend / totals.orders : null,
+      roas: channelSpend !== null && channelSpend > 0 ? totals.revenue / channelSpend : null,
+      reliability:
+        channelSpend === null
+          ? 'Canal non achete'
+          : totals.orders >= RELIABLE_ORDER_COUNT
+            ? 'Suffisant pour comparer'
+            : `${formatNumber(totals.orders)} vente(s) : trop peu pour conclure`,
+    };
+  });
+
+  // La ligne totale porte le cout d acquisition reel : toute la depense
+  // publicitaire rapportee a toutes les ventes, y compris celles arrivees en
+  // direct. C est le seul chiffre qui ne depend d aucune hypothese
+  // d attribution.
+  comparisonRows.push({
+    id: 'total',
+    channel: 'Toutes sources',
+    spend: totalSpend,
+    orders: orders.length,
+    revenue: totalRevenue,
+    share: 100,
+    averageOrderValue: orders.length > 0 ? totalRevenue / orders.length : null,
+    costPerOrder: orders.length > 0 ? totalSpend / orders.length : null,
+    roas: totalSpend > 0 ? totalRevenue / totalSpend : null,
+    reliability: 'Cout d acquisition reel',
+  });
+
+  const blendedCac = orders.length > 0 ? totalSpend / orders.length : null;
+  const blendedRoas = totalSpend > 0 ? totalRevenue / totalSpend : null;
+  const averageOrderValue = orders.length > 0 ? totalRevenue / orders.length : null;
+
   const query = withParam(searchParams, 'tab', null);
   const rows: OrderTableRow[] = orders.map((order) => ({
     id: order.orderId,
@@ -823,6 +934,27 @@ async function OrdersTab({ searchParams }: { searchParams: Record<string, string
       <PageSection>
         <StatGrid>
           <StatCard
+            label="Cout d acquisition reel"
+            value={blendedCac !== null ? formatEuro(blendedCac) : 'Indisponible'}
+            tone={blendedCac !== null && averageOrderValue !== null && blendedCac > averageOrderValue ? 'critical' : 'good'}
+            hint={`${formatEuro(totalSpend)} de publicite pour ${formatNumber(orders.length)} ventes, toutes sources confondues.`}
+          />
+          <StatCard
+            label="CA pour un euro depense"
+            value={blendedRoas !== null ? blendedRoas.toFixed(2) : 'Indisponible'}
+            tone={blendedRoas !== null && blendedRoas < 1 ? 'critical' : 'good'}
+            hint={
+              blendedRoas !== null && blendedRoas < 1
+                ? `Chaque euro de publicite rapporte ${formatEuro(blendedRoas)} en premiere commande : la rentabilite depend entierement du rachat.`
+                : 'Chiffre d affaires encaisse rapporte a la depense publicitaire totale.'
+            }
+          />
+          <StatCard
+            label="Panier moyen"
+            value={averageOrderValue !== null ? formatEuro(averageOrderValue) : 'Indisponible'}
+            hint="Ce qu une vente rapporte en moyenne, a comparer au cout d acquisition."
+          />
+          <StatCard
             label="Ventes payees non annulees"
             value={formatNumber(orders.length)}
             hint={`${formatEuro(totalRevenue)} encaisses · le meme perimetre que la lecture de l onglet Meta Ads`}
@@ -837,6 +969,43 @@ async function OrdersTab({ searchParams }: { searchParams: Record<string, string
             />
           ))}
         </StatGrid>
+      </PageSection>
+
+      <Section
+        title="Ce que coute une vente, canal par canal"
+        sub="Budgets depenses sur toute leur duree de vie, rapportes aux ventes encaissees. La ligne Toutes sources est le seul cout d acquisition qui ne depend d aucune hypothese."
+        bare
+      >
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          <DataTable
+            columns={channelComparisonColumns}
+            rows={comparisonRows}
+            initialSortKey="orders"
+            enableSearch={false}
+            emptyMessage="Aucune vente a comparer."
+            rowKey="id"
+          />
+        </Card>
+      </Section>
+
+      <PageSection>
+        <Card style={{ background: colors.surfaceMuted }}>
+          <p style={{ margin: 0, fontSize: 12.5, color: colors.textSecondary, lineHeight: 1.7 }}>
+            <strong style={{ color: colors.text }}>Pourquoi le cout par vente d une regie est trompeur.</strong> Il ne
+            compte que les ventes dont l URL portait sa marque. Une personne qui voit une video Meta, revient trois
+            jours plus tard en tapant vinpop.nl et achete apparait en <strong>Direct</strong> : la publicite a paye
+            cette vente, la colonne ne le dit pas.{' '}
+            {spend.metaLastDay && spend.googleLastDay ? (
+              <>
+                Les deux regies n ont pas tourne sur la meme periode — Meta du {formatDate(spend.metaFirstDay)} au{' '}
+                {formatDate(spend.metaLastDay)}, Google Ads du {formatDate(spend.googleFirstDay)} au{' '}
+                {formatDate(spend.googleLastDay)} — ce qui interdit de les departager sur le seul cout par vente.{' '}
+              </>
+            ) : null}
+            La ligne <strong>Toutes sources</strong> repond a la vraie question : ce que coute un client quand on
+            rapporte tout le budget a toutes les ventes.
+          </p>
+        </Card>
       </PageSection>
 
       <PageSection>

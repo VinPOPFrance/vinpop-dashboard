@@ -15,6 +15,7 @@
 
 import 'server-only';
 import { getPool, numberFromPg } from './client';
+import { microsToEuros } from './googleAds';
 import { attributionMethodLabel, metaAdMatchMethodSql, metaAdResolutionSql } from './metaAttribution';
 import type {
   AcquisitionChannel,
@@ -85,7 +86,8 @@ export async function getAcquisitionOrders(): Promise<AcquisitionOrdersResult> {
 
   try {
     const pool = getPool(databaseUrl);
-    const result = await pool.query<Record<string, string | null>>(`
+    const [result, spendResult] = await Promise.all([
+      pool.query<Record<string, string | null>>(`
       WITH base AS (
         SELECT
           id::text AS order_id,
@@ -164,7 +166,38 @@ export async function getAcquisitionOrders(): Promise<AcquisitionOrdersResult> {
         ) AS google_keyword
       FROM base
       ORDER BY base.created_at DESC
-    `);
+    `),
+      // Les deux budgets publicitaires, sur toute leur duree de vie.
+      //
+      // C est le denominateur du cout d acquisition reel : une vente "directe"
+      // n arrive pas de nulle part, la personne a vu une publicite avant de
+      // revenir par elle-meme. Rapporter la depense totale aux ventes totales
+      // est la seule facon de savoir ce que coute vraiment un client, meme si
+      // ce chiffre ne dit pas quelle regie l a apporte.
+      pool.query<Record<string, string | null>>(`
+        SELECT
+          (SELECT COALESCE(SUM(spend), 0)::text FROM public.ads_insights) AS meta_spend,
+          (SELECT MIN(date_start)::text FROM public.ads_insights) AS meta_first_day,
+          (SELECT MAX(date_stop)::text FROM public.ads_insights) AS meta_last_day,
+          (
+            SELECT COALESCE(SUM(metrics_cost_micros), 0)::text
+            FROM public.keyword_view
+            WHERE ad_group_criterion_negative IS NOT TRUE
+          ) AS google_cost_micros,
+          (
+            SELECT MIN(segments_date)::text
+            FROM public.keyword_view
+            WHERE metrics_cost_micros > 0
+          ) AS google_first_day,
+          (
+            SELECT MAX(segments_date)::text
+            FROM public.keyword_view
+            WHERE metrics_cost_micros > 0
+          ) AS google_last_day
+      `),
+    ]);
+
+    const spendRow = spendResult.rows[0];
 
     const orders: AcquisitionOrderRow[] = result.rows.map((row) => {
       const adId = row.ad_id;
@@ -238,7 +271,20 @@ export async function getAcquisitionOrders(): Promise<AcquisitionOrdersResult> {
       };
     });
 
-    return { ok: true, metrics: { orders } };
+    return {
+      ok: true,
+      metrics: {
+        orders,
+        spend: {
+          meta: numberFromPg(spendRow?.meta_spend),
+          metaFirstDay: spendRow?.meta_first_day ?? null,
+          metaLastDay: spendRow?.meta_last_day ?? null,
+          google: microsToEuros(spendRow?.google_cost_micros),
+          googleFirstDay: spendRow?.google_first_day ?? null,
+          googleLastDay: spendRow?.google_last_day ?? null,
+        },
+      },
+    };
   } catch {
     return { ok: false, reason: 'connection-failed' };
   }

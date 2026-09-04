@@ -105,7 +105,7 @@ export const getCachedMetaCreativeAttribution = cached(
 );
 
 export const getCachedAcquisitionOrders = cached(
-  'acquisition-orders-v2',
+  'acquisition-orders-v3',
   'getAcquisitionOrders',
   getAcquisitionOrders,
   (result) => (result.ok ? result.metrics.orders.length : null),
