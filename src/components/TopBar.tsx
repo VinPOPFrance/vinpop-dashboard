@@ -44,9 +44,13 @@ export function TopBar({
         alignItems: 'flex-start',
         padding: '24px 32px 0',
         gap: 16,
+        // Les deux champs de dates precises ajoutent une bonne moitie de
+        // largeur au bloc de droite. Sans repli, il poussait le titre hors de
+        // l ecran et faisait defiler toute la page horizontalement.
+        flexWrap: 'wrap',
       }}
     >
-      <div>
+      <div style={{ minWidth: 0, flex: '1 1 260px' }}>
         {step ? (
           <div style={{ fontSize: 11, fontWeight: 700, color: colors.brand, letterSpacing: '0.06em', marginBottom: 4 }}>
             ETAPE {step} / {FUNNEL_STEPS.length}
@@ -56,7 +60,16 @@ export function TopBar({
         {subtitle ? <p style={{ fontSize: 13, color: colors.textSecondary, margin: '4px 0 0' }}>{subtitle}</p> : null}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: 10,
+          flexWrap: 'wrap',
+          marginLeft: 'auto',
+        }}
+      >
         {step ? (
           <div style={{ display: 'flex', gap: 4 }}>
             <StepArrow href={previous?.href} label="←" title={previous ? `Etape ${previous.step} : ${previous.label}` : undefined} />

@@ -2,7 +2,8 @@ import { connection } from 'next/server';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, PageSection, SectionTitle, StatCard } from '@/components/ui';
 import { TopBar } from '@/components/TopBar';
-import { getCachedMetaAdsPerformance, getCachedTrackingReadiness } from '@/lib/cachedDb';
+import { getCachedMetaAdsPerformance, getCachedTrackingReadiness, rangeCacheArgs } from '@/lib/cachedDb';
+import { getDateRange } from '@/lib/analytics/dateRanges';
 
 export const runtime = 'nodejs';
 
@@ -33,7 +34,7 @@ function hasAnyColumn(columns: string[], names: string[]) {
 
 export default async function AttributionReadinessPage() {
   await connection();
-  const [trackingResult, metaResult] = await Promise.all([getCachedTrackingReadiness(), getCachedMetaAdsPerformance()]);
+  const [trackingResult, metaResult] = await Promise.all([getCachedTrackingReadiness(), getCachedMetaAdsPerformance(...rangeCacheArgs(getDateRange('all')))]);
   const tracking = trackingResult.ok ? trackingResult.metrics : null;
   const meta = metaResult.ok ? metaResult.metrics : null;
   const allColumns = tracking?.availableTables.flatMap((table) => table.matchedColumns) ?? [];

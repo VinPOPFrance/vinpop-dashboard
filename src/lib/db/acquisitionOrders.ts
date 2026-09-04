@@ -16,6 +16,7 @@
 import 'server-only';
 import { getPool, numberFromPg } from './client';
 import { microsToEuros } from './googleAds';
+import { dateToSql, type DateRange } from '@/lib/analytics/dateRanges';
 import { attributionMethodLabel, metaAdMatchMethodSql, metaAdResolutionSql } from './metaAttribution';
 import type {
   AcquisitionChannel,
@@ -80,9 +81,12 @@ function hostOf(url: string | null): string | null {
   return match ? match[1].replace(/^www\./, '') : url;
 }
 
-export async function getAcquisitionOrders(): Promise<AcquisitionOrdersResult> {
+export async function getAcquisitionOrders(range: DateRange): Promise<AcquisitionOrdersResult> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  const start = dateToSql(range.start);
+  const end = dateToSql(range.end);
 
   try {
     const pool = getPool(databaseUrl);
@@ -113,6 +117,7 @@ export async function getAcquisitionOrders(): Promise<AcquisitionOrdersResult> {
           NULLIF(referring_site, '') AS referring_site,
           split_part(COALESCE(NULLIF(landing_site, ''), '/'), '?', 1) AS landing_path
         FROM public.orders
+        WHERE created_at::date BETWEEN $1::date AND $2::date
       )
       SELECT
         base.order_id,
@@ -166,7 +171,7 @@ export async function getAcquisitionOrders(): Promise<AcquisitionOrdersResult> {
         ) AS google_keyword
       FROM base
       ORDER BY base.created_at DESC
-    `),
+    `, [start, end]),
       // Les deux budgets publicitaires, sur toute leur duree de vie.
       //
       // C est le denominateur du cout d acquisition reel : une vente "directe"
@@ -176,25 +181,38 @@ export async function getAcquisitionOrders(): Promise<AcquisitionOrdersResult> {
       // ce chiffre ne dit pas quelle regie l a apporte.
       pool.query<Record<string, string | null>>(`
         SELECT
-          (SELECT COALESCE(SUM(spend), 0)::text FROM public.ads_insights) AS meta_spend,
-          (SELECT MIN(date_start)::text FROM public.ads_insights) AS meta_first_day,
-          (SELECT MAX(date_stop)::text FROM public.ads_insights) AS meta_last_day,
+          (
+            SELECT COALESCE(SUM(spend), 0)::text
+            FROM public.ads_insights
+            WHERE date_start BETWEEN $1::date AND $2::date
+          ) AS meta_spend,
+          (
+            SELECT MIN(date_start)::text
+            FROM public.ads_insights
+            WHERE spend > 0 AND date_start BETWEEN $1::date AND $2::date
+          ) AS meta_first_day,
+          (
+            SELECT MAX(date_stop)::text
+            FROM public.ads_insights
+            WHERE spend > 0 AND date_start BETWEEN $1::date AND $2::date
+          ) AS meta_last_day,
           (
             SELECT COALESCE(SUM(metrics_cost_micros), 0)::text
             FROM public.keyword_view
             WHERE ad_group_criterion_negative IS NOT TRUE
+              AND segments_date BETWEEN $1::date AND $2::date
           ) AS google_cost_micros,
           (
             SELECT MIN(segments_date)::text
             FROM public.keyword_view
-            WHERE metrics_cost_micros > 0
+            WHERE metrics_cost_micros > 0 AND segments_date BETWEEN $1::date AND $2::date
           ) AS google_first_day,
           (
             SELECT MAX(segments_date)::text
             FROM public.keyword_view
-            WHERE metrics_cost_micros > 0
+            WHERE metrics_cost_micros > 0 AND segments_date BETWEEN $1::date AND $2::date
           ) AS google_last_day
-      `),
+      `, [start, end]),
     ]);
 
     const spendRow = spendResult.rows[0];

@@ -15,7 +15,8 @@ import {
   colors,
   type DataTableColumn,
 } from '@/components/ui';
-import { getCachedMetaAdsPerformance, getCachedMetaCreativeAttribution } from '@/lib/cachedDb';
+import { getCachedMetaAdsPerformance, getCachedMetaCreativeAttribution, rangeCacheArgs } from '@/lib/cachedDb';
+import { getDateRange } from '@/lib/analytics/dateRanges';
 import { getAdScript } from '@/lib/adScripts';
 import { MINIMUM_SPEND_FOR_REVIEW } from '@/lib/db/meta';
 import { attributionMethodLabel } from '@/lib/db/metaAttribution';
@@ -40,6 +41,15 @@ import type { MetaAttributedOrder } from '@/lib/db/types';
 export const runtime = 'nodejs';
 
 const BACK_HREF = '/funnel/2-acquisition';
+
+/**
+ * Cette page ignore volontairement la periode choisie dans l en-tete.
+ *
+ * Une creative se juge sur toute sa vie : son hook rate et ses ventes ne
+ * veulent rien dire recadres sur sept jours, et son script ne change pas avec
+ * le selecteur de dates.
+ */
+const LIFETIME = getDateRange('all');
 
 /** Ligne du tableau des commandes rattachees a la creative. */
 type OrderRow = {
@@ -78,12 +88,12 @@ export default async function AdDetailPage({
   const [performanceResult, attributionResult] = await Promise.all([
     timeAsync(
       'page:/funnel/2-acquisition/[adId] getMetaAdsPerformance',
-      () => getCachedMetaAdsPerformance(),
+      () => getCachedMetaAdsPerformance(...rangeCacheArgs(LIFETIME)),
       { category: 'page', cacheStatus: 'unknown' },
     ),
     timeAsync(
       'page:/funnel/2-acquisition/[adId] getMetaCreativeAttribution',
-      () => getCachedMetaCreativeAttribution(),
+      () => getCachedMetaCreativeAttribution(...rangeCacheArgs(LIFETIME)),
       { category: 'page', cacheStatus: 'unknown' },
     ),
   ]);

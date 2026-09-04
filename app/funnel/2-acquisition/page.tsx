@@ -368,7 +368,7 @@ export default async function Step2Page({
 
       {tab === 'meta' ? <MetaTab range={range} searchParams={params} /> : null}
       {tab === 'google' ? <GoogleTab range={range} searchParams={params} /> : null}
-      {tab === 'orders' ? <OrdersTab searchParams={params} /> : null}
+      {tab === 'orders' ? <OrdersTab range={range} searchParams={params} /> : null}
     </DashboardLayout>
   );
 }
@@ -415,12 +415,12 @@ async function MetaTab({
     ),
     timeAsync(
       'page:/funnel/2-acquisition getMetaAdsPerformance',
-      () => getCachedMetaAdsPerformance(),
+      () => getCachedMetaAdsPerformance(...rangeCacheArgs(range)),
       { category: 'page', cacheStatus: 'unknown' },
     ),
     timeAsync(
       'page:/funnel/2-acquisition getMetaCreativeAttribution',
-      () => getCachedMetaCreativeAttribution(),
+      () => getCachedMetaCreativeAttribution(...rangeCacheArgs(range)),
       { category: 'page', cacheStatus: 'unknown' },
     ),
   ]);
@@ -509,7 +509,7 @@ async function MetaTab({
           <StatCard
             label={`Depense (creatives > ${MINIMUM_SPEND_FOR_REVIEW} EUR)`}
             value={formatEuro(reviewedSpend)}
-            hint={`${formatNumber(reviewedAds.length)} creative(s) sur ${formatNumber(metrics.ads.length)} · depuis le debut du compte`}
+            hint={`${formatNumber(reviewedAds.length)} creative(s) sur ${formatNumber(metrics.ads.length)} · ${range.label}`}
           />
           <StatCard label="Hook rate moyen" value={formatPercent(reviewedHookRate)} hint={metrics.hookMetric} />
           <StatCard
@@ -832,10 +832,16 @@ function GoogleCoverageNote({ traffic }: { traffic: GoogleAdsTrafficMetrics }) {
  * part de la caisse et remonte : c est le seul endroit ou l on voit, commande
  * par commande, pourquoi une vente n apparait dans aucun tableau publicitaire.
  */
-async function OrdersTab({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+async function OrdersTab({
+  range,
+  searchParams,
+}: {
+  range: ReturnType<typeof getDateRangeFromSearchParams>;
+  searchParams: Record<string, string | string[] | undefined>;
+}) {
   const result = await timeAsync(
     'page:/funnel/2-acquisition getAcquisitionOrders',
-    () => getCachedAcquisitionOrders(),
+    () => getCachedAcquisitionOrders(...rangeCacheArgs(range)),
     { category: 'page', cacheStatus: 'unknown' },
   );
 
@@ -957,7 +963,7 @@ async function OrdersTab({ searchParams }: { searchParams: Record<string, string
           <StatCard
             label="Ventes payees non annulees"
             value={formatNumber(orders.length)}
-            hint={`${formatEuro(totalRevenue)} encaisses · le meme perimetre que la lecture de l onglet Meta Ads`}
+            hint={`${formatEuro(totalRevenue)} encaisses sur ${range.label} · le meme perimetre que la lecture de l onglet Meta Ads`}
           />
           {channels.map(([channel, totals]) => (
             <StatCard
@@ -973,7 +979,7 @@ async function OrdersTab({ searchParams }: { searchParams: Record<string, string
 
       <Section
         title="Ce que coute une vente, canal par canal"
-        sub="Budgets depenses sur toute leur duree de vie, rapportes aux ventes encaissees. La ligne Toutes sources est le seul cout d acquisition qui ne depend d aucune hypothese."
+        sub={`Budgets et ventes de la periode selectionnee (${range.label}). La ligne Toutes sources est le seul cout d acquisition qui ne depend d aucune hypothese.`}
         bare
       >
         <Card style={{ padding: 0, overflow: 'hidden' }}>

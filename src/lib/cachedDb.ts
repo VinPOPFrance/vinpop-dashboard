@@ -90,27 +90,6 @@ export function rangeCacheArgs(range: DateRange): [DateRangePeriod, string, stri
 
 // --------------------------------------------------------------- sans periode
 
-export const getCachedMetaAdsPerformance = cached(
-  'meta-ads-performance-v2',
-  'getMetaAdsPerformance',
-  getMetaAdsPerformance,
-  (result) => (result.ok ? result.metrics.daily.length : null),
-);
-
-export const getCachedMetaCreativeAttribution = cached(
-  'meta-creative-attribution-v3',
-  'getMetaCreativeAttribution',
-  getMetaCreativeAttribution,
-  (result) => (result.ok ? result.metrics.orders.length : null),
-);
-
-export const getCachedAcquisitionOrders = cached(
-  'acquisition-orders-v3',
-  'getAcquisitionOrders',
-  getAcquisitionOrders,
-  (result) => (result.ok ? result.metrics.orders.length : null),
-);
-
 export const getCachedRatingsIntelligence = cached(
   'ratings-intelligence',
   'getRatingsIntelligence',
@@ -141,6 +120,27 @@ export const getCachedLastAirbyteSync = cached(
 );
 
 // --------------------------------------------------------------- avec periode
+
+export const getCachedMetaAdsPerformance = cachedByRange(
+  'meta-ads-performance-v3',
+  'getMetaAdsPerformance',
+  getMetaAdsPerformance,
+  (result) => (result.ok ? result.metrics.daily.length : null),
+);
+
+export const getCachedMetaCreativeAttribution = cachedByRange(
+  'meta-creative-attribution-v4',
+  'getMetaCreativeAttribution',
+  getMetaCreativeAttribution,
+  (result) => (result.ok ? result.metrics.orders.length : null),
+);
+
+export const getCachedAcquisitionOrders = cachedByRange(
+  'acquisition-orders-v4',
+  'getAcquisitionOrders',
+  getAcquisitionOrders,
+  (result) => (result.ok ? result.metrics.orders.length : null),
+);
 
 export const getCachedMetaAdsOverviewSummary = cachedByRange(
   'meta-ads-overview-summary-v2',

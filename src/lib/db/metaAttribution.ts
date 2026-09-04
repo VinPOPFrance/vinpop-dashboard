@@ -16,6 +16,7 @@
 
 import 'server-only';
 import { getPool, numberFromPg } from './client';
+import { dateToSql, type DateRange } from '@/lib/analytics/dateRanges';
 import type {
   MetaAdSalesRow,
   MetaAttributedOrder,
@@ -114,6 +115,7 @@ const metaOrdersCte = `
       referring_site ~* '(facebook|instagram|fb\\.me)' AS from_meta_referrer
     FROM public.orders
     WHERE cancelled_at IS NULL
+      AND created_at::date BETWEEN $1::date AND $2::date
   ),
   resolved AS (
     SELECT
@@ -141,9 +143,12 @@ const metaOrdersCte = `
   )
 `;
 
-export async function getMetaCreativeAttribution(): Promise<MetaCreativeAttributionResult> {
+export async function getMetaCreativeAttribution(range: DateRange): Promise<MetaCreativeAttributionResult> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  const start = dateToSql(range.start);
+  const end = dateToSql(range.end);
 
   try {
     const pool = getPool(databaseUrl);
@@ -176,7 +181,7 @@ export async function getMetaCreativeAttribution(): Promise<MetaCreativeAttribut
         from_meta_referrer::text AS from_meta_referrer
       FROM resolved
       ORDER BY created_at DESC
-    `),
+    `, [start, end]),
       pool.query<Record<string, string | null>>(`
         SELECT
           COUNT(*) FILTER (WHERE lower(COALESCE(financial_status::text, '')) = 'paid')::text AS paid_orders,
@@ -194,7 +199,8 @@ export async function getMetaCreativeAttribution(): Promise<MetaCreativeAttribut
             END
           ) FILTER (WHERE cancelled_at IS NULL), 0)::text AS revenue
         FROM public.orders
-      `),
+        WHERE created_at::date BETWEEN $1::date AND $2::date
+      `, [start, end]),
     ]);
 
     const shopTotals = shopTotalsResult.rows[0];

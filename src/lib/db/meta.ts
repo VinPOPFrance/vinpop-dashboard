@@ -167,9 +167,21 @@ export async function getMetaAdsOverviewSummary(range: DateRange): Promise<MetaA
   }
 }
 
-export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult> {
+/**
+ * Performance des creatives Meta sur une periode.
+ *
+ * La periode s applique a toutes les lignes, y compris le classement des
+ * creatives : une carte qui affiche la depense de tout le compte a cote d un
+ * graphique filtre sur sept jours donne deux reponses contradictoires a la
+ * meme question. Pour juger une creative sur toute sa vie, il suffit de choisir
+ * "All time" — c est ce que fait la page de detail d une publicite.
+ */
+export async function getMetaAdsPerformance(range: DateRange): Promise<MetaAdsPerformanceResult> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  const start = dateToSql(range.start);
+  const end = dateToSql(range.end);
 
   try {
     const pool = getPool(databaseUrl);
@@ -276,7 +288,8 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           MIN(date_start)::text AS first_date,
           MAX(date_stop)::text AS latest_date
         FROM public.ads_insights
-      `),
+        WHERE ads_insights.date_start BETWEEN $1::date AND $2::date
+      `, [start, end]),
       pool.query<Record<string, string | null>>(`
         SELECT
           date_start::text AS date,
@@ -393,9 +406,10 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
             ), 0)
           ), 0)::text AS hook_events
         FROM public.ads_insights
+        WHERE ads_insights.date_start BETWEEN $1::date AND $2::date
         GROUP BY date_start, ads_insights.campaign_id, ads_insights.adset_id, ads_insights.ad_id
         ORDER BY date_start
-      `),
+      `, [start, end]),
       pool.query<Record<string, string | null>>(`
         SELECT
           COALESCE(ads_insights.campaign_id, '') AS id,
@@ -493,9 +507,10 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
           COALESCE(MAX(campaigns.effective_status), MAX(campaigns.status), 'Unknown') AS status
         FROM public.ads_insights
         LEFT JOIN public.campaigns ON campaigns.id = ads_insights.campaign_id
+        WHERE ads_insights.date_start BETWEEN $1::date AND $2::date
         GROUP BY ads_insights.campaign_id
         ORDER BY SUM(spend) DESC NULLS LAST
-      `),
+      `, [start, end]),
       pool.query<Record<string, string | null>>(`
         SELECT
           COALESCE(ads_insights.adset_id, '') AS id,
@@ -596,9 +611,10 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         FROM public.ads_insights
         LEFT JOIN public.ad_sets ON ad_sets.id = ads_insights.adset_id
         LEFT JOIN public.campaigns ON campaigns.id = ads_insights.campaign_id
+        WHERE ads_insights.date_start BETWEEN $1::date AND $2::date
         GROUP BY ads_insights.adset_id, ads_insights.campaign_id
         ORDER BY SUM(spend) DESC NULLS LAST
-      `),
+      `, [start, end]),
       pool.query<Record<string, string | null>>(`
         SELECT
           COALESCE(ads_insights.ad_id, '') AS id,
@@ -702,9 +718,10 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         FROM public.ads_insights
         LEFT JOIN public.ads ON ads.id = ads_insights.ad_id
         LEFT JOIN public.campaigns ON campaigns.id = ads_insights.campaign_id
+        WHERE ads_insights.date_start BETWEEN $1::date AND $2::date
         GROUP BY ads_insights.ad_id, ads_insights.adset_id, ads_insights.campaign_id
         ORDER BY SUM(spend) DESC NULLS LAST
-      `),
+      `, [start, end]),
     ]);
     const toRow = (row: Record<string, string | null>): MetaPerformanceRow => {
       const spend = numberFromPg(row.spend);

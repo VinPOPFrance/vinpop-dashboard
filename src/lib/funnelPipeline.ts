@@ -67,7 +67,7 @@ export async function getFunnelPipeline(range: DateRange): Promise<FunnelPipelin
 
   const [experience, meta, quiz, product, ratings, smartBox, retention] = await Promise.all([
     getCachedSiteExperience(...rangeArgs),
-    getCachedMetaAdsPerformance(),
+    getCachedMetaAdsPerformance(...rangeArgs),
     getCachedQuizFunnel(...rangeArgs),
     getCachedProductConversion(...rangeArgs),
     getCachedRatingsIntelligence(),
