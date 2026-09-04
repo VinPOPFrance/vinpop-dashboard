@@ -9,12 +9,14 @@ import { colors, radius } from '@/components/ui';
  * selecteur de periode de l en-tete continue de fonctionner sans remise a zero.
  */
 
-export type AcquisitionTab = 'meta' | 'google';
+export type AcquisitionTab = 'meta' | 'google' | 'orders';
 
 /** Lit l onglet demande, en retombant sur Meta si le parametre est absent ou invalide. */
 export function parseAcquisitionTab(value: string | string[] | undefined): AcquisitionTab {
   const raw = Array.isArray(value) ? value[0] : value;
-  return raw === 'google' ? 'google' : 'meta';
+  if (raw === 'google') return 'google';
+  if (raw === 'orders') return 'orders';
+  return 'meta';
 }
 
 export function AcquisitionTabs({
@@ -27,7 +29,8 @@ export function AcquisitionTabs({
 }) {
   const tabs: { id: AcquisitionTab; label: string; hint: string }[] = [
     { id: 'meta', label: 'Meta Ads', hint: 'Hook rate, cout par visite, creatives' },
-    { id: 'google', label: 'Google Ads', hint: 'Cout par mot-cle et trafic non qualifie' },
+    { id: 'google', label: 'Google Ads', hint: 'Cout par mot-cle et qualite du trafic achete' },
+    { id: 'orders', label: 'Commandes', hint: 'Chaque vente encaissee et ce qui l a amenee' },
   ];
 
   function hrefFor(tab: AcquisitionTab): string {

@@ -1,8 +1,10 @@
 import { unstable_cache } from 'next/cache';
 import {
+  getAcquisitionOrders,
   getChurnRisk,
   getFoodPairingIntelligence,
   getGoogleAdsKeywordPerformance,
+  getGoogleAdsTrafficQuality,
   getLastAirbyteSync,
   getMetaAdsOverviewSummary,
   getMetaAdsPerformance,
@@ -102,6 +104,13 @@ export const getCachedMetaCreativeAttribution = cached(
   (result) => (result.ok ? result.metrics.orders.length : null),
 );
 
+export const getCachedAcquisitionOrders = cached(
+  'acquisition-orders-v2',
+  'getAcquisitionOrders',
+  getAcquisitionOrders,
+  (result) => (result.ok ? result.metrics.orders.length : null),
+);
+
 export const getCachedRatingsIntelligence = cached(
   'ratings-intelligence',
   'getRatingsIntelligence',
@@ -152,6 +161,13 @@ export const getCachedGoogleAdsKeywordPerformance = cachedByRange(
   'getGoogleAdsKeywordPerformance',
   getGoogleAdsKeywordPerformance,
   (result) => (result.ok ? result.metrics.keywords.length : null),
+);
+
+export const getCachedGoogleAdsTrafficQuality = cachedByRange(
+  'google-ads-traffic-quality',
+  'getGoogleAdsTrafficQuality',
+  getGoogleAdsTrafficQuality,
+  (result) => (result.ok ? result.metrics.campaigns.length : null),
 );
 
 export const getCachedQuizFunnel = cachedByRange(

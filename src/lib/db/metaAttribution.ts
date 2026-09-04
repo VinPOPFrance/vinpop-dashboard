@@ -34,6 +34,61 @@ export const attributionMethodLabel: Record<MetaAttributionMethod, string> = {
 };
 
 /**
+ * Resolution d une creative Meta depuis les UTM d une commande, par paliers.
+ *
+ * Exportee plutot que recopiee : l onglet des creatives et le recapitulatif des
+ * commandes doivent rattacher exactement les memes ventes aux memes videos.
+ * Deux copies de cette echelle divergeraient au premier ajustement, et deux
+ * ecrans afficheraient alors deux verites.
+ *
+ * `alias` est le nom de la table qui porte les colonnes utm_* dans la requete
+ * appelante.
+ */
+export function metaAdResolutionSql(alias: string): string {
+  return `COALESCE(
+        -- Palier 1 : un UTM porte l identifiant de l annonce.
+        (
+          SELECT ads.id
+          FROM public.ads
+          WHERE ads.id IN (${alias}.utm_content, ${alias}.utm_term, ${alias}.utm_id)
+          LIMIT 1
+        ),
+        -- Palier 2 : utm_content est le nom exact de l annonce.
+        (
+          SELECT ads.id
+          FROM public.ads
+          WHERE lower(ads.name) = lower(${alias}.utm_content)
+          LIMIT 1
+        ),
+        -- Palier 3 : utm_content est un slug. Compare sans ponctuation ni
+        -- casse, et seulement s il ne peut correspondre qu a une annonce :
+        -- un slug ambigu vaut mieux non attribue qu attribue au hasard.
+        (
+          SELECT min(ads.id)
+          FROM public.ads
+          WHERE length(regexp_replace(lower(COALESCE(${alias}.utm_content, '')), '[^a-z0-9]', '', 'g')) >= 8
+            AND regexp_replace(lower(ads.name), '[^a-z0-9]', '', 'g')
+                LIKE '%' || regexp_replace(lower(${alias}.utm_content), '[^a-z0-9]', '', 'g') || '%'
+          HAVING count(*) = 1
+        )
+      )`;
+}
+
+/** Palier ayant permis le rattachement, dans le meme ordre que `metaAdResolutionSql`. */
+export function metaAdMatchMethodSql(alias: string): string {
+  return `CASE
+        WHEN EXISTS (
+          SELECT 1 FROM public.ads
+          WHERE ads.id IN (${alias}.utm_content, ${alias}.utm_term, ${alias}.utm_id)
+        ) THEN 'ad-id'
+        WHEN EXISTS (
+          SELECT 1 FROM public.ads WHERE lower(ads.name) = lower(${alias}.utm_content)
+        ) THEN 'ad-name'
+        ELSE 'ad-slug'
+      END`;
+}
+
+/**
  * Une commande est comptee comme venant de Meta sur trois signaux, du plus
  * precis au plus grossier : ses parametres UTM, un identifiant de clic
  * Facebook (`fbclid`) survivant dans l URL, ou un site referent Facebook /
@@ -63,43 +118,8 @@ const metaOrdersCte = `
   resolved AS (
     SELECT
       meta_orders.*,
-      -- Palier 1 : un UTM porte l identifiant de l annonce.
-      COALESCE(
-        (
-          SELECT ads.id
-          FROM public.ads
-          WHERE ads.id IN (meta_orders.utm_content, meta_orders.utm_term, meta_orders.utm_id)
-          LIMIT 1
-        ),
-        -- Palier 2 : utm_content est le nom exact de l annonce.
-        (
-          SELECT ads.id
-          FROM public.ads
-          WHERE lower(ads.name) = lower(meta_orders.utm_content)
-          LIMIT 1
-        ),
-        -- Palier 3 : utm_content est un slug. Compare sans ponctuation ni
-        -- casse, et seulement s il ne peut correspondre qu a une annonce :
-        -- un slug ambigu vaut mieux non attribue qu attribue au hasard.
-        (
-          SELECT min(ads.id)
-          FROM public.ads
-          WHERE length(regexp_replace(lower(COALESCE(meta_orders.utm_content, '')), '[^a-z0-9]', '', 'g')) >= 8
-            AND regexp_replace(lower(ads.name), '[^a-z0-9]', '', 'g')
-                LIKE '%' || regexp_replace(lower(meta_orders.utm_content), '[^a-z0-9]', '', 'g') || '%'
-          HAVING count(*) = 1
-        )
-      ) AS ad_id,
-      CASE
-        WHEN EXISTS (
-          SELECT 1 FROM public.ads
-          WHERE ads.id IN (meta_orders.utm_content, meta_orders.utm_term, meta_orders.utm_id)
-        ) THEN 'ad-id'
-        WHEN EXISTS (
-          SELECT 1 FROM public.ads WHERE lower(ads.name) = lower(meta_orders.utm_content)
-        ) THEN 'ad-name'
-        ELSE 'ad-slug'
-      END AS match_method,
+      ${metaAdResolutionSql('meta_orders')} AS ad_id,
+      ${metaAdMatchMethodSql('meta_orders')} AS match_method,
       (
         SELECT campaigns.name
         FROM public.campaigns

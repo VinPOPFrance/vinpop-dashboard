@@ -805,3 +805,80 @@ export type MetaCreativeAttributionMetrics = {
 export type MetaCreativeAttributionResult =
   | { ok: true; metrics: MetaCreativeAttributionMetrics }
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+/** Canal ayant amene une commande, deduit de son URL d arrivee. */
+export type AcquisitionChannel = 'meta' | 'google-ads' | 'google-organic' | 'referral' | 'direct';
+
+/** Une commande encaissee, avec ce qui l a amenee. */
+export type AcquisitionOrderRow = {
+  orderId: string;
+  orderName: string;
+  createdAt: string | null;
+  revenue: number;
+  /** Statut de paiement `paid` : le perimetre affiche par l admin Shopify. */
+  paid: boolean;
+  cancelled: boolean;
+  channel: AcquisitionChannel;
+  /** Creative, mot-cle, campagne ou site referent selon le canal. */
+  detail: string;
+  /** Ce qui a permis de l affirmer : sert a juger la fiabilite de la ligne. */
+  evidence: string;
+  /** Renseigne pour Meta uniquement : permet d ouvrir la page de la creative. */
+  adId: string | null;
+  /** Renseigne pour Google Ads quand le gclid a pu etre retrouve. */
+  keyword: string | null;
+  /** Page d arrivee, sans les parametres. */
+  landingPath: string | null;
+};
+
+export type AcquisitionOrdersResult =
+  | { ok: true; metrics: { orders: AcquisitionOrderRow[] } }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };
+
+/** Ventes rattachees a un mot-cle Google Ads via le gclid de la commande. */
+export type GoogleAdsKeywordSalesRow = {
+  keyword: string;
+  campaignName: string;
+  orders: number;
+  revenue: number;
+};
+
+/** Qualite du trafic achete, campagne par campagne. */
+export type GoogleAdsCampaignTrafficRow = {
+  campaignId: string;
+  campaignName: string;
+  keywords: number;
+  impressions: number;
+  clicks: number;
+  cost: number;
+  costPerClick: number | null;
+  /** null quand GA4 ne connait pas cette campagne sur la periode. */
+  sessions: number | null;
+  /** Part des clics payes qui ont reellement ouvert une session. */
+  sessionsPerClick: number | null;
+  /** L equivalent Google du cout par Landing Page View de Meta. */
+  costPerSession: number | null;
+  bounceRate: number | null;
+  ga4Revenue: number | null;
+  /** Commandes Shopify rattachees par gclid. */
+  orders: number;
+  revenue: number;
+  costPerOrder: number | null;
+  verdict: 'converting' | 'trap' | 'watch' | 'insufficient-sessions';
+  recommendation: string;
+};
+
+export type GoogleAdsTrafficMetrics = {
+  campaigns: GoogleAdsCampaignTrafficRow[];
+  keywordSales: GoogleAdsKeywordSalesRow[];
+  /** Derniers jours couverts par chaque source : une mesure figee se voit. */
+  lastGoogleAdsDay: string | null;
+  lastClickViewDay: string | null;
+  lastPaidSessionDay: string | null;
+  bounceRateAlertThreshold: number;
+  minimumSessionsForVerdict: number;
+};
+
+export type GoogleAdsTrafficResult =
+  | { ok: true; metrics: GoogleAdsTrafficMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };

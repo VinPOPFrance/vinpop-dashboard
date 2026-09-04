@@ -21,7 +21,9 @@ import {
 } from '@/components/ui';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
 import {
+  getCachedAcquisitionOrders,
   getCachedGoogleAdsKeywordPerformance,
+  getCachedGoogleAdsTrafficQuality,
   getCachedMetaAdsOverviewSummary,
   getCachedMetaAdsPerformance,
   getCachedMetaCreativeAttribution,
@@ -29,10 +31,13 @@ import {
 } from '@/lib/cachedDb';
 import { hasAdScript } from '@/lib/adScripts';
 import { FUNNEL_STEPS } from '@/lib/navigation';
-import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
+import { formatDate, formatEuro, formatNumber, formatPercent } from '@/lib/format';
 import { timeAsync } from '@/lib/performance';
 import { MINIMUM_SPEND_FOR_REVIEW } from '@/lib/db/meta';
+import { acquisitionChannelLabel } from '@/lib/db/acquisitionOrders';
 import type {
+  AcquisitionOrderRow,
+  GoogleAdsTrafficMetrics,
   MetaAdSalesRow,
   MetaAttributedOrder,
   MetaCreativeAttributionMetrics,
@@ -42,10 +47,18 @@ import type {
 /**
  * Etape 2 du funnel : acquisition publicitaire.
  *
- * Deux regies, deux onglets, une meme question : combien coute une visite qui
- * vaut la peine ? Cote Meta on juge la creative (hook rate, cout par Landing
- * Page View, ventes Shopify reellement rattachees) ; cote Google on juge le
- * mot-cle (cout et conversion).
+ * Trois onglets, une meme question : combien coute une visite qui vaut la
+ * peine, et qu est-ce qui la transforme en vente ?
+ *
+ *  - Meta   : on juge la creative (hook rate, cout par Landing Page View,
+ *             ventes Shopify rattachees, script de la video).
+ *  - Google : on juge le mot-cle (cout par arrivee, quality score, ventes) et
+ *             la qualite du trafic achete par campagne (sessions, rebond) —
+ *             un clic pas cher qui rebondit coute plus qu un clic cher qui
+ *             reste.
+ *  - Commandes : la vue inverse, qui part de la caisse. Une ligne par vente
+ *             encaissee et ce qui l a amenee, pour verifier que les deux
+ *             onglets precedents ne racontent pas qu une partie de l histoire.
  */
 
 export const runtime = 'nodejs';
@@ -118,11 +131,15 @@ type KeywordTableRow = {
   id: string;
   keyword: string;
   matchType: string;
+  campaign: string;
+  impressions: number;
   clicks: number;
   cost: number;
   costPerClick: number | null;
   ctr: number | null;
+  qualityScore: number | null;
   conversions: number;
+  shopifyOrders: number;
   verdict: string;
   action: string;
 };
@@ -130,6 +147,7 @@ type KeywordTableRow = {
 const keywordColumns: DataTableColumn<KeywordTableRow>[] = [
   { key: 'keyword', label: 'Mot-cle', type: 'text', strong: true, width: 220 },
   { key: 'matchType', label: 'Correspondance', type: 'text' },
+  { key: 'impressions', label: 'Impressions', type: 'number' },
   { key: 'clicks', label: 'Clics', type: 'number' },
   {
     key: 'cost',
@@ -137,12 +155,124 @@ const keywordColumns: DataTableColumn<KeywordTableRow>[] = [
     type: 'money',
     description: 'cost_micros / 1 000 000, converti en euros.',
   },
-  { key: 'costPerClick', label: 'Cout / clic', type: 'money' },
+  {
+    key: 'costPerClick',
+    label: 'Cout par arrivee',
+    type: 'money',
+    description:
+      'Cout par clic. Sur le reseau de recherche, un clic paye correspond a une arrivee sur la page : c est l equivalent Google du cout par Landing Page View de Meta.',
+  },
   { key: 'ctr', label: 'CTR', type: 'percent' },
-  { key: 'conversions', label: 'Conversions', type: 'number' },
+  {
+    key: 'qualityScore',
+    label: 'Quality score',
+    type: 'number',
+    description:
+      'Note Google de 1 a 10 sur la coherence entre la requete, l annonce et la page d arrivee. En dessous de 5, le clic est surpaye.',
+  },
+  { key: 'conversions', label: 'Conversions Google', type: 'number' },
+  {
+    key: 'shopifyOrders',
+    label: 'Ventes Shopify',
+    type: 'number',
+    description: 'Commandes dont le gclid a ete retrouve dans les clics Google Ads pour ce mot-cle.',
+  },
   { key: 'verdict', label: 'Verdict', type: 'text' },
   { key: 'action', label: 'Action', type: 'text' },
 ];
+
+/** Ligne du tableau de qualite du trafic achete, une campagne Google par ligne. */
+type CampaignTrafficRow = {
+  /** Identifiant de ligne, non affiche : voir le prop `rowKey` de DataTable. */
+  id: string;
+  campaign: string;
+  keywords: number;
+  clicks: number;
+  cost: number;
+  costPerClick: number | null;
+  sessions: number | null;
+  costPerSession: number | null;
+  bounceRate: number | null;
+  orders: number;
+  costPerOrder: number | null;
+  verdict: string;
+  action: string;
+};
+
+const campaignTrafficColumns: DataTableColumn<CampaignTrafficRow>[] = [
+  { key: 'campaign', label: 'Campagne', type: 'text', strong: true, width: 240 },
+  { key: 'keywords', label: 'Mots-cles', type: 'number' },
+  { key: 'clicks', label: 'Clics payes', type: 'number' },
+  { key: 'cost', label: 'Cout', type: 'money' },
+  { key: 'costPerClick', label: 'Cout par clic', type: 'money' },
+  {
+    key: 'sessions',
+    label: 'Sessions GA4',
+    type: 'number',
+    description: 'Sessions que GA4 rattache a cette campagne. Nettement moins de sessions que de clics signale un suivi incomplet ou des clics qui n atteignent jamais la page.',
+  },
+  {
+    key: 'costPerSession',
+    label: 'Cout par session',
+    type: 'money',
+    description: 'Cout de la campagne divise par les sessions reellement mesurees : le cout d une visite qui a vraiment charge.',
+  },
+  {
+    key: 'bounceRate',
+    label: 'Rebond',
+    type: 'percent',
+    tone: 'warning',
+    description: 'Part des sessions reparties sans interaction (complement du taux d engagement GA4). C est ce qui transforme un clic pas cher en depense perdue.',
+  },
+  { key: 'orders', label: 'Ventes Shopify', type: 'number' },
+  { key: 'costPerOrder', label: 'Cout par vente', type: 'money' },
+  { key: 'verdict', label: 'Verdict', type: 'text' },
+  { key: 'action', label: 'Action', type: 'text' },
+];
+
+/** Ligne du recapitulatif des commandes. */
+type OrderTableRow = {
+  /** Identifiant de ligne, non affiche : voir le prop `rowKey` de DataTable. */
+  id: string;
+  order: string;
+  date: string | null;
+  revenue: number;
+  channel: string;
+  detail: string;
+  /** Destination du lien porte par la colonne `detail`, vide hors Meta. */
+  detailHref: string;
+  evidence: string;
+  landing: string;
+};
+
+const orderColumns: DataTableColumn<OrderTableRow>[] = [
+  { key: 'order', label: 'Commande', type: 'text', strong: true },
+  { key: 'date', label: 'Date', type: 'date' },
+  { key: 'revenue', label: 'Montant', type: 'money' },
+  { key: 'channel', label: 'Canal', type: 'text' },
+  {
+    key: 'detail',
+    label: 'Creative / mot-cle / origine',
+    type: 'text',
+    width: 260,
+    hrefKey: 'detailHref',
+    description: 'Ce que l URL d arrivee permet d identifier. Cliquable quand il s agit d une creative Meta.',
+  },
+  {
+    key: 'evidence',
+    label: 'Sur quelle preuve',
+    type: 'text',
+    description: 'Ce qui a permis de rattacher la commande : du plus sur (identifiant dans l URL) au plus faible (site referent).',
+  },
+  { key: 'landing', label: 'Page d arrivee', type: 'text' },
+];
+
+const CAMPAIGN_VERDICT_LABEL: Record<string, string> = {
+  converting: 'Convertit',
+  trap: 'Piege',
+  watch: 'A surveiller',
+  'insufficient-sessions': 'Trop peu de sessions',
+};
 
 const VERDICT_LABEL: Record<string, string> = {
   converting: 'Convertit',
@@ -177,7 +307,9 @@ export default async function Step2Page({
 
       <AcquisitionTabs active={tab} searchParams={params} />
 
-      {tab === 'meta' ? <MetaTab range={range} searchParams={params} /> : <GoogleTab range={range} />}
+      {tab === 'meta' ? <MetaTab range={range} searchParams={params} /> : null}
+      {tab === 'google' ? <GoogleTab range={range} /> : null}
+      {tab === 'orders' ? <OrdersTab searchParams={params} /> : null}
     </DashboardLayout>
   );
 }
@@ -604,13 +736,156 @@ function SalesReconciliation({ attribution }: { attribution: MetaCreativeAttribu
   );
 }
 
-/** Onglet Google Ads : economie par mot-cle et detection du trafic non qualifie. */
-async function GoogleTab({ range }: { range: ReturnType<typeof getDateRangeFromSearchParams> }) {
+
+/**
+ * Ce que chaque source sait encore, et jusqu a quand.
+ *
+ * Google Ads, GA4 et le journal des clics ne s arretent pas le meme jour. Un
+ * taux de rebond fige trois semaines en arriere, affiche a cote d une depense
+ * du jour, se lit comme une mesure actuelle : cette note l empeche.
+ */
+function GoogleCoverageNote({ traffic }: { traffic: GoogleAdsTrafficMetrics }) {
+  const rows = [
+    { label: 'Depense et mots-cles (Google Ads)', day: traffic.lastGoogleAdsDay },
+    { label: 'Sessions et rebond du trafic paye (GA4)', day: traffic.lastPaidSessionDay },
+    { label: 'Journal des clics avec gclid, qui rattache les ventes aux mots-cles', day: traffic.lastClickViewDay },
+  ];
+
+  return (
+    <PageSection>
+      <Card style={{ background: colors.surfaceMuted }}>
+        <p style={{ margin: 0, fontSize: 12.5, color: colors.textSecondary, lineHeight: 1.7 }}>
+          <strong style={{ color: colors.text }}>Jusqu ou vont les mesures.</strong>{' '}
+          {rows
+            .map((row) => `${row.label} : jusqu au ${row.day ? formatDate(row.day) : 'aucune donnee'}`)
+            .join(' · ')}
+          . Un ecart entre ces dates signifie qu une colonne decrit une periode plus courte que la depense affichee.
+        </p>
+      </Card>
+    </PageSection>
+  );
+}
+
+/**
+ * Onglet Commandes : une ligne par vente encaissee, avec son origine.
+ *
+ * Les deux autres onglets ne montrent que ce qu une regie a produit. Celui-ci
+ * part de la caisse et remonte : c est le seul endroit ou l on voit, commande
+ * par commande, pourquoi une vente n apparait dans aucun tableau publicitaire.
+ */
+async function OrdersTab({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const result = await timeAsync(
-    'page:/funnel/2-acquisition getGoogleAdsKeywordPerformance',
-    () => getCachedGoogleAdsKeywordPerformance(...rangeCacheArgs(range)),
+    'page:/funnel/2-acquisition getAcquisitionOrders',
+    () => getCachedAcquisitionOrders(),
     { category: 'page', cacheStatus: 'unknown' },
   );
+
+  if (!result.ok) {
+    return (
+      <PageSection>
+        <AlertBanner tone="critical" title="Commandes indisponibles">
+          {result.reason === 'missing-url'
+            ? 'DATABASE_URL n est pas configure.'
+            : 'La lecture des commandes Shopify a echoue.'}
+        </AlertBanner>
+      </PageSection>
+    );
+  }
+
+  // Le perimetre est celui de l admin Shopify : les commandes payees. Une
+  // commande remboursee ou annulee n a pas d origine a analyser, elle a une
+  // cause a traiter ailleurs.
+  const orders = result.metrics.orders.filter((order) => order.paid && !order.cancelled);
+  const totalRevenue = orders.reduce((sum, order) => sum + order.revenue, 0);
+
+  const byChannel = new Map<AcquisitionOrderRow['channel'], { orders: number; revenue: number }>();
+  for (const order of orders) {
+    const current = byChannel.get(order.channel) ?? { orders: 0, revenue: 0 };
+    byChannel.set(order.channel, { orders: current.orders + 1, revenue: current.revenue + order.revenue });
+  }
+  const channels = [...byChannel.entries()].sort((left, right) => right[1].orders - left[1].orders);
+
+  const query = withParam(searchParams, 'tab', null);
+  const rows: OrderTableRow[] = orders.map((order) => ({
+    id: order.orderId,
+    order: order.orderName,
+    date: order.createdAt,
+    revenue: order.revenue,
+    channel: acquisitionChannelLabel[order.channel],
+    detail: order.detail,
+    detailHref: order.adId ? `/funnel/2-acquisition/${order.adId}${query}` : '',
+    evidence: order.evidence,
+    landing: order.landingPath ?? '-',
+  }));
+
+  return (
+    <>
+      <PageSection>
+        <StatGrid>
+          <StatCard
+            label="Ventes payees non annulees"
+            value={formatNumber(orders.length)}
+            hint={`${formatEuro(totalRevenue)} encaisses · le meme perimetre que la lecture de l onglet Meta Ads`}
+          />
+          {channels.map(([channel, totals]) => (
+            <StatCard
+              key={channel}
+              label={acquisitionChannelLabel[channel]}
+              value={formatNumber(totals.orders)}
+              tone={channel === 'direct' ? 'warning' : 'default'}
+              hint={`${formatEuro(totals.revenue)} · ${formatPercent((totals.orders / Math.max(orders.length, 1)) * 100)} des ventes`}
+            />
+          ))}
+        </StatGrid>
+      </PageSection>
+
+      <PageSection>
+        <Card style={{ background: colors.surfaceMuted }}>
+          <p style={{ margin: 0, fontSize: 12.5, color: colors.textSecondary, lineHeight: 1.7 }}>
+            <strong style={{ color: colors.text }}>Comment lire ce tableau.</strong> Le canal est deduit de l URL
+            d arrivee de la commande (<code>landing_site</code>) et de son site referent, jamais du montant ni de la
+            date. La colonne <strong>Sur quelle preuve</strong> dit ce qui a permis de conclure : un identifiant dans
+            l URL est une certitude, un site referent une simple presomption.{' '}
+            <strong>Direct / inconnu</strong> ne veut pas dire &laquo; sans publicite &raquo; : cela veut dire que le lien clique ne
+            portait aucun parametre. C est la ligne a faire baisser en balisant les liens.
+          </p>
+        </Card>
+      </PageSection>
+
+      <Section
+        title="Toutes les ventes encaissees"
+        sub="Une ligne par commande payee. Cliquer sur une creative Meta ouvre son script et ses chiffres."
+        bare
+      >
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          <DataTable
+            columns={orderColumns}
+            rows={rows}
+            initialSortKey="date"
+            searchPlaceholder="Filtrer une commande, un canal, une creative..."
+            emptyMessage="Aucune commande payee."
+            rowKey="id"
+          />
+        </Card>
+      </Section>
+    </>
+  );
+}
+
+/** Onglet Google Ads : economie par mot-cle et detection du trafic non qualifie. */
+async function GoogleTab({ range }: { range: ReturnType<typeof getDateRangeFromSearchParams> }) {
+  const [result, trafficResult] = await Promise.all([
+    timeAsync(
+      'page:/funnel/2-acquisition getGoogleAdsKeywordPerformance',
+      () => getCachedGoogleAdsKeywordPerformance(...rangeCacheArgs(range)),
+      { category: 'page', cacheStatus: 'unknown' },
+    ),
+    timeAsync(
+      'page:/funnel/2-acquisition getGoogleAdsTrafficQuality',
+      () => getCachedGoogleAdsTrafficQuality(...rangeCacheArgs(range)),
+      { category: 'page', cacheStatus: 'unknown' },
+    ),
+  ]);
 
   if (!result.ok) {
     return (
@@ -625,17 +900,47 @@ async function GoogleTab({ range }: { range: ReturnType<typeof getDateRangeFromS
   }
 
   const metrics = result.metrics;
+  const traffic = trafficResult.ok ? trafficResult.metrics : null;
 
-  const keywordRows: KeywordTableRow[] = metrics.keywords.map((row) => ({
-    id: `${row.keyword}.${row.matchType}`,
-    keyword: row.keyword,
-    matchType: row.matchType,
+  // Les ventes rattachees par gclid remontent au mot-cle exact : sans elles, le
+  // tableau ne dit que ce que Google veut bien compter comme conversion.
+  const salesByKeyword = new Map(
+    (traffic?.keywordSales ?? []).map((row) => [row.keyword.trim().toLowerCase(), row]),
+  );
+
+  const keywordRows: KeywordTableRow[] = metrics.keywords.map((row) => {
+    const sales = salesByKeyword.get(row.keyword.trim().toLowerCase());
+    return {
+      id: `${row.keyword}.${row.matchType}`,
+      keyword: row.keyword,
+      matchType: row.matchType,
+      campaign: row.campaignName,
+      impressions: row.impressions,
+      clicks: row.clicks,
+      cost: row.cost,
+      costPerClick: row.costPerClick,
+      ctr: row.ctr,
+      qualityScore: row.qualityScore,
+      conversions: row.conversions,
+      shopifyOrders: sales?.orders ?? 0,
+      verdict: VERDICT_LABEL[row.verdict] ?? row.verdict,
+      action: row.recommendation,
+    };
+  });
+
+  const campaignRows: CampaignTrafficRow[] = (traffic?.campaigns ?? []).map((row) => ({
+    id: row.campaignId || row.campaignName,
+    campaign: row.campaignName,
+    keywords: row.keywords,
     clicks: row.clicks,
     cost: row.cost,
     costPerClick: row.costPerClick,
-    ctr: row.ctr,
-    conversions: row.conversions,
-    verdict: VERDICT_LABEL[row.verdict] ?? row.verdict,
+    sessions: row.sessions,
+    costPerSession: row.costPerSession,
+    bounceRate: row.bounceRate,
+    orders: row.orders,
+    costPerOrder: row.costPerOrder,
+    verdict: CAMPAIGN_VERDICT_LABEL[row.verdict] ?? row.verdict,
     action: row.recommendation,
   }));
 
@@ -698,9 +1003,30 @@ async function GoogleTab({ range }: { range: ReturnType<typeof getDateRangeFromS
         </Card>
       </PageSection>
 
+      {traffic !== null ? (
+        <Section
+          title="Qualite du trafic achete, par campagne"
+          sub="Le piege du clic pas cher : un CPC bas avec un rebond eleve coute plus qu un CPC eleve qui retient. Le rebond n existe qu au niveau campagne, jamais par mot-cle."
+          bare
+        >
+          <Card style={{ padding: 0, overflow: 'hidden' }}>
+            <DataTable
+              columns={campaignTrafficColumns}
+              rows={campaignRows}
+              initialSortKey="cost"
+              enableSearch={false}
+              emptyMessage="Aucune campagne Google Ads sur la periode."
+              rowKey="id"
+            />
+          </Card>
+        </Section>
+      ) : null}
+
+      {traffic !== null ? <GoogleCoverageNote traffic={traffic} /> : null}
+
       <Section
         title="Mots-cles"
-        sub="Trier par cout pour voir ou part le budget, par conversions pour voir ce qui rapporte."
+        sub="Trier par cout par clic pour trouver les arrivees les moins cheres, par ventes pour ce qui rapporte vraiment. Sur le reseau de recherche, un clic paye est une arrivee sur la page : le cout par clic est donc le cout par landing page."
         bare
       >
         <Card style={{ padding: 0, overflow: 'hidden' }}>
