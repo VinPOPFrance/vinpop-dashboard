@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "import:ad-scripts": "node scripts/import-ad-scripts.mjs",
     "sync:check": "node scripts/sync-check.mjs",
     "sync:pull": "git pull --rebase origin main",
     "sync:push": "git push origin main"

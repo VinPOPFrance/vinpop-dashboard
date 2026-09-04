@@ -731,3 +731,56 @@ export type CustomerDetailedRatings = {
 export type CustomerDetailedRatingsResult =
   | { ok: true; detail: CustomerDetailedRatings }
   | { ok: false; reason: 'missing-url' | 'connection-failed' | 'unknown-customer' };
+
+/**
+ * Palier de rapprochement entre une commande Shopify et une creative Meta,
+ * du plus sur au moins sur. Voir `metaAttribution.ts`.
+ */
+export type MetaAttributionMethod = 'ad-id' | 'ad-name' | 'ad-slug';
+
+/** Une commande arrivee par Meta, rattachee ou non a une creative. */
+export type MetaAttributedOrder = {
+  orderId: string;
+  /** Numero de commande Shopify, tel qu il apparait dans l admin (#1034). */
+  orderName: string;
+  createdAt: string | null;
+  revenue: number;
+  /** null quand aucun palier n a permis d identifier la creative. */
+  adId: string | null;
+  adName: string | null;
+  method: MetaAttributionMethod | null;
+  utmSource: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  /** Nom resolu depuis le compte publicitaire, pas depuis l UTM brut. */
+  campaignName: string | null;
+  adSetName: string | null;
+  hasFacebookClickId: boolean;
+};
+
+/** Ventes Shopify rattachees a une creative Meta. */
+export type MetaAdSalesRow = {
+  adId: string;
+  adName: string | null;
+  orders: number;
+  revenue: number;
+  firstOrderDate: string | null;
+  lastOrderDate: string | null;
+  /** Paliers ayant servi : sert a nuancer la confiance affichee. */
+  methods: MetaAttributionMethod[];
+};
+
+export type MetaCreativeAttributionMetrics = {
+  ads: MetaAdSalesRow[];
+  orders: MetaAttributedOrder[];
+  totalOrders: number;
+  totalRevenue: number;
+  attributedOrders: number;
+  attributedRevenue: number;
+  unattributedOrders: number;
+  unattributedRevenue: number;
+};
+
+export type MetaCreativeAttributionResult =
+  | { ok: true; metrics: MetaCreativeAttributionMetrics }
+  | { ok: false; reason: 'missing-url' | 'connection-failed' };

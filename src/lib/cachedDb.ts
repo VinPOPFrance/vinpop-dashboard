@@ -6,6 +6,7 @@ import {
   getLastAirbyteSync,
   getMetaAdsOverviewSummary,
   getMetaAdsPerformance,
+  getMetaCreativeAttribution,
   getProductConversion,
   getQuizFunnel,
   getRatingsIntelligence,
@@ -92,6 +93,13 @@ export const getCachedMetaAdsPerformance = cached(
   'getMetaAdsPerformance',
   getMetaAdsPerformance,
   (result) => (result.ok ? result.metrics.daily.length : null),
+);
+
+export const getCachedMetaCreativeAttribution = cached(
+  'meta-creative-attribution',
+  'getMetaCreativeAttribution',
+  getMetaCreativeAttribution,
+  (result) => (result.ok ? result.metrics.orders.length : null),
 );
 
 export const getCachedRatingsIntelligence = cached(

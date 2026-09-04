@@ -15,6 +15,7 @@
  *      +-- shopify .... commandes, produits, stock
  *      +-- internal ... quiz, notes, vins, evenements site
  *      +-- meta ....... Meta Ads
+ *      +-- metaAttribution  commandes Shopify rattachees aux creatives Meta
  *      +-- ga4 ........ Google Analytics 4
  *      +-- googleAds .. Google Ads
  *      +-- forecast ... charges saisies (schema dashboard, en ecriture)
@@ -29,6 +30,7 @@ export * from './admin';
 export * from './shopify';
 export * from './internal';
 export * from './meta';
+export * from './metaAttribution';
 export * from './ga4';
 export * from './googleAds';
 export * from './forecast';

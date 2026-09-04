@@ -7,6 +7,17 @@ import { getPool, numberFromPg, rate, ratio } from './client';
 import { type MetaAdsOverviewSummaryResult, type MetaAdsPerformanceResult, type MetaPerformanceRow } from './types';
 import { dateToSql, type DateRange } from '@/lib/analytics/dateRanges';
 
+/**
+ * Budget minimum pour qu une creative soit jugee, en euros.
+ *
+ * En dessous, les chiffres ne veulent rien dire : une video a 3 EUR de depense
+ * peut afficher 100 % de hook rate sur trois impressions, ou zero vente sans
+ * que cela condamne le script. Ce seuil est la definition unique de "creative
+ * jugeable" : il pilote a la fois le drapeau `sufficientSpend` de chaque ligne
+ * et le filtre par defaut de l etape 2.
+ */
+export const MINIMUM_SPEND_FOR_REVIEW = 20;
+
 export function metaPerformanceLabel(
   spend: number,
   clicks: number,
@@ -755,7 +766,7 @@ export async function getMetaAdsPerformance(): Promise<MetaAdsPerformanceResult>
         status: row.status || 'Unknown',
         performanceLabel,
         recommendedAction: metaRecommendedAction(performanceLabel, ctrValue, cpcValue, hookRate),
-        sufficientSpend: spend >= 15,
+        sufficientSpend: spend > MINIMUM_SPEND_FOR_REVIEW,
       };
     };
     const summary = summaryResult.rows[0];

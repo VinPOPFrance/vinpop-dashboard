@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { colors, radius, toneColors, type Tone } from './tokens';
 import { formatDate, formatEuro, formatNumber, formatPercent } from '@/lib/format';
@@ -27,6 +28,14 @@ export type DataTableColumn<T extends Record<string, unknown>> = {
   strong?: boolean;
   /** Colore la colonne pour signaler une valeur a surveiller. */
   tone?: Tone;
+  /**
+   * Colonne portant l'URL de destination, quand la cellule doit etre cliquable.
+   *
+   * Version serialisable d'un rendu personnalise : un composant serveur ne peut
+   * pas passer de fonction au tableau, il designe donc une colonne compagnon
+   * (`creative` + `creativeHref`). Une ligne sans URL reste du texte simple.
+   */
+  hrefKey?: keyof T & string;
 };
 
 type SortDirection = 'asc' | 'desc';
@@ -216,6 +225,8 @@ export function DataTable<T extends Record<string, unknown>>({
                       const legacy = legacyCellStyle(column);
                       const tone = column.tone ?? legacy.tone;
                       const strong = column.strong ?? legacy.strong;
+                      const href = column.hrefKey ? String(row[column.hrefKey] ?? '') : '';
+                      const content = displayValue(row[column.key], column.type);
                       return (
                         <td
                           key={column.key}
@@ -227,7 +238,13 @@ export function DataTable<T extends Record<string, unknown>>({
                             whiteSpace: 'nowrap',
                           }}
                         >
-                          {displayValue(row[column.key], column.type)}
+                          {href ? (
+                            <Link href={href} prefetch={false} style={{ color: colors.brand, textDecoration: 'none' }}>
+                              {content}
+                            </Link>
+                          ) : (
+                            content
+                          )}
                         </td>
                       );
                     })}

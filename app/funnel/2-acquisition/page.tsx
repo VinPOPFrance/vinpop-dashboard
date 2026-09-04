@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { connection } from 'next/server';
 import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
@@ -22,18 +23,23 @@ import {
   getCachedGoogleAdsKeywordPerformance,
   getCachedMetaAdsOverviewSummary,
   getCachedMetaAdsPerformance,
+  getCachedMetaCreativeAttribution,
   rangeCacheArgs,
 } from '@/lib/cachedDb';
+import { hasAdScript } from '@/lib/adScripts';
 import { FUNNEL_STEPS } from '@/lib/navigation';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
 import { timeAsync } from '@/lib/performance';
+import { MINIMUM_SPEND_FOR_REVIEW } from '@/lib/db/meta';
+import type { MetaAdSalesRow, MetaPerformanceRow } from '@/lib/db/types';
 
 /**
  * Etape 2 du funnel : acquisition publicitaire.
  *
  * Deux regies, deux onglets, une meme question : combien coute une visite qui
  * vaut la peine ? Cote Meta on juge la creative (hook rate, cout par Landing
- * Page View) ; cote Google on juge le mot-cle (cout et conversion).
+ * Page View, ventes Shopify reellement rattachees) ; cote Google on juge le
+ * mot-cle (cout et conversion).
  */
 
 export const runtime = 'nodejs';
@@ -45,6 +51,8 @@ type CreativeRow = {
   /** Identifiant de ligne, non affiche : voir le prop `rowKey` de DataTable. */
   id: string;
   creative: string;
+  /** Destination du lien porte par la colonne `creative`. */
+  creativeHref: string;
   campaign: string;
   spend: number;
   hookRate: number | null;
@@ -52,11 +60,14 @@ type CreativeRow = {
   landingPageViews: number | null;
   ctr: number | null;
   purchases: number | null;
-  action: string;
+  shopifyOrders: number;
+  shopifyRevenue: number | null;
+  costPerSale: number | null;
+  script: string;
 };
 
 const creativeColumns: DataTableColumn<CreativeRow>[] = [
-  { key: 'creative', label: 'Script / creative', type: 'text', strong: true, width: 240 },
+  { key: 'creative', label: 'Script / creative', type: 'text', strong: true, width: 240, hrefKey: 'creativeHref' },
   { key: 'campaign', label: 'Campagne', type: 'text' },
   { key: 'spend', label: 'Depense', type: 'money' },
   {
@@ -73,8 +84,26 @@ const creativeColumns: DataTableColumn<CreativeRow>[] = [
   },
   { key: 'landingPageViews', label: 'LPV', type: 'number' },
   { key: 'ctr', label: 'CTR', type: 'percent' },
-  { key: 'purchases', label: 'Achats', type: 'number' },
-  { key: 'action', label: 'Action', type: 'text' },
+  {
+    key: 'purchases',
+    label: 'Achats Meta',
+    type: 'number',
+    description: 'Achats declares par Meta : chiffre modelise, a confronter aux ventes Shopify.',
+  },
+  {
+    key: 'shopifyOrders',
+    label: 'Ventes Shopify',
+    type: 'number',
+    description: 'Commandes Shopify non annulees dont l URL d arrivee designe cette creative.',
+  },
+  { key: 'shopifyRevenue', label: 'CA Shopify', type: 'money' },
+  {
+    key: 'costPerSale',
+    label: 'Cout par vente',
+    type: 'money',
+    description: 'Depense de la creative divisee par ses ventes Shopify rattachees. Le CAC reel, pas celui de Meta.',
+  },
+  { key: 'script', label: 'Script', type: 'text', description: 'Script disponible dans Ads integral.xlsx.' },
 ];
 
 /** Ligne du tableau des mots-cles Google Ads. */
@@ -142,14 +171,46 @@ export default async function Step2Page({
 
       <AcquisitionTabs active={tab} searchParams={params} />
 
-      {tab === 'meta' ? <MetaTab range={range} /> : <GoogleTab range={range} />}
+      {tab === 'meta' ? <MetaTab range={range} searchParams={params} /> : <GoogleTab range={range} />}
     </DashboardLayout>
   );
 }
 
+/** Cout par vente reelle : null tant qu aucune vente n est rattachee. */
+function costPerSale(spend: number, orders: number): number | null {
+  return orders > 0 ? spend / orders : null;
+}
+
+/**
+ * Reconstruit la query string courante en changeant un seul parametre.
+ *
+ * Rend une chaine vide quand il ne reste rien : le lien vers le detail d une
+ * creative doit rester une URL propre, sans point d interrogation orphelin.
+ */
+function withParam(
+  searchParams: Record<string, string | string[] | undefined>,
+  key: string,
+  value: string | null,
+): string {
+  const next = new URLSearchParams();
+  for (const [name, raw] of Object.entries(searchParams)) {
+    if (name === key || raw === undefined) continue;
+    next.set(name, Array.isArray(raw) ? (raw[0] ?? '') : raw);
+  }
+  if (value !== null) next.set(key, value);
+  const query = next.toString();
+  return query ? `?${query}` : '';
+}
+
 /** Onglet Meta Ads : depense quotidienne, hook rate, CPLPV et creatives. */
-async function MetaTab({ range }: { range: ReturnType<typeof getDateRangeFromSearchParams> }) {
-  const [summaryResult, performanceResult] = await Promise.all([
+async function MetaTab({
+  range,
+  searchParams,
+}: {
+  range: ReturnType<typeof getDateRangeFromSearchParams>;
+  searchParams: Record<string, string | string[] | undefined>;
+}) {
+  const [summaryResult, performanceResult, attributionResult] = await Promise.all([
     timeAsync(
       'page:/funnel/2-acquisition getMetaAdsOverviewSummary',
       () => getCachedMetaAdsOverviewSummary(...rangeCacheArgs(range)),
@@ -158,6 +219,11 @@ async function MetaTab({ range }: { range: ReturnType<typeof getDateRangeFromSea
     timeAsync(
       'page:/funnel/2-acquisition getMetaAdsPerformance',
       () => getCachedMetaAdsPerformance(),
+      { category: 'page', cacheStatus: 'unknown' },
+    ),
+    timeAsync(
+      'page:/funnel/2-acquisition getMetaCreativeAttribution',
+      () => getCachedMetaCreativeAttribution(),
       { category: 'page', cacheStatus: 'unknown' },
     ),
   ]);
@@ -176,44 +242,79 @@ async function MetaTab({ range }: { range: ReturnType<typeof getDateRangeFromSea
 
   const metrics = performanceResult.metrics;
   const daily = summaryResult.ok ? summaryResult.metrics.daily : [];
+  const attribution = attributionResult.ok ? attributionResult.metrics : null;
+  const salesByAd = new Map<string, MetaAdSalesRow>((attribution?.ads ?? []).map((row) => [row.adId, row]));
+
+  // Le filtre par defaut : seules les creatives qui ont eu un vrai budget.
+  const showAllCreatives = searchParams.creatives === 'all';
+  const reviewedAds = metrics.ads.filter((ad) => ad.sufficientSpend);
+  const visibleAds = showAllCreatives ? metrics.ads : reviewedAds;
+  const hiddenAdsCount = metrics.ads.length - reviewedAds.length;
+
+  const reviewedSpend = reviewedAds.reduce((sum, ad) => sum + ad.spend, 0);
+
+  // Les agregats se recalculent sur le perimetre juge, pas sur le compte
+  // entier : melanger les tests a 3 EUR aux videos a 500 EUR donnerait un hook
+  // rate moyen que personne ne peut utiliser pour decider.
+  const impressionsOnHook = reviewedAds.reduce((sum, ad) => sum + (ad.videoPlays === null ? 0 : ad.impressions), 0);
+  const hookEvents = reviewedAds.reduce((sum, ad) => sum + (ad.videoPlays ?? 0), 0);
+  const reviewedHookRate = impressionsOnHook > 0 ? (hookEvents / impressionsOnHook) * 100 : null;
 
   // Le CPLPV global n est pas stocke : on le reconstruit depuis les creatives,
   // en ne comptant que celles qui ont reellement des Landing Page Views.
-  const adsWithLandingViews = metrics.ads.filter((ad) => (ad.landingPageViews ?? 0) > 0);
+  const adsWithLandingViews = reviewedAds.filter((ad) => (ad.landingPageViews ?? 0) > 0);
   const totalLandingViews = adsWithLandingViews.reduce((sum, ad) => sum + (ad.landingPageViews ?? 0), 0);
   const spendOnLandingViews = adsWithLandingViews.reduce((sum, ad) => sum + ad.spend, 0);
   const costPerLandingPageView = totalLandingViews > 0 ? spendOnLandingViews / totalLandingViews : null;
 
-  const creativeRows: CreativeRow[] = metrics.ads.map((ad) => ({
-    id: ad.id,
-    creative: ad.name || ad.creativeLabel,
-    campaign: ad.campaignName,
-    spend: ad.spend,
-    hookRate: ad.hookRate,
-    costPerLandingPageView: ad.costPerLandingPageView,
-    landingPageViews: ad.landingPageViews,
-    ctr: ad.ctr,
-    purchases: ad.purchases,
-    action: ad.recommendedAction,
-  }));
+  const attributedOrders = reviewedAds.reduce((sum, ad) => sum + (salesByAd.get(ad.id)?.orders ?? 0), 0);
+  const attributedRevenue = reviewedAds.reduce((sum, ad) => sum + (salesByAd.get(ad.id)?.revenue ?? 0), 0);
+  const realCostPerSale = costPerSale(reviewedSpend, attributedOrders);
 
-  // Les scripts gagnants : hook rate le plus eleve parmi ceux qui ont assez de
-  // depense pour etre juges. Trier sans ce filtre remonterait du bruit.
-  const winningScripts = metrics.ads
-    .filter((ad) => ad.sufficientSpend && ad.hookRate !== null)
-    .sort((a, b) => (b.hookRate ?? 0) - (a.hookRate ?? 0))
+  const creativeRows: CreativeRow[] = visibleAds.map((ad) => {
+    const sales = salesByAd.get(ad.id);
+    return {
+      id: ad.id,
+      creative: ad.name || ad.creativeLabel,
+      creativeHref: `/funnel/2-acquisition/${ad.id}${withParam(searchParams, 'creatives', null)}`,
+      campaign: ad.campaignName,
+      spend: ad.spend,
+      hookRate: ad.hookRate,
+      costPerLandingPageView: ad.costPerLandingPageView,
+      landingPageViews: ad.landingPageViews,
+      ctr: ad.ctr,
+      purchases: ad.purchases,
+      shopifyOrders: sales?.orders ?? 0,
+      shopifyRevenue: sales?.revenue ?? null,
+      costPerSale: costPerSale(ad.spend, sales?.orders ?? 0),
+      script: hasAdScript(ad.id, ad.name) ? 'Disponible' : 'Absent',
+    };
+  });
+
+  // Ce qui vend vraiment : classement par ventes Shopify rattachees, pas par
+  // achats declares par Meta. A egalite de ventes, le moins cher gagne.
+  const bestSellers = reviewedAds
+    .map((ad) => ({ ad, sales: salesByAd.get(ad.id) }))
+    .filter((entry): entry is { ad: MetaPerformanceRow; sales: MetaAdSalesRow } => (entry.sales?.orders ?? 0) > 0)
+    .sort((left, right) => right.sales.orders - left.sales.orders || left.ad.spend - right.ad.spend)
+    .slice(0, 3);
+
+  // Les scripts gagnants : hook rate le plus eleve du perimetre juge.
+  const winningScripts = reviewedAds
+    .filter((ad) => ad.hookRate !== null)
+    .sort((left, right) => (right.hookRate ?? 0) - (left.hookRate ?? 0))
     .slice(0, 3);
 
   return (
     <>
       <PageSection>
         <StatGrid>
-          <StatCard label="Depense Meta" value={formatEuro(metrics.totalSpend)} hint={range.label} />
           <StatCard
-            label="Hook rate moyen"
-            value={formatPercent(metrics.hookRate)}
-            hint={metrics.hookMetric}
+            label={`Depense (creatives > ${MINIMUM_SPEND_FOR_REVIEW} EUR)`}
+            value={formatEuro(reviewedSpend)}
+            hint={`${formatNumber(reviewedAds.length)} creative(s) sur ${formatNumber(metrics.ads.length)} · depuis le debut du compte`}
           />
+          <StatCard label="Hook rate moyen" value={formatPercent(reviewedHookRate)} hint={metrics.hookMetric} />
           <StatCard
             label="Cout par Landing Page View"
             value={costPerLandingPageView !== null ? formatEuro(costPerLandingPageView) : 'Indisponible'}
@@ -223,11 +324,52 @@ async function MetaTab({ range }: { range: ReturnType<typeof getDateRangeFromSea
                 : 'Aucune Landing Page View remontee par Meta'
             }
           />
-          <StatCard label="CTR" value={formatPercent(metrics.ctr)} />
-          <StatCard label="Cout par clic" value={metrics.cpc !== null ? formatEuro(metrics.cpc) : 'Indisponible'} />
-          <StatCard label="Creatives actives" value={formatNumber(metrics.adsCount)} />
+          <StatCard
+            label="Ventes Shopify rattachees"
+            value={formatNumber(attributedOrders)}
+            tone={attributedOrders > 0 ? 'good' : 'warning'}
+            hint={attributedOrders > 0 ? `${formatEuro(attributedRevenue)} de chiffre d affaires` : 'Aucune commande rattachee a une creative'}
+          />
+          <StatCard
+            label="Cout par vente reelle"
+            value={realCostPerSale !== null ? formatEuro(realCostPerSale) : 'Indisponible'}
+            tone={realCostPerSale !== null && realCostPerSale > 30 ? 'critical' : 'default'}
+            hint={
+              attribution !== null && attribution.unattributedOrders > 0
+                ? `Plafond : ${formatNumber(attribution.unattributedOrders)} commande(s) Meta restent sans creative identifiee.`
+                : 'Depense du perimetre divisee par les ventes Shopify rattachees.'
+            }
+          />
+          <StatCard label="CTR" value={formatPercent(metrics.ctr)} hint="Tout le compte, toutes creatives confondues" />
         </StatGrid>
       </PageSection>
+
+      {attribution === null ? (
+        <PageSection>
+          <AlertBanner tone="warning" title="Ventes Shopify non rattachees aux creatives">
+            {attributionResult.ok === false && attributionResult.reason === 'missing-url'
+              ? 'DATABASE_URL n est pas configure.'
+              : 'La lecture des commandes Shopify a echoue : les colonnes de ventes restent vides.'}
+          </AlertBanner>
+        </PageSection>
+      ) : attribution.unattributedOrders > 0 ? (
+        <PageSection>
+          <AlertBanner
+            tone="warning"
+            title={`${formatNumber(attribution.unattributedOrders)} commande(s) Meta sans creative identifiee (${formatEuro(attribution.unattributedRevenue)})`}
+          >
+            Ces commandes arrivent bien de Meta mais leur URL ne dit pas quelle publicite les a produites :
+            {' '}
+            {attribution.orders
+              .filter((order) => !order.adId)
+              .slice(0, 4)
+              .map((order) => `${order.orderName} (${order.utmContent ?? 'sans utm_content'})`)
+              .join(' · ')}
+            . Pour les recuperer, faire porter a <code>utm_content</code> la variable Meta{' '}
+            <code>{'{{ad.id}}'}</code> dans toutes les campagnes.
+          </AlertBanner>
+        </PageSection>
+      ) : null}
 
       {!metrics.attributionAvailable ? (
         <PageSection>
@@ -256,10 +398,34 @@ async function MetaTab({ range }: { range: ReturnType<typeof getDateRangeFromSea
         </ChartFrame>
       </PageSection>
 
+      {bestSellers.length > 0 ? (
+        <Section
+          title="Ce qui a genere le plus de ventes"
+          sub="Commandes Shopify non annulees, rattachees a la creative par l URL d arrivee de la commande."
+          bare
+        >
+          <StatGrid min={240}>
+            {bestSellers.map(({ ad, sales }) => (
+              <StatCard
+                key={ad.id}
+                label={ad.name || ad.creativeLabel}
+                value={`${formatNumber(sales.orders)} vente(s)`}
+                tone="good"
+                hint={`${formatEuro(sales.revenue)} de CA · ${formatEuro(ad.spend)} depenses · ${
+                  costPerSale(ad.spend, sales.orders) !== null
+                    ? `${formatEuro(costPerSale(ad.spend, sales.orders))} par vente`
+                    : 'cout par vente indisponible'
+                }`}
+              />
+            ))}
+          </StatGrid>
+        </Section>
+      ) : null}
+
       {winningScripts.length > 0 ? (
         <Section
           title="Scripts qui accrochent"
-          sub="Meilleur hook rate parmi les creatives ayant assez de depense pour etre jugees."
+          sub={`Meilleur hook rate parmi les creatives ayant depasse ${MINIMUM_SPEND_FOR_REVIEW} EUR de budget.`}
           bare
         >
           <StatGrid min={240}>
@@ -279,8 +445,19 @@ async function MetaTab({ range }: { range: ReturnType<typeof getDateRangeFromSea
       ) : null}
 
       <Section
-        title="Script video et performance"
-        sub="Chaque ligne est une creative Meta. Trier par hook rate pour trouver les debuts de script qui marchent, par CPLPV pour ce qui amene le moins cher sur le site."
+        title={showAllCreatives ? 'Toutes les creatives' : `Creatives au-dessus de ${MINIMUM_SPEND_FOR_REVIEW} EUR de budget`}
+        sub="Cliquer sur une creative ouvre son script et le detail de ses ventes. Trier par hook rate pour trouver les debuts de script qui marchent, par cout par vente pour ce qui rapporte."
+        actions={
+          <Link
+            href={withParam(searchParams, 'creatives', showAllCreatives ? null : 'all') || '?'}
+            prefetch={false}
+            style={{ fontSize: 12, color: colors.brand, textDecoration: 'none' }}
+          >
+            {showAllCreatives
+              ? `Revenir aux creatives > ${MINIMUM_SPEND_FOR_REVIEW} EUR`
+              : `Voir aussi les ${formatNumber(hiddenAdsCount)} creatives sous ${MINIMUM_SPEND_FOR_REVIEW} EUR`}
+          </Link>
+        }
         bare
       >
         <Card style={{ padding: 0, overflow: 'hidden' }}>
@@ -289,7 +466,7 @@ async function MetaTab({ range }: { range: ReturnType<typeof getDateRangeFromSea
             rows={creativeRows}
             initialSortKey="spend"
             searchPlaceholder="Filtrer un script ou une campagne..."
-            emptyMessage="Aucune creative Meta sur la periode."
+            emptyMessage="Aucune creative Meta au-dessus de ce budget."
             rowKey="id"
           />
         </Card>

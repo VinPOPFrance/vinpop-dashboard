@@ -179,7 +179,19 @@ npm run lint
 npm run build
 git status --short
 npm run sync:check
+npm run import:ad-scripts
 ```
+
+## Scripts publicitaires (`Ads intégral.xlsx`)
+
+Le classeur `Ads intégral.xlsx` à la racine décrit, seconde par seconde, ce que
+dit et montre chaque publicité Meta. Il est la source du script affiché sur la
+page de détail d'une créative (`/funnel/2-acquisition/<ad_id>`).
+
+Le classeur n'est pas lu à chaud : `npm run import:ad-scripts` le convertit en
+`src/data/ad-scripts.json`, qui est commité. **Après chaque mise à jour du
+classeur, relancer cette commande et commiter le JSON**, sinon le dashboard
+continue d'afficher l'ancienne version.
 
 ## Immediate next technical goal
 
