@@ -129,7 +129,13 @@ export async function getMetaCreativeAttribution(): Promise<MetaCreativeAttribut
     const pool = getPool(databaseUrl);
     // Le total boutique se lit dans la meme requete que les commandes Meta :
     // c est lui qui donne son sens au nombre de ventes rattachees. Neuf ventes
-    // sur trente-trois n a rien a voir avec neuf ventes sur dix.
+    // sur trente-quatre n a rien a voir avec neuf ventes sur dix.
+    //
+    // Deux totaux, parce que Shopify en affiche un et le funnel en calcule un
+    // autre : le nombre de commandes payees est celui que l admin Shopify
+    // montre, celui des commandes non annulees est celui que le reste du
+    // dashboard retient. Afficher les deux evite de faire douter d un chiffre
+    // juste.
     const [result, shopTotalsResult] = await Promise.all([
       pool.query<Record<string, string | null>>(`
       ${metaOrdersCte}
@@ -153,15 +159,21 @@ export async function getMetaCreativeAttribution(): Promise<MetaCreativeAttribut
     `),
       pool.query<Record<string, string | null>>(`
         SELECT
-          COUNT(*)::text AS orders,
+          COUNT(*) FILTER (WHERE lower(COALESCE(financial_status::text, '')) = 'paid')::text AS paid_orders,
           COALESCE(SUM(
             CASE
               WHEN total_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN total_price::text::numeric
               ELSE 0
             END
-          ), 0)::text AS revenue
+          ) FILTER (WHERE lower(COALESCE(financial_status::text, '')) = 'paid'), 0)::text AS paid_revenue,
+          COUNT(*) FILTER (WHERE cancelled_at IS NULL)::text AS orders,
+          COALESCE(SUM(
+            CASE
+              WHEN total_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN total_price::text::numeric
+              ELSE 0
+            END
+          ) FILTER (WHERE cancelled_at IS NULL), 0)::text AS revenue
         FROM public.orders
-        WHERE cancelled_at IS NULL
       `),
     ]);
 
@@ -222,6 +234,8 @@ export async function getMetaCreativeAttribution(): Promise<MetaCreativeAttribut
       metrics: {
         ads: [...byAd.values()].sort((left, right) => right.revenue - left.revenue),
         orders,
+        paidOrders: numberFromPg(shopTotals?.paid_orders),
+        paidRevenue: numberFromPg(shopTotals?.paid_revenue),
         shopOrders: numberFromPg(shopTotals?.orders),
         shopRevenue: numberFromPg(shopTotals?.revenue),
         totalOrders: orders.length,

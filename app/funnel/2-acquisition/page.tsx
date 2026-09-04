@@ -335,13 +335,13 @@ async function MetaTab({
             value={
               attribution === null
                 ? formatNumber(attributedOrders)
-                : `${formatNumber(attributedOrders)} / ${formatNumber(attribution.shopOrders)}`
+                : `${formatNumber(attributedOrders)} / ${formatNumber(attribution.paidOrders)}`
             }
             tone={attributedOrders > 0 ? 'good' : 'warning'}
             hint={
               attribution === null
                 ? 'Rapprochement des commandes Shopify indisponible.'
-                : `${formatEuro(attributedRevenue)} sur ${formatEuro(attribution.shopRevenue)} de commandes Shopify non annulees. Voir le detail ci-dessous.`
+                : `${formatEuro(attributedRevenue)} sur ${formatEuro(attribution.paidRevenue)} de ventes payees dans Shopify. Voir la lecture detaillee ci-dessous.`
             }
           />
           <StatCard
@@ -445,7 +445,11 @@ async function MetaTab({
 
       <Section
         title={showAllCreatives ? 'Toutes les creatives' : `Creatives au-dessus de ${MINIMUM_SPEND_FOR_REVIEW} EUR de budget`}
-        sub="Cliquer sur une creative ouvre son script et le detail de ses ventes. Trier par hook rate pour trouver les debuts de script qui marchent, par cout par vente pour ce qui rapporte."
+        sub={`Cliquer sur une creative ouvre son script et le detail de ses ventes. Trier par hook rate pour trouver les debuts de script qui marchent, par cout par vente pour ce qui rapporte.${
+          attribution === null
+            ? ''
+            : ` La colonne Ventes Shopify totalise ${formatNumber(attributedOrders)} des ${formatNumber(attribution.paidOrders)} ventes payees : les autres n identifient aucune creative, voir "D ou viennent les ventes" ci-dessus.`
+        }`}
         actions={
           <Link
             href={withParam(searchParams, 'creatives', showAllCreatives ? null : 'all') || '?'}
@@ -527,10 +531,17 @@ function SalesReconciliation({ attribution }: { attribution: MetaCreativeAttribu
 
   const steps = [
     {
-      label: 'Commandes Shopify non annulees',
+      label: 'Ventes payees dans Shopify',
+      value: attribution.paidOrders,
+      revenue: attribution.paidRevenue,
+      note: 'Le nombre affiche par l admin Shopify : toutes les commandes au statut "paid", remboursements exclus.',
+      tone: 'default' as const,
+    },
+    {
+      label: 'Dont non annulees',
       value: attribution.shopOrders,
       revenue: attribution.shopRevenue,
-      note: `Toutes sources confondues, dont ${formatNumber(outsideMeta)} sans aucun signe de passage par Meta (direct, Google, bouche a oreille).`,
+      note: `Perimetre retenu par tout le dashboard. ${formatNumber(outsideMeta)} d entre elles n ont aucun signe de passage par Meta (direct, Google, bouche a oreille).`,
       tone: 'default' as const,
     },
     {
@@ -544,7 +555,7 @@ function SalesReconciliation({ attribution }: { attribution: MetaCreativeAttribu
       label: 'Dont rattachees a une creative precise',
       value: attribution.attributedOrders,
       revenue: attribution.attributedRevenue,
-      note: 'Les seules qui alimentent les colonnes "Ventes Shopify" et "Cout par vente" du tableau.',
+      note: 'Les seules qui alimentent les colonnes "Ventes Shopify" et "Cout par vente" du tableau. Une vente de plus ici demande un lien mieux balise, pas une correction du dashboard.',
       tone: attribution.attributedOrders > 0 ? ('good' as const) : ('warning' as const),
     },
   ];

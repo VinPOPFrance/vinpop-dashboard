@@ -780,6 +780,13 @@ export type MetaCreativeAttributionMetrics = {
   ads: MetaAdSalesRow[];
   orders: MetaAttributedOrder[];
   /**
+   * Commandes au statut de paiement `paid` : le nombre que montre l admin
+   * Shopify. Point de depart de la lecture, pour que le dashboard parte du
+   * chiffre que l on a sous les yeux dans Shopify.
+   */
+  paidOrders: number;
+  paidRevenue: number;
+  /**
    * Commandes Shopify non annulees, toutes sources confondues.
    *
    * Denominateur indispensable : sans lui, le nombre de ventes rattachees a
