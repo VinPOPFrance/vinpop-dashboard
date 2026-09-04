@@ -16,6 +16,7 @@ import {
   StatCard,
   StatGrid,
   colors,
+  toneColors,
   type DataTableColumn,
 } from '@/components/ui';
 import { getDateRangeFromSearchParams } from '@/lib/analytics/dateRanges';
@@ -31,7 +32,12 @@ import { FUNNEL_STEPS } from '@/lib/navigation';
 import { formatEuro, formatNumber, formatPercent } from '@/lib/format';
 import { timeAsync } from '@/lib/performance';
 import { MINIMUM_SPEND_FOR_REVIEW } from '@/lib/db/meta';
-import type { MetaAdSalesRow, MetaPerformanceRow } from '@/lib/db/types';
+import type {
+  MetaAdSalesRow,
+  MetaAttributedOrder,
+  MetaCreativeAttributionMetrics,
+  MetaPerformanceRow,
+} from '@/lib/db/types';
 
 /**
  * Etape 2 du funnel : acquisition publicitaire.
@@ -325,10 +331,18 @@ async function MetaTab({
             }
           />
           <StatCard
-            label="Ventes Shopify rattachees"
-            value={formatNumber(attributedOrders)}
+            label="Ventes rattachees a une creative"
+            value={
+              attribution === null
+                ? formatNumber(attributedOrders)
+                : `${formatNumber(attributedOrders)} / ${formatNumber(attribution.shopOrders)}`
+            }
             tone={attributedOrders > 0 ? 'good' : 'warning'}
-            hint={attributedOrders > 0 ? `${formatEuro(attributedRevenue)} de chiffre d affaires` : 'Aucune commande rattachee a une creative'}
+            hint={
+              attribution === null
+                ? 'Rapprochement des commandes Shopify indisponible.'
+                : `${formatEuro(attributedRevenue)} sur ${formatEuro(attribution.shopRevenue)} de commandes Shopify non annulees. Voir le detail ci-dessous.`
+            }
           />
           <StatCard
             label="Cout par vente reelle"
@@ -352,24 +366,9 @@ async function MetaTab({
               : 'La lecture des commandes Shopify a echoue : les colonnes de ventes restent vides.'}
           </AlertBanner>
         </PageSection>
-      ) : attribution.unattributedOrders > 0 ? (
-        <PageSection>
-          <AlertBanner
-            tone="warning"
-            title={`${formatNumber(attribution.unattributedOrders)} commande(s) Meta sans creative identifiee (${formatEuro(attribution.unattributedRevenue)})`}
-          >
-            Ces commandes arrivent bien de Meta mais leur URL ne dit pas quelle publicite les a produites :
-            {' '}
-            {attribution.orders
-              .filter((order) => !order.adId)
-              .slice(0, 4)
-              .map((order) => `${order.orderName} (${order.utmContent ?? 'sans utm_content'})`)
-              .join(' · ')}
-            . Pour les recuperer, faire porter a <code>utm_content</code> la variable Meta{' '}
-            <code>{'{{ad.id}}'}</code> dans toutes les campagnes.
-          </AlertBanner>
-        </PageSection>
-      ) : null}
+      ) : (
+        <SalesReconciliation attribution={attribution} />
+      )}
 
       {!metrics.attributionAvailable ? (
         <PageSection>
@@ -472,6 +471,125 @@ async function MetaTab({
         </Card>
       </Section>
     </>
+  );
+}
+
+/**
+ * Reconciliation des ventes : de la boutique entiere a la creative.
+ *
+ * Affichee parce que le nombre de ventes rattachees, seul, se lit comme le
+ * total de la boutique et fait croire a un effondrement des ventes. Les trois
+ * lignes disent exactement ou s arrete la mesure : combien la boutique a
+ * vendu, combien de ces ventes viennent de Meta, et combien designent une
+ * publicite precise. L ecart n est pas une perte de commandes, c est une perte
+ * d information — et chaque ligne dit quoi corriger pour la combler.
+ */
+function SalesReconciliation({ attribution }: { attribution: MetaCreativeAttributionMetrics }) {
+  const unattributed = attribution.orders.filter((order) => !order.adId);
+  const outsideMeta = attribution.shopOrders - attribution.totalOrders;
+
+  // Quatre causes distinctes de perte, quatre corrections distinctes : les
+  // confondre ferait chercher le probleme au mauvais endroit. La cause tient a
+  // ce qui manque dans l URL, pas au montant de la commande.
+  function causeOf(order: MetaAttributedOrder): 'slug' | 'no-content' | 'fbclid' | 'referrer' {
+    if (order.signal !== 'utm') return order.signal;
+    return order.utmContent ? 'slug' : 'no-content';
+  }
+
+  const causes = [
+    {
+      id: 'slug' as const,
+      title: 'balisee(s) avec un utm_content inconnu',
+      detail: (order: MetaAttributedOrder) => `${order.orderName} : ${order.utmContent}`,
+      fix: 'Ce slug est ecrit a la main et ne correspond a aucune annonce du compte. Faire porter a utm_content la variable Meta {{ad.id}} rattacherait ces ventes automatiquement.',
+    },
+    {
+      id: 'no-content' as const,
+      title: 'balisee(s) sans utm_content du tout',
+      detail: (order: MetaAttributedOrder) => `${order.orderName} : ${order.utmCampaign ?? order.utmSource ?? 'utm partiel'}`,
+      fix: 'La source est connue mais rien ne designe la publicite : le lien portait un balisage incomplet.',
+    },
+    {
+      id: 'fbclid' as const,
+      title: 'venue(s) d un clic Facebook sans aucun UTM',
+      detail: (order: MetaAttributedOrder) => order.orderName,
+      fix: 'Seul l identifiant de clic a survecu dans l URL : il prouve le passage par Meta mais ne nomme pas la publicite.',
+    },
+    {
+      id: 'referrer' as const,
+      title: 'arrivee(s) de Facebook / Instagram sans parametre',
+      detail: (order: MetaAttributedOrder) => order.orderName,
+      fix: 'Lien de bio, publication organique ou story sans balisage : la creative restera inconnue tant que ces liens ne porteront pas d UTM.',
+    },
+  ]
+    .map((cause) => ({ ...cause, orders: unattributed.filter((order) => causeOf(order) === cause.id) }))
+    .filter((cause) => cause.orders.length > 0);
+
+  const steps = [
+    {
+      label: 'Commandes Shopify non annulees',
+      value: attribution.shopOrders,
+      revenue: attribution.shopRevenue,
+      note: `Toutes sources confondues, dont ${formatNumber(outsideMeta)} sans aucun signe de passage par Meta (direct, Google, bouche a oreille).`,
+      tone: 'default' as const,
+    },
+    {
+      label: 'Dont venues de Meta',
+      value: attribution.totalOrders,
+      revenue: attribution.totalRevenue,
+      note: 'Reconnues par leurs parametres UTM, par un identifiant de clic Facebook, ou par un site referent Facebook / Instagram.',
+      tone: 'info' as const,
+    },
+    {
+      label: 'Dont rattachees a une creative precise',
+      value: attribution.attributedOrders,
+      revenue: attribution.attributedRevenue,
+      note: 'Les seules qui alimentent les colonnes "Ventes Shopify" et "Cout par vente" du tableau.',
+      tone: attribution.attributedOrders > 0 ? ('good' as const) : ('warning' as const),
+    },
+  ];
+
+  return (
+    <Section
+      title="D ou viennent les ventes"
+      sub="Le nombre de ventes par creative ne peut pas depasser ce que le balisage des liens permet de tracer. Cette lecture dit ou la chaine se coupe."
+      bare
+    >
+      <Card>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+          {steps.map((step) => (
+            <div key={step.label}>
+              <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 6 }}>{step.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: toneColors(step.tone).color }}>
+                {formatNumber(step.value)}
+                <span style={{ fontSize: 13, fontWeight: 400, color: colors.textSecondary }}>
+                  {' '}· {formatEuro(step.revenue)}
+                </span>
+              </div>
+              <p style={{ fontSize: 12, color: colors.textMuted, margin: '6px 0 0', lineHeight: 1.5 }}>{step.note}</p>
+            </div>
+          ))}
+        </div>
+
+        {causes.length > 0 ? (
+          <>
+            <p style={{ margin: '18px 0 0', fontSize: 12.5, fontWeight: 700, color: colors.text }}>
+              Les {formatNumber(unattributed.length)} ventes Meta qui n arrivent pas jusqu a une creative
+            </p>
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12.5, color: colors.textSecondary, lineHeight: 1.7 }}>
+              {causes.map((cause) => (
+                <li key={cause.id}>
+                  <strong style={{ color: colors.text }}>
+                    {formatNumber(cause.orders.length)} commande(s) {cause.title}
+                  </strong>{' '}
+                  ({cause.orders.map(cause.detail).join(' · ')}). {cause.fix}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+      </Card>
+    </Section>
   );
 }
 

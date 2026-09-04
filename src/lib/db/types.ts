@@ -756,6 +756,12 @@ export type MetaAttributedOrder = {
   campaignName: string | null;
   adSetName: string | null;
   hasFacebookClickId: boolean;
+  /**
+   * Signal ayant fait classer la commande comme venant de Meta, du plus precis
+   * au plus grossier. Le site referent seul (`referrer`) ne permet jamais
+   * d identifier la creative.
+   */
+  signal: 'utm' | 'fbclid' | 'referrer';
 };
 
 /** Ventes Shopify rattachees a une creative Meta. */
@@ -773,6 +779,14 @@ export type MetaAdSalesRow = {
 export type MetaCreativeAttributionMetrics = {
   ads: MetaAdSalesRow[];
   orders: MetaAttributedOrder[];
+  /**
+   * Commandes Shopify non annulees, toutes sources confondues.
+   *
+   * Denominateur indispensable : sans lui, le nombre de ventes rattachees a
+   * une creative se lit comme le chiffre d affaires de la boutique.
+   */
+  shopOrders: number;
+  shopRevenue: number;
   totalOrders: number;
   totalRevenue: number;
   attributedOrders: number;

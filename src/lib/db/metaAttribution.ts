@@ -34,10 +34,11 @@ export const attributionMethodLabel: Record<MetaAttributionMethod, string> = {
 };
 
 /**
- * Une commande est comptee comme venant de Meta si son URL d arrivee le dit
- * (`utm_source`), si elle porte un identifiant de clic Facebook (`fbclid`), ou
- * si l un de ses UTM designe un objet du compte publicitaire. Le premier
- * critere seul raterait les commandes ou seul `fbclid` a survecu.
+ * Une commande est comptee comme venant de Meta sur trois signaux, du plus
+ * precis au plus grossier : ses parametres UTM, un identifiant de clic
+ * Facebook (`fbclid`) survivant dans l URL, ou un site referent Facebook /
+ * Instagram. Le dernier ne dit pas quelle publicite a produit la vente, mais
+ * l ignorer ferait disparaitre des commandes Meta du total.
  */
 const metaOrdersCte = `
   WITH meta_orders AS (
@@ -54,7 +55,8 @@ const metaOrdersCte = `
       replace(substring(landing_site from 'utm_content=([^&]*)'), '%20', ' ') AS utm_content,
       replace(substring(landing_site from 'utm_term=([^&]*)'), '%20', ' ') AS utm_term,
       replace(substring(landing_site from 'utm_campaign=([^&]*)'), '%20', ' ') AS utm_campaign,
-      landing_site ILIKE '%fbclid%' AS has_fbclid
+      landing_site ILIKE '%fbclid%' AS has_fbclid,
+      referring_site ~* '(facebook|instagram|fb\\.me)' AS from_meta_referrer
     FROM public.orders
     WHERE cancelled_at IS NULL
   ),
@@ -115,6 +117,7 @@ const metaOrdersCte = `
        OR utm_content IS NOT NULL
        OR utm_campaign IS NOT NULL
        OR has_fbclid
+       OR from_meta_referrer
   )
 `;
 
@@ -124,7 +127,11 @@ export async function getMetaCreativeAttribution(): Promise<MetaCreativeAttribut
 
   try {
     const pool = getPool(databaseUrl);
-    const result = await pool.query<Record<string, string | null>>(`
+    // Le total boutique se lit dans la meme requete que les commandes Meta :
+    // c est lui qui donne son sens au nombre de ventes rattachees. Neuf ventes
+    // sur trente-trois n a rien a voir avec neuf ventes sur dix.
+    const [result, shopTotalsResult] = await Promise.all([
+      pool.query<Record<string, string | null>>(`
       ${metaOrdersCte}
       SELECT
         order_id,
@@ -139,10 +146,26 @@ export async function getMetaCreativeAttribution(): Promise<MetaCreativeAttribut
         utm_content,
         campaign_name,
         ad_set_name,
-        has_fbclid::text AS has_fbclid
+        has_fbclid::text AS has_fbclid,
+        from_meta_referrer::text AS from_meta_referrer
       FROM resolved
       ORDER BY created_at DESC
-    `);
+    `),
+      pool.query<Record<string, string | null>>(`
+        SELECT
+          COUNT(*)::text AS orders,
+          COALESCE(SUM(
+            CASE
+              WHEN total_price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN total_price::text::numeric
+              ELSE 0
+            END
+          ), 0)::text AS revenue
+        FROM public.orders
+        WHERE cancelled_at IS NULL
+      `),
+    ]);
+
+    const shopTotals = shopTotalsResult.rows[0];
 
     const orders: MetaAttributedOrder[] = result.rows.map((row) => ({
       orderId: row.order_id ?? '',
@@ -158,6 +181,13 @@ export async function getMetaCreativeAttribution(): Promise<MetaCreativeAttribut
       campaignName: row.campaign_name,
       adSetName: row.ad_set_name,
       hasFacebookClickId: row.has_fbclid === 'true',
+      // Le referent seul est le signal le plus faible : il dit "cette commande
+      // vient de Facebook ou d Instagram", jamais de quelle publicite.
+      signal: row.utm_content || row.utm_source || row.utm_campaign
+        ? 'utm'
+        : row.has_fbclid === 'true'
+          ? 'fbclid'
+          : 'referrer',
     }));
 
     // Une commande sans creative identifiee reste une vente Meta : elle compte
@@ -192,6 +222,8 @@ export async function getMetaCreativeAttribution(): Promise<MetaCreativeAttribut
       metrics: {
         ads: [...byAd.values()].sort((left, right) => right.revenue - left.revenue),
         orders,
+        shopOrders: numberFromPg(shopTotals?.orders),
+        shopRevenue: numberFromPg(shopTotals?.revenue),
         totalOrders: orders.length,
         totalRevenue: orders.reduce((sum, order) => sum + order.revenue, 0),
         attributedOrders: orders.length - unattributed.length,

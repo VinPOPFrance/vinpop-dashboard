@@ -96,7 +96,7 @@ export const getCachedMetaAdsPerformance = cached(
 );
 
 export const getCachedMetaCreativeAttribution = cached(
-  'meta-creative-attribution',
+  'meta-creative-attribution-v2',
   'getMetaCreativeAttribution',
   getMetaCreativeAttribution,
   (result) => (result.ok ? result.metrics.orders.length : null),
