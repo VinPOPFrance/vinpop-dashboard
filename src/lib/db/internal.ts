@@ -267,15 +267,27 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         FROM public.quizz
         GROUP BY customer_id
       ),
+      shopify_customers AS (
+        SELECT id::text AS customer_key, NULLIF(email, '') AS email
+        FROM public.customers
+      ),
       -- Un client sans compte VinPop n a plus d email exploitable : il reste
       -- identifie par son id client Shopify, prefixe pour ne pas entrer en
       -- collision avec les id de comptes.
       customer_base AS (
-        SELECT users.id::text AS customer_id, users.email AS email, users.id::text AS customer_key
+        SELECT
+          users.id::text AS customer_id,
+          COALESCE(NULLIF(users.email, ''), shopify_customers.email) AS email,
+          users.id::text AS customer_key
         FROM public.users AS users
+        LEFT JOIN shopify_customers ON shopify_customers.customer_key = users.id::text
         UNION
-        SELECT 'order:' || order_rollups.customer_key AS customer_id, NULL::text AS email, order_rollups.customer_key AS customer_key
+        SELECT
+          'order:' || order_rollups.customer_key AS customer_id,
+          shopify_customers.email,
+          order_rollups.customer_key AS customer_key
         FROM order_rollups
+        LEFT JOIN shopify_customers ON shopify_customers.customer_key = order_rollups.customer_key
         WHERE NOT EXISTS (SELECT 1 FROM public.users AS u WHERE u.id::text = order_rollups.customer_key)
       )
       SELECT
@@ -301,8 +313,8 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
       FROM customer_base
       LEFT JOIN order_rollups ON order_rollups.customer_key = customer_base.customer_key
       LEFT JOIN bottle_rollups ON bottle_rollups.customer_key = customer_base.customer_key
-      LEFT JOIN rating_rollups ON rating_rollups.customer_id::text = customer_base.customer_id
-      LEFT JOIN quiz_rollups ON quiz_rollups.customer_id::text = customer_base.customer_id
+      LEFT JOIN rating_rollups ON rating_rollups.customer_id::text = customer_base.customer_key
+      LEFT JOIN quiz_rollups ON quiz_rollups.customer_id::text = customer_base.customer_key
       WHERE (
           COALESCE(order_rollups.orders_count, '0') <> '0'
           OR COALESCE(rating_rollups.total_ratings, '0') <> '0'
@@ -964,10 +976,17 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
     // Etape 1 : trouver la cle client Shopify. L email n est qu une facade,
     // toutes les jointures se font sur l id client.
     const identityResult = await pool.query<{ customer_key: string; email: string | null }>(
-      `SELECT id::text AS customer_key, email
-       FROM public.users
-       WHERE LOWER(email) = LOWER($1)
-       ORDER BY id
+      `SELECT customer_key, email
+       FROM (
+         SELECT id::text AS customer_key, NULLIF(email, '') AS email, 1 AS source_priority
+         FROM public.users
+         WHERE LOWER(email) = LOWER($1)
+         UNION ALL
+         SELECT id::text AS customer_key, NULLIF(email, '') AS email, 2 AS source_priority
+         FROM public.customers
+         WHERE LOWER(email) = LOWER($1)
+       ) AS identities
+       ORDER BY source_priority, customer_key
        LIMIT 1`,
       [identifier],
     );
@@ -979,7 +998,19 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
 
     if (!accountEmail) {
       const fallback = await pool.query<{ email: string | null }>(
-        `SELECT email FROM public.users WHERE id::text = $1 LIMIT 1`,
+        `SELECT email
+         FROM (
+           SELECT NULLIF(email, '') AS email, 1 AS source_priority
+           FROM public.users
+           WHERE id::text = $1
+           UNION ALL
+           SELECT NULLIF(email, '') AS email, 2 AS source_priority
+           FROM public.customers
+           WHERE id::text = $1
+         ) AS emails
+         WHERE email IS NOT NULL
+         ORDER BY source_priority
+         LIMIT 1`,
         [customerKey],
       );
       accountEmail = fallback.rows[0]?.email ?? null;

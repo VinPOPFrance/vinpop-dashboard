@@ -44,7 +44,8 @@ const STEP = FUNNEL_STEPS[4];
  * actionnable ("laquelle de ses bouteilles reste a noter ?").
  */
 type PipelineRow = {
-  email: string;
+  clientLabel: string;
+  customerIdentifier: string;
   bottlesBought: number;
   bottlesRated: number;
   remaining: number;
@@ -54,7 +55,7 @@ type PipelineRow = {
 };
 
 const pipelineColumns: DataTableColumn<PipelineRow>[] = [
-  { key: 'email', label: 'Client', type: 'text', strong: true, width: 220 },
+  { key: 'clientLabel', label: 'Client', type: 'text', strong: true, width: 220 },
   { key: 'bottlesBought', label: 'Bouteilles recues', type: 'number' },
   { key: 'bottlesRated', label: 'Notees', type: 'number' },
   {
@@ -68,6 +69,11 @@ const pipelineColumns: DataTableColumn<PipelineRow>[] = [
   { key: 'lastRatingDate', label: 'Derniere note', type: 'date' },
   { key: 'nextAction', label: 'Action', type: 'text' },
 ];
+
+function formatCustomerLabel(identifier: string) {
+  if (identifier.includes('@')) return identifier;
+  return `Client Shopify ${identifier.replace(/^order:/, '')}`;
+}
 
 export default async function Step5Page() {
   await connection();
@@ -101,15 +107,20 @@ export default async function Step5Page() {
     .filter((customer) => customer.bottlesBought > 0 && customer.unratedBottlesRemaining > 0)
     .sort((a, b) => b.unratedBottlesRemaining - a.unratedBottlesRemaining);
 
-  const pipelineRows: PipelineRow[] = pipeline.map((customer) => ({
-    email: customer.email || customer.customerId,
-    bottlesBought: customer.bottlesBought,
-    bottlesRated: customer.bottlesRated,
-    remaining: customer.unratedBottlesRemaining,
-    ratedPercentage: customer.ratedPercentage,
-    lastRatingDate: customer.lastRatingDate,
-    nextAction: customer.nextAction,
-  }));
+  const pipelineRows: PipelineRow[] = pipeline.map((customer) => {
+    const customerIdentifier = customer.email || customer.customerId;
+
+    return {
+      clientLabel: formatCustomerLabel(customerIdentifier),
+      customerIdentifier,
+      bottlesBought: customer.bottlesBought,
+      bottlesRated: customer.bottlesRated,
+      remaining: customer.unratedBottlesRemaining,
+      ratedPercentage: customer.ratedPercentage,
+      lastRatingDate: customer.lastRatingDate,
+      nextAction: customer.nextAction,
+    };
+  });
 
   // Clients ayant achete un coffret de decouverte : la population de reference
   // du taux de demarrage de notation.
@@ -204,7 +215,7 @@ export default async function Step5Page() {
         <CustomerRatingsSplitView
           columns={pipelineColumns}
           rows={pipelineRows}
-          identifierKey="email"
+          identifierKey="customerIdentifier"
           initialSortKey="remaining"
           emptyMessage="Aucun client en attente de notation : tout le monde est a jour."
         />
