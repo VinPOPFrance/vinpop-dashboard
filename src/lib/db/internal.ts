@@ -478,7 +478,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
 
       return {
         customerId,
-        email: (customerRow.email as string | null) || 'Unknown email',
+        email: (customerRow.email as string | null) || customerId,
         totalSpent: numberFromPg(customerRow.total_spent as string | null),
         ordersCount,
         bottlesBought,
