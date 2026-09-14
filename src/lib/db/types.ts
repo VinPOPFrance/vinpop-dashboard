@@ -693,6 +693,7 @@ export type CustomerWineRating = {
   productId: string;
   /** URL publique de la fiche produit Shopify, quand le produit est publie. */
   productUrl: string | null;
+  price: number | null;
   wineName: string;
   /** Region et pays issus du profil labo (`public.wines.wine`). */
   appellation: string | null;
@@ -717,6 +718,7 @@ export type CustomerWineRecommendation = {
   productId: string;
   wineName: string;
   productUrl: string | null;
+  price: number | null;
   score: number;
   distance: number;
   basedOnWineName: string;

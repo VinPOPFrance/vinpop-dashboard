@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Card, DataTable, StatusBadge, colors, radius, type DataTableColumn } from '@/components/ui';
-import { formatDate, formatNumber } from '@/lib/format';
+import { formatDate, formatEuro, formatNumber } from '@/lib/format';
 import type { CustomerDetailedRatings, CustomerWineRecommendation, CustomerWineRating } from '@/lib/db/types';
 
 /**
@@ -226,6 +226,7 @@ function CustomerWinesPanel({ email }: { email: string }) {
               <tr style={{ background: colors.surfaceMuted, color: colors.textSecondary, textAlign: 'left' }}>
                 <th style={headerStyle}>Vin</th>
                 <th style={headerStyle}>Appellation / profil labo</th>
+                <th style={{ ...headerStyle, textAlign: 'right' }}>Prix</th>
                 <th style={headerStyle}>Note</th>
                 <th style={{ ...headerStyle, textAlign: 'right' }}>Date</th>
               </tr>
@@ -335,6 +336,7 @@ function WineRow({
           <span style={{ display: 'block', fontSize: 11, color: colors.textMuted, marginTop: 2 }}>{profile}</span>
         ) : null}
       </td>
+      <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>{formatEuro(wine.price)}</td>
       <td style={cellStyle}>
         <RatingBadge label={wine.ratingLabel} />
       </td>
@@ -373,6 +375,7 @@ function RecommendationsPanel({
           <thead>
             <tr style={{ background: colors.surfaceMuted, color: colors.textSecondary, textAlign: 'left' }}>
               <th style={recommendationHeaderStyle}>Vin disponible</th>
+              <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Prix</th>
               <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Score</th>
               <th style={recommendationHeaderStyle}>Base</th>
               <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Stock</th>
@@ -394,6 +397,9 @@ function RecommendationsPanel({
                   ) : (
                     recommendation.wineName
                   )}
+                </td>
+                <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {formatEuro(recommendation.price)}
                 </td>
                 <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap', color: colors.good, fontWeight: 700 }}>
                   {formatNumber(recommendation.score, 1)}%

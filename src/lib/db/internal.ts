@@ -1094,6 +1094,7 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
             ELSE NULL
           END
         ) AS product_url,
+        product_prices.price::text AS price,
         NULLIF(wines.wine->>'region', '') AS region,
         NULLIF(wines.wine->>'country', '') AS country,
         NULLIF(wines.wine->>'winery', '') AS winery,
@@ -1108,6 +1109,13 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
       LEFT JOIN public.mapping ON public.mapping.vp_id::text = universe.product_id
       LEFT JOIN public.wines AS wines ON wines.id::text = public.mapping.wl_id::text
       LEFT JOIN shopify.products AS shopify_products ON shopify_products.id::text = universe.product_id
+      LEFT JOIN LATERAL (
+        SELECT MIN(
+          CASE WHEN price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN price::numeric ELSE NULL END
+        ) AS price
+        FROM shopify.product_variants
+        WHERE product_id::text = universe.product_id
+      ) AS product_prices ON true
       ORDER BY
         customer_ratings.created_at DESC NULLS LAST,
         purchased.last_order_date DESC NULLS LAST,
@@ -1126,6 +1134,7 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
       return {
         productId: (row.product_id as string | null) ?? '',
         productUrl: (row.product_url as string | null) ?? null,
+        price: row.price === null ? null : numberFromPg(row.price as string | null),
         wineName: (row.wine_name as string | null) ?? 'Vin inconnu',
         // "S/D" est la valeur posee par le laboratoire quand la region est
         // inconnue : l afficher telle quelle n apprendrait rien au lecteur.
@@ -1236,6 +1245,7 @@ export async function getCustomerWineRecommendations(
           candidate_products.online_store_url,
           candidate_products.shop_url,
           candidate_products.total_inventory::numeric AS inventory,
+          product_prices.price::numeric AS price,
           distances.perceptive_distance::numeric AS distance,
           positive_wines.wine_name AS based_on_wine_name,
           ROW_NUMBER() OVER (
@@ -1247,9 +1257,26 @@ export async function getCustomerWineRecommendations(
         INNER JOIN public.mapping AS candidate_mapping ON candidate_mapping.wl_id = distances.wine_id_b
         LEFT JOIN public.wines AS candidate_wines ON candidate_wines.id = candidate_mapping.wl_id
         INNER JOIN public.products AS candidate_products ON candidate_products.id = candidate_mapping.vp_id
+        LEFT JOIN LATERAL (
+          SELECT MIN(
+            CASE WHEN price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN price::numeric ELSE NULL END
+          ) AS price
+          FROM shopify.product_variants
+          WHERE product_id = candidate_products.id
+        ) AS product_prices ON true
         LEFT JOIN rated_wines ON rated_wines.wine_id = candidate_mapping.wl_id
         LEFT JOIN purchased_products ON purchased_products.product_id = candidate_mapping.vp_id::text
         WHERE COALESCE(candidate_products.total_inventory, 0) > 0
+          AND candidate_products.status = 'ACTIVE'
+          AND candidate_products.published_at IS NOT NULL
+          AND NULLIF(candidate_products.online_store_url, '') IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM shopify.product_variants AS available_variants
+            WHERE available_variants.product_id = candidate_products.id
+              AND COALESCE(available_variants.inventory_quantity, 0) > 0
+              AND available_variants.available_for_sale IS TRUE
+          )
           AND rated_wines.wine_id IS NULL
           AND purchased_products.product_id IS NULL
       )
@@ -1265,7 +1292,8 @@ export async function getCustomerWineRecommendations(
         GREATEST(0, LEAST(100, 100 - distance))::text AS score,
         distance::text,
         based_on_wine_name,
-        inventory::text
+        inventory::text,
+        price::text
       FROM candidate_scores
       WHERE source_rank = 1
       ORDER BY distance::numeric ASC, wine_name
@@ -1291,6 +1319,7 @@ export async function getCustomerWineRecommendations(
       productId: row.product_id ?? '',
       wineName: row.wine_name ?? 'Vin recommande',
       productUrl: row.product_url ?? null,
+      price: row.price === null ? null : numberFromPg(row.price),
       score: numberFromPg(row.score),
       distance: numberFromPg(row.distance),
       basedOnWineName: row.based_on_wine_name ?? 'Vin aime',
