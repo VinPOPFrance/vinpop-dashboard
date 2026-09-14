@@ -572,11 +572,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
           'Keep monitoring wines with low rating counts before making strong assortment decisions.',
         ],
         recommendedActions,
-        missingData: [
-          'public.ratings.id maps to public.mapping.vp_id, then public.mapping.wl_id maps to public.wines.id.',
-          'Need rating timestamp, already available as created_at.',
-          'Need rating value mapped to Love / Like / Dislike, currently inferred from numeric rating values.',
-        ],
+        missingData: [],
         wineLevelAnalysisAvailable: wines.length > 0,
         wineLevelUnavailableReason:
           wines.length > 0
