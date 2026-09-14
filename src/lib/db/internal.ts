@@ -1268,7 +1268,7 @@ export async function getCustomerWineRecommendations(
         inventory::text
       FROM candidate_scores
       WHERE source_rank = 1
-      ORDER BY score::numeric DESC, wine_name
+      ORDER BY distance::numeric ASC, wine_name
       LIMIT 12
       `,
       [resolvedCustomerKey],
