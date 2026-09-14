@@ -1184,6 +1184,7 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
 
 export async function getCustomerWineRecommendations(
   identifier: string,
+  sourceProductId?: string,
 ): Promise<CustomerWineRecommendationsResult> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) return { ok: false, reason: 'missing-url' };
@@ -1217,8 +1218,9 @@ export async function getCustomerWineRecommendations(
         FROM public.ratings AS ratings
         INNER JOIN public.mapping AS mapping ON mapping.vp_id::text = ratings.id::text
         LEFT JOIN public.wines AS wines ON wines.id = mapping.wl_id
-        WHERE ratings.customer_id::text = $1
-          AND ratings.rating IN (2, 3)
+          WHERE ratings.customer_id::text = $1
+            AND ratings.rating IN (2, 3)
+            AND ($2 = '' OR mapping.vp_id::text = $2)
       ),
       rated_wines AS (
         SELECT DISTINCT mapping.wl_id AS wine_id
@@ -1299,7 +1301,7 @@ export async function getCustomerWineRecommendations(
       ORDER BY distance::numeric ASC, wine_name
       LIMIT 12
       `,
-      [resolvedCustomerKey],
+      [resolvedCustomerKey, sourceProductId?.trim() ?? ''],
     );
 
     if (result.rows.length === 0) {

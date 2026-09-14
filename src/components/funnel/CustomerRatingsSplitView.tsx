@@ -144,7 +144,8 @@ function CustomerWinesPanel({ email }: { email: string }) {
     if (!selectedWine) return;
 
     const controller = new AbortController();
-    fetch(`/api/customers/recommendations?email=${encodeURIComponent(email)}`, { signal: controller.signal })
+    const query = new URLSearchParams({ email, productId: selectedWine.productId });
+    fetch(`/api/customers/recommendations?${query.toString()}`, { signal: controller.signal })
       .then(async (response) => {
         const body = (await response.json()) as
           | { ok: true; recommendations: CustomerWineRecommendation[] }
