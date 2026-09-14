@@ -219,20 +219,19 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         FROM mapped_ratings
         GROUP BY customer_id
       ),
-      -- Cle de rapprochement : l id client Shopify, pas l email. Shopify ne
-      -- livre plus les donnees client protegees (emails, noms) sur le forfait
-      -- actuel, donc orders.email est systematiquement nul et toute jointure
-      -- par email renvoie zero ligne. L id client, lui, est toujours present et
-      -- c est aussi l identifiant des comptes public.users.
+      -- Cle de rapprochement : l id client Shopify, pas l email. L email de
+      -- contact reste toutefois une bonne facade d affichage pour les clients
+      -- qui n ont pas de compte VinPop.
       order_rollups AS (
         SELECT
           customer::jsonb->>'id' AS customer_key,
+          MAX(COALESCE(NULLIF(contact_email, ''), NULLIF(email, ''))) AS email,
           COUNT(DISTINCT id)::text AS orders_count,
           COUNT(DISTINCT id) FILTER (WHERE cancelled_at IS NULL)::text AS non_cancelled_orders_count,
           COALESCE(SUM(total_price), 0)::text AS total_spent,
           MIN(created_at) AS first_order_date,
           MAX(created_at) AS last_order_date
-        FROM public.orders
+        FROM shopify.orders
         WHERE customer::jsonb->>'id' IS NOT NULL
         GROUP BY customer::jsonb->>'id'
       ),
@@ -248,7 +247,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
           BOOL_OR(${isTasteKitLineItem('item')})::text AS startup_pack_buyer,
           BOOL_OR(${isSmartBoxLineItem('item')})::text AS smart_box_buyer,
           BOOL_OR(COALESCE(item->>'title', item->>'name', '') ILIKE '%subscription%')::text AS subscriber
-        FROM public.orders AS orders
+        FROM shopify.orders AS orders
         CROSS JOIN LATERAL jsonb_array_elements(
           CASE
             WHEN line_items IS NULL THEN '[]'::jsonb
@@ -269,7 +268,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
       ),
       shopify_customers AS (
         SELECT id::text AS customer_key, NULLIF(email, '') AS email
-        FROM public.customers
+        FROM shopify.customers
       ),
       -- Un client sans compte VinPop n a plus d email exploitable : il reste
       -- identifie par son id client Shopify, prefixe pour ne pas entrer en
@@ -277,14 +276,15 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
       customer_base AS (
         SELECT
           users.id::text AS customer_id,
-          COALESCE(NULLIF(users.email, ''), shopify_customers.email) AS email,
+          COALESCE(NULLIF(users.email, ''), shopify_customers.email, order_rollups.email) AS email,
           users.id::text AS customer_key
         FROM public.users AS users
         LEFT JOIN shopify_customers ON shopify_customers.customer_key = users.id::text
+        LEFT JOIN order_rollups ON order_rollups.customer_key = users.id::text
         UNION
         SELECT
           'order:' || order_rollups.customer_key AS customer_id,
-          shopify_customers.email,
+          COALESCE(shopify_customers.email, order_rollups.email),
           order_rollups.customer_key AS customer_key
         FROM order_rollups
         LEFT JOIN shopify_customers ON shopify_customers.customer_key = order_rollups.customer_key
@@ -335,7 +335,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
             WHEN item->>'total_discount' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'total_discount')::numeric
             ELSE 0
           END AS discount_value
-        FROM public.orders AS orders
+        FROM shopify.orders AS orders
         LEFT JOIN public.users AS users ON users.id::text = orders.customer::jsonb->>'id'
         CROSS JOIN LATERAL jsonb_array_elements(
           CASE
@@ -983,8 +983,16 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
          WHERE LOWER(email) = LOWER($1)
          UNION ALL
          SELECT id::text AS customer_key, NULLIF(email, '') AS email, 2 AS source_priority
-         FROM public.customers
+         FROM shopify.customers
          WHERE LOWER(email) = LOWER($1)
+         UNION ALL
+         SELECT customer::jsonb->>'id' AS customer_key,
+                MAX(COALESCE(NULLIF(contact_email, ''), NULLIF(email, ''))) AS email,
+                3 AS source_priority
+         FROM shopify.orders
+         WHERE LOWER(COALESCE(NULLIF(contact_email, ''), NULLIF(email, ''))) = LOWER($1)
+           AND customer::jsonb->>'id' IS NOT NULL
+         GROUP BY customer::jsonb->>'id'
        ) AS identities
        ORDER BY source_priority, customer_key
        LIMIT 1`,
@@ -1005,8 +1013,12 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
            WHERE id::text = $1
            UNION ALL
            SELECT NULLIF(email, '') AS email, 2 AS source_priority
-           FROM public.customers
+           FROM shopify.customers
            WHERE id::text = $1
+           UNION ALL
+           SELECT MAX(COALESCE(NULLIF(contact_email, ''), NULLIF(email, ''))) AS email, 3 AS source_priority
+           FROM shopify.orders
+           WHERE customer::jsonb->>'id' = $1
          ) AS emails
          WHERE email IS NOT NULL
          ORDER BY source_priority
@@ -1027,7 +1039,7 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
             WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
             ELSE 0
           END AS quantity
-        FROM public.orders AS orders
+        FROM shopify.orders AS orders
         CROSS JOIN LATERAL jsonb_array_elements(
           CASE
             WHEN jsonb_typeof(orders.line_items::jsonb) = 'array' THEN orders.line_items::jsonb
