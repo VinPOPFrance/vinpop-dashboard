@@ -248,7 +248,11 @@ function CustomerWinesPanel({ email }: { email: string }) {
 
       {selectedWine ? (
         <RecommendationsPanel
-          state={recommendations.status === 'idle' ? { status: 'loading', wine: selectedWine } : recommendations}
+          state={
+            recommendations.status === 'idle' || recommendations.wine.productId !== selectedWine.productId
+              ? { status: 'loading', wine: selectedWine }
+              : recommendations
+          }
         />
       ) : null}
     </Card>
@@ -369,7 +373,11 @@ function RecommendationsPanel({
         <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>
           {state.reason === 'no-positive-ratings'
             ? 'Ce client n a pas encore note de vin Like ou Love.'
-            : 'Les recommandations sont momentanement indisponibles.'}
+            : state.reason === 'source-not-positive'
+              ? 'Selectionnez un vin note Like ou Love pour chercher des vins similaires.'
+              : state.reason === 'no-in-stock-recommendations'
+                ? 'Aucun vin similaire actif et en stock n a ete trouve pour ce vin.'
+                : 'Les recommandations sont momentanement indisponibles.'}
         </p>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>

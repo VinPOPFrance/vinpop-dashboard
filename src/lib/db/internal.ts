@@ -1305,15 +1305,27 @@ export async function getCustomerWineRecommendations(
     );
 
     if (result.rows.length === 0) {
-      const positiveCount = await pool.query(
+      const positiveCount = await pool.query<{ count: number }>(
         `SELECT COUNT(*)::int AS count
          FROM public.ratings
          WHERE customer_id::text = $1 AND rating IN (2, 3)`,
         [resolvedCustomerKey],
       );
+      const sourcePositiveCount = await pool.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count
+         FROM public.ratings
+         WHERE customer_id::text = $1 AND id::text = $2 AND rating IN (2, 3)`,
+        [resolvedCustomerKey, sourceProductId?.trim() ?? ''],
+      );
+
       return {
         ok: false,
-        reason: positiveCount.rows[0]?.count > 0 ? 'connection-failed' : 'no-positive-ratings',
+        reason:
+          positiveCount.rows[0]?.count === 0
+            ? 'no-positive-ratings'
+            : sourcePositiveCount.rows[0]?.count === 0
+              ? 'source-not-positive'
+              : 'no-in-stock-recommendations',
       };
     }
 

@@ -727,7 +727,16 @@ export type CustomerWineRecommendation = {
 
 export type CustomerWineRecommendationsResult =
   | { ok: true; recommendations: CustomerWineRecommendation[] }
-  | { ok: false; reason: 'missing-url' | 'unknown-customer' | 'no-positive-ratings' | 'connection-failed' };
+  | {
+      ok: false;
+      reason:
+        | 'missing-url'
+        | 'unknown-customer'
+        | 'no-positive-ratings'
+        | 'source-not-positive'
+        | 'no-in-stock-recommendations'
+        | 'connection-failed';
+    };
 
 /** Detail des bouteilles d un client, pour le panneau de droite du split view. */
 export type CustomerDetailedRatings = {
