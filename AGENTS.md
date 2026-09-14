@@ -82,6 +82,8 @@ Local `.env.local` should contain:
 ```env
 DASHBOARD_PASSWORD=your-dashboard-password
 DATABASE_URL=your-postgres-connection-string
+VINPOP_API_URL=https://api.vinpop.fr
+VINPOP_API_HMAC_SECRET=your-vinpop-api-hmac-secret
 
 # Optionnel : active les liens profonds vers Microsoft Clarity (etape 1 du funnel).
 # Sans lui, les boutons Heatmap / Sessions sont masques.

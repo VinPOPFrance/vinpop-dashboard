@@ -377,6 +377,8 @@ function RecommendationsPanel({
               ? 'Selectionnez un vin note Like ou Love pour chercher des vins similaires.'
               : state.reason === 'no-in-stock-recommendations'
                 ? 'Aucun vin similaire actif et en stock n a ete trouve pour ce vin.'
+                : state.reason === 'api-configuration-missing'
+                  ? 'L API VinPOP n est pas configuree sur le serveur.'
                 : 'Les recommandations sont momentanement indisponibles.'}
         </p>
       ) : (

@@ -4,6 +4,7 @@
  */
 
 import 'server-only';
+import { createHmac } from 'node:crypto';
 import { dateFromPg, getPool, numberFromPg, rate, ratio } from './client';
 import { isSmartBoxLineItem, isTasteKitLineItem } from './sql';
 import { type CustomerDetailedRatingsResult, type CustomerProductSummary, type CustomerRatingsSummary, type CustomerWineRecommendation, type CustomerWineRecommendationsResult, type CustomerWineRating, type FoodPairingIntelligenceResult, type QuizFunnelResult, type QuizFunnelSegment, type RatedWineDetail, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type WineRatingSummary } from './types';
@@ -1185,6 +1186,9 @@ export async function getCustomerWineRecommendations(
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) return { ok: false, reason: 'missing-url' };
 
+  const apiSecret = process.env.VINPOP_API_HMAC_SECRET;
+  if (!apiSecret) return { ok: false, reason: 'api-configuration-missing' };
+
   const normalizedIdentifier = identifier.trim();
   if (!normalizedIdentifier) return { ok: false, reason: 'unknown-customer' };
 
@@ -1205,136 +1209,131 @@ export async function getCustomerWineRecommendations(
     );
     const resolvedCustomerKey = identityResult.rows[0]?.customer_key ?? customerKey;
 
-    const result = await pool.query<Record<string, string | null>>(
-      `
-      WITH positive_wines AS (
-        SELECT DISTINCT
-          mapping.wl_id AS wine_id,
-          COALESCE(wines.name, mapping.name, 'Vin aime') AS wine_name
-        FROM public.ratings AS ratings
-        INNER JOIN public.mapping AS mapping ON mapping.vp_id::text = ratings.id::text
-        LEFT JOIN public.wines AS wines ON wines.id = mapping.wl_id
-          WHERE ratings.customer_id::text = $1
-            AND ratings.rating IN (2, 3)
-            AND ($2 = '' OR mapping.vp_id::text = $2)
-      ),
-      rated_wines AS (
-        SELECT DISTINCT mapping.wl_id AS wine_id
-        FROM public.ratings AS ratings
-        INNER JOIN public.mapping AS mapping ON mapping.vp_id::text = ratings.id::text
-        WHERE ratings.customer_id::text = $1
-      ),
-      purchased_products AS (
-        SELECT DISTINCT NULLIF(item->>'product_id', '') AS product_id
-        FROM shopify.orders AS orders
-        CROSS JOIN LATERAL jsonb_array_elements(
-          CASE WHEN jsonb_typeof(orders.line_items::jsonb) = 'array'
-            THEN orders.line_items::jsonb ELSE '[]'::jsonb END
-        ) AS item
-        WHERE orders.cancelled_at IS NULL
-          AND orders.customer::jsonb->>'id' = $1
-      ),
-      candidate_scores AS (
-        SELECT
-          candidate_mapping.vp_id::text AS product_id,
-          candidate_mapping.wl_id AS wine_id,
-          COALESCE(candidate_wines.name, candidate_mapping.name, 'Vin recommande') AS wine_name,
-          candidate_products.handle,
-          candidate_products.online_store_url,
-          candidate_products.shop_url,
-          candidate_products.total_inventory::numeric AS inventory,
-          product_prices.price::numeric AS price,
-          distances.perceptive_distance::numeric AS distance,
-          positive_wines.wine_name AS based_on_wine_name,
-          ROW_NUMBER() OVER (
-            PARTITION BY candidate_mapping.vp_id
-            ORDER BY distances.perceptive_distance ASC, positive_wines.wine_name
-          ) AS source_rank
-        FROM positive_wines
-        INNER JOIN public.distances AS distances ON distances.wine_id_a = positive_wines.wine_id
-        INNER JOIN public.mapping AS candidate_mapping ON candidate_mapping.wl_id = distances.wine_id_b
-        LEFT JOIN public.wines AS candidate_wines ON candidate_wines.id = candidate_mapping.wl_id
-        INNER JOIN public.products AS candidate_products ON candidate_products.id = candidate_mapping.vp_id
-        LEFT JOIN LATERAL (
-          SELECT MIN(
-            CASE WHEN price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN price::numeric ELSE NULL END
-          ) AS price
-          FROM shopify.product_variants
-          WHERE product_id = candidate_products.id
-        ) AS product_prices ON true
-        LEFT JOIN rated_wines ON rated_wines.wine_id = candidate_mapping.wl_id
-        LEFT JOIN purchased_products ON purchased_products.product_id = candidate_mapping.vp_id::text
-        WHERE COALESCE(candidate_products.total_inventory, 0) > 0
-          AND candidate_products.status = 'ACTIVE'
-          AND candidate_products.published_at IS NOT NULL
-          AND NULLIF(candidate_products.online_store_url, '') IS NOT NULL
-          AND EXISTS (
-            SELECT 1
-            FROM shopify.product_variants AS available_variants
-            WHERE available_variants.product_id = candidate_products.id
-              AND COALESCE(available_variants.inventory_quantity, 0) > 0
-              AND available_variants.available_for_sale IS TRUE
-          )
-          AND rated_wines.wine_id IS NULL
-          AND purchased_products.product_id IS NULL
-      )
-      SELECT
-        product_id,
-        wine_name,
-        CASE
-          WHEN NULLIF(online_store_url, '') IS NOT NULL THEN online_store_url
-          WHEN NULLIF(shop_url, '') IS NOT NULL AND NULLIF(handle, '') IS NOT NULL
-            THEN RTRIM(shop_url, '/') || '/products/' || handle
-          ELSE NULL
-        END AS product_url,
-        GREATEST(0, LEAST(100, 100 - distance))::text AS score,
-        distance::text,
-        based_on_wine_name,
-        inventory::text,
-        price::text
-      FROM candidate_scores
-      WHERE source_rank = 1
-      ORDER BY distance::numeric ASC, wine_name
-      LIMIT 12
-      `,
-      [resolvedCustomerKey, sourceProductId?.trim() ?? ''],
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const signature = createHmac('sha256', apiSecret)
+      .update(`${resolvedCustomerKey}:${timestamp}`)
+      .digest('hex');
+    const apiBaseUrl = process.env.VINPOP_API_URL ?? 'https://api.vinpop.fr';
+    const ratingsResponse = await fetch(
+      `${apiBaseUrl}/api/ratings/getAll?customerId=${encodeURIComponent(resolvedCustomerKey)}`,
+      {
+        headers: {
+          'X-Customer-Id': resolvedCustomerKey,
+          'X-Timestamp': timestamp,
+          'X-Signature': signature,
+        },
+        signal: AbortSignal.timeout(8000),
+      },
     );
-
-    if (result.rows.length === 0) {
-      const positiveCount = await pool.query<{ count: number }>(
-        `SELECT COUNT(*)::int AS count
-         FROM public.ratings
-         WHERE customer_id::text = $1 AND rating IN (2, 3)`,
-        [resolvedCustomerKey],
-      );
-      const sourcePositiveCount = await pool.query<{ count: number }>(
-        `SELECT COUNT(*)::int AS count
-         FROM public.ratings
-         WHERE customer_id::text = $1 AND id::text = $2 AND rating IN (2, 3)`,
-        [resolvedCustomerKey, sourceProductId?.trim() ?? ''],
-      );
-
-      return {
-        ok: false,
-        reason:
-          positiveCount.rows[0]?.count === 0
-            ? 'no-positive-ratings'
-            : sourcePositiveCount.rows[0]?.count === 0
-              ? 'source-not-positive'
-              : 'no-in-stock-recommendations',
-      };
+    if (!ratingsResponse.ok) {
+      console.error('VinPOP ratings API failed', { status: ratingsResponse.status });
+      return { ok: false, reason: 'connection-failed' };
     }
 
-    const recommendations: CustomerWineRecommendation[] = result.rows.map((row) => ({
-      productId: row.product_id ?? '',
-      wineName: row.wine_name ?? 'Vin recommande',
-      productUrl: row.product_url ?? null,
-      price: row.price === null ? null : numberFromPg(row.price),
-      score: numberFromPg(row.score),
-      distance: numberFromPg(row.distance),
-      basedOnWineName: row.based_on_wine_name ?? 'Vin aime',
-      inventory: numberFromPg(row.inventory),
-    }));
+    const ratings = (await ratingsResponse.json()) as Array<{ id?: string; rating?: string | number }>;
+    const selectedProductId = sourceProductId?.trim() ?? '';
+    const sourceRating = ratings.find((rating) => String(rating.id) === selectedProductId);
+    if (!sourceRating || ![2, 3].includes(Number(sourceRating.rating))) {
+      return { ok: false, reason: 'source-not-positive' };
+    }
+
+    const distanceResponse = await fetch(`${apiBaseUrl}/api/wines/getDistance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: selectedProductId }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!distanceResponse.ok) {
+      console.error('VinPOP distance API failed', { status: distanceResponse.status });
+      return { ok: false, reason: 'connection-failed' };
+    }
+
+    const distancePairs = (await distanceResponse.json()) as Array<{
+      productid1?: string;
+      productid2?: string;
+      perceptive_distance?: number | string;
+      distance?: number | string;
+    }>;
+    const bestByProduct = new Map<string, { score: number; distance: number }>();
+    for (const pair of distancePairs) {
+      const productId1 = String(pair.productid1 ?? '');
+      const productId2 = String(pair.productid2 ?? '');
+      const otherProductId = productId1 === selectedProductId ? productId2 : productId2 === selectedProductId ? productId1 : '';
+      const distance = Number(pair.perceptive_distance ?? pair.distance);
+      if (!otherProductId || otherProductId === selectedProductId || !Number.isFinite(distance)) continue;
+      const score = Math.max(0, Math.floor(100 - distance));
+      const previous = bestByProduct.get(otherProductId);
+      if (!previous || score > previous.score) bestByProduct.set(otherProductId, { score, distance });
+    }
+
+    if (bestByProduct.size === 0) return { ok: false, reason: 'no-in-stock-recommendations' };
+
+    const candidateIds = [...bestByProduct.keys()];
+    const purchasedProducts = await pool.query<{ product_id: string }>(
+      `SELECT DISTINCT NULLIF(item->>'product_id', '') AS product_id
+       FROM shopify.orders AS orders
+       CROSS JOIN LATERAL jsonb_array_elements(
+         CASE WHEN jsonb_typeof(orders.line_items::jsonb) = 'array' THEN orders.line_items::jsonb ELSE '[]'::jsonb END
+       ) AS item
+       WHERE orders.cancelled_at IS NULL AND orders.customer::jsonb->>'id' = $1`,
+      [resolvedCustomerKey],
+    );
+    const purchasedIds = new Set(purchasedProducts.rows.map((row) => row.product_id));
+    const productResult = await pool.query<Record<string, string | null>>(
+      `SELECT
+         products.id::text AS product_id,
+         products.title AS wine_name,
+         products.handle,
+         products.online_store_url,
+         products.shop_url,
+         products.total_inventory::text AS inventory,
+         prices.price::text AS price,
+         product_variants.available_for_sale::text AS available_for_sale,
+         product_variants.inventory_quantity::text AS variant_inventory
+       FROM public.products AS products
+       LEFT JOIN LATERAL (
+         SELECT MIN(CASE WHEN price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN price::numeric ELSE NULL END) AS price
+         FROM shopify.product_variants WHERE product_id = products.id
+       ) AS prices ON true
+       LEFT JOIN LATERAL (
+         SELECT TRUE AS available_for_sale, inventory_quantity
+         FROM shopify.product_variants
+         WHERE product_id = products.id AND COALESCE(inventory_quantity, 0) > 0 AND available_for_sale IS TRUE
+         ORDER BY inventory_quantity DESC LIMIT 1
+       ) AS product_variants ON true
+       WHERE products.id::text = ANY($1::text[])
+         AND products.status = 'ACTIVE'
+         AND products.published_at IS NOT NULL
+         AND NULLIF(products.online_store_url, '') IS NOT NULL
+         AND COALESCE(products.total_inventory, 0) > 0
+         AND product_variants.available_for_sale IS TRUE`,
+      [candidateIds],
+    );
+
+    const sourceProduct = await pool.query<{ title: string | null }>(
+      `SELECT title FROM public.products WHERE id::text = $1`,
+      [selectedProductId],
+    );
+    const basedOnWineName = sourceProduct.rows[0]?.title ?? 'Vin aime';
+    const recommendations: CustomerWineRecommendation[] = productResult.rows
+      .filter((row) => !purchasedIds.has(row.product_id ?? ''))
+      .map((row) => {
+        const similarity = bestByProduct.get(row.product_id ?? '')!;
+        return {
+          productId: row.product_id ?? '',
+          wineName: row.wine_name ?? 'Vin recommande',
+          productUrl: row.online_store_url ?? null,
+          price: row.price === null ? null : numberFromPg(row.price),
+          score: similarity.score,
+          distance: similarity.distance,
+          basedOnWineName,
+          inventory: numberFromPg(row.inventory),
+        };
+      })
+      .sort((a, b) => b.score - a.score || a.wineName.localeCompare(b.wineName))
+      .slice(0, 12);
+
+    if (recommendations.length === 0) return { ok: false, reason: 'no-in-stock-recommendations' };
 
     return { ok: true, recommendations };
   } catch (error) {

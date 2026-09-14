@@ -731,6 +731,7 @@ export type CustomerWineRecommendationsResult =
       ok: false;
       reason:
         | 'missing-url'
+        | 'api-configuration-missing'
         | 'unknown-customer'
         | 'no-positive-ratings'
         | 'source-not-positive'
