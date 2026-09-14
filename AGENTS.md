@@ -153,6 +153,21 @@ npm run sync:push
 npm run sync:check   # doit afficher OK
 ```
 
+### Regle de publication apres chaque modification de code
+
+Apres chaque modification de code demandee par l utilisateur :
+
+```bash
+git add .
+git commit -m "resume explicite des changements en francais"
+git push
+npm run sync:check   # doit afficher OK
+```
+
+Le message de commit doit resumer explicitement les changements en francais.
+Le `git push` est obligatoire afin de synchroniser GitHub et de declencher le
+deploiement Vercel.
+
 ### Structure des dossiers
 
 Le dossier de travail est le depot Git lui-meme. Il ne doit exister
