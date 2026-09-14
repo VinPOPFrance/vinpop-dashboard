@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, DataTable, StatusBadge, colors, radius, type DataTableColumn } from '@/components/ui';
 import { formatDate, formatNumber } from '@/lib/format';
-import type { CustomerDetailedRatings, CustomerWineRating } from '@/lib/db/types';
+import type { CustomerDetailedRatings, CustomerWineRecommendation, CustomerWineRating } from '@/lib/db/types';
 
 /**
  * Vue maitre-detail des etapes 5 et 6 : la liste des clients a gauche, le
@@ -106,6 +106,13 @@ type PanelState =
 /** Panneau de droite : resume du client puis tableau de ses vins. */
 function CustomerWinesPanel({ email }: { email: string }) {
   const [state, setState] = useState<PanelState>({ status: 'loading' });
+  const [selectedWine, setSelectedWine] = useState<CustomerWineRating | null>(null);
+  const [recommendations, setRecommendations] = useState<
+    | { status: 'idle' }
+    | { status: 'loading'; wine: CustomerWineRating }
+    | { status: 'ready'; wine: CustomerWineRating; items: CustomerWineRecommendation[] }
+    | { status: 'empty'; wine: CustomerWineRating; reason: string }
+  >({ status: 'idle' });
 
   useEffect(() => {
     // Un clic rapide sur plusieurs clients ne doit pas laisser une reponse
@@ -132,6 +139,31 @@ function CustomerWinesPanel({ email }: { email: string }) {
 
     return () => controller.abort();
   }, [email]);
+
+  useEffect(() => {
+    if (!selectedWine) return;
+
+    const controller = new AbortController();
+    fetch(`/api/customers/recommendations?email=${encodeURIComponent(email)}`, { signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json()) as
+          | { ok: true; recommendations: CustomerWineRecommendation[] }
+          | { ok: false; reason: string };
+
+        if (!body.ok) {
+          setRecommendations({ status: 'empty', wine: selectedWine, reason: body.reason });
+          return;
+        }
+
+        setRecommendations({ status: 'ready', wine: selectedWine, items: body.recommendations });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setRecommendations({ status: 'empty', wine: selectedWine, reason: 'connection-failed' });
+      });
+
+    return () => controller.abort();
+  }, [email, selectedWine]);
 
   if (state.status === 'loading') {
     return (
@@ -200,12 +232,23 @@ function CustomerWinesPanel({ email }: { email: string }) {
             </thead>
             <tbody>
               {detail.wines.map((wine) => (
-                <WineRow key={wine.productId || wine.wineName} wine={wine} />
+                <WineRow
+                  key={wine.productId || wine.wineName}
+                  wine={wine}
+                  selected={selectedWine?.productId === wine.productId}
+                  onSelect={() => setSelectedWine(wine)}
+                />
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      {selectedWine ? (
+        <RecommendationsPanel
+          state={recommendations.status === 'idle' ? { status: 'loading', wine: selectedWine } : recommendations}
+        />
+      ) : null}
     </Card>
   );
 }
@@ -226,8 +269,22 @@ const cellStyle: React.CSSProperties = {
   verticalAlign: 'top',
 };
 
+const recommendationHeaderStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  fontWeight: 700,
+  whiteSpace: 'nowrap',
+};
+
 /** Une bouteille : nom, profil labo, note et date de la note. */
-function WineRow({ wine }: { wine: CustomerWineRating }) {
+function WineRow({
+  wine,
+  selected,
+  onSelect,
+}: {
+  wine: CustomerWineRating;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   // Le profil labo n est pas renseigne pour tous les vins : region, millesime
   // et astringence sont assembles a partir de ce qui existe reellement.
   const profile = [
@@ -239,13 +296,21 @@ function WineRow({ wine }: { wine: CustomerWineRating }) {
     .join(' · ');
 
   return (
-    <tr style={{ borderTop: `1px solid ${colors.border}` }}>
+    <tr
+      onClick={onSelect}
+      style={{
+        borderTop: `1px solid ${colors.border}`,
+        background: selected ? colors.surfaceMuted : colors.surface,
+        cursor: 'pointer',
+      }}
+    >
       <td style={{ ...cellStyle, color: colors.text, fontWeight: 700 }}>
         {wine.productUrl ? (
           <a
             href={wine.productUrl}
             target="_blank"
             rel="noreferrer"
+            onClick={onSelect}
             style={{ color: colors.text, textDecoration: 'underline', textUnderlineOffset: 2 }}
           >
             {wine.wineName}
@@ -277,6 +342,72 @@ function WineRow({ wine }: { wine: CustomerWineRating }) {
         {wine.ratingDate ? formatDate(wine.ratingDate) : '-'}
       </td>
     </tr>
+  );
+}
+
+function RecommendationsPanel({
+  state,
+}: {
+  state:
+    | { status: 'loading'; wine: CustomerWineRating }
+    | { status: 'ready'; wine: CustomerWineRating; items: CustomerWineRecommendation[] }
+    | { status: 'empty'; wine: CustomerWineRating; reason: string };
+}) {
+  return (
+    <div style={{ borderTop: `1px solid ${colors.border}`, padding: '14px 18px 18px' }}>
+      <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: colors.text }}>Vins similaires en stock</p>
+      <p style={{ margin: '4px 0 12px', fontSize: 11.5, color: colors.textMuted, lineHeight: 1.5 }}>
+        Recommandations basees sur les vins que ce client a notes Like ou Love. Score = 100 - distance.
+      </p>
+
+      {state.status === 'loading' ? (
+        <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>Recherche des vins similaires...</p>
+      ) : state.status === 'empty' ? (
+        <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>
+          {state.reason === 'no-positive-ratings'
+            ? 'Ce client n a pas encore note de vin Like ou Love.'
+            : 'Les recommandations sont momentanement indisponibles.'}
+        </p>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: colors.surfaceMuted, color: colors.textSecondary, textAlign: 'left' }}>
+              <th style={recommendationHeaderStyle}>Vin disponible</th>
+              <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Score</th>
+              <th style={recommendationHeaderStyle}>Base</th>
+              <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Stock</th>
+            </tr>
+          </thead>
+          <tbody>
+            {state.items.map((recommendation) => (
+              <tr key={recommendation.productId} style={{ borderTop: `1px solid ${colors.border}` }}>
+                <td style={{ ...cellStyle, color: colors.text, fontWeight: 700 }}>
+                  {recommendation.productUrl ? (
+                    <a
+                      href={recommendation.productUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: colors.text, textDecoration: 'underline', textUnderlineOffset: 2 }}
+                    >
+                      {recommendation.wineName}
+                    </a>
+                  ) : (
+                    recommendation.wineName
+                  )}
+                </td>
+                <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap', color: colors.good, fontWeight: 700 }}>
+                  {formatNumber(recommendation.score, 1)}%
+                </td>
+                <td style={cellStyle}>{recommendation.basedOnWineName}</td>
+                <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {formatNumber(recommendation.inventory)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 

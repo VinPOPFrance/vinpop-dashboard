@@ -713,6 +713,20 @@ export type CustomerWineRating = {
   ratingDate: string | null;
 };
 
+export type CustomerWineRecommendation = {
+  productId: string;
+  wineName: string;
+  productUrl: string | null;
+  score: number;
+  distance: number;
+  basedOnWineName: string;
+  inventory: number;
+};
+
+export type CustomerWineRecommendationsResult =
+  | { ok: true; recommendations: CustomerWineRecommendation[] }
+  | { ok: false; reason: 'missing-url' | 'unknown-customer' | 'no-positive-ratings' | 'connection-failed' };
+
 /** Detail des bouteilles d un client, pour le panneau de droite du split view. */
 export type CustomerDetailedRatings = {
   /** Identifiant tel qu il a ete demande (email ou cle client). */

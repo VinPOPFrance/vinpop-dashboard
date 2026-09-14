@@ -6,7 +6,7 @@
 import 'server-only';
 import { dateFromPg, getPool, numberFromPg, rate, ratio } from './client';
 import { isSmartBoxLineItem, isTasteKitLineItem } from './sql';
-import { type CustomerDetailedRatingsResult, type CustomerProductSummary, type CustomerRatingsSummary, type CustomerWineRating, type FoodPairingIntelligenceResult, type QuizFunnelResult, type QuizFunnelSegment, type RatedWineDetail, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type WineRatingSummary } from './types';
+import { type CustomerDetailedRatingsResult, type CustomerProductSummary, type CustomerRatingsSummary, type CustomerWineRecommendation, type CustomerWineRecommendationsResult, type CustomerWineRating, type FoodPairingIntelligenceResult, type QuizFunnelResult, type QuizFunnelSegment, type RatedWineDetail, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type WineRatingSummary } from './types';
 import { dateToSql, type DateRange } from '@/lib/analytics/dateRanges';
 import { classifyCustomerStage } from '@/lib/customerStages';
 
@@ -1169,6 +1169,138 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
   } catch (error) {
     const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
     console.error('Customer detailed ratings failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getCustomerWineRecommendations(
+  identifier: string,
+): Promise<CustomerWineRecommendationsResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  const normalizedIdentifier = identifier.trim();
+  if (!normalizedIdentifier) return { ok: false, reason: 'unknown-customer' };
+
+  try {
+    const pool = getPool(databaseUrl);
+    const customerKey = normalizedIdentifier.replace(/^order:/, '');
+    const identityResult = await pool.query<{ customer_key: string }>(
+      `SELECT id::text AS customer_key
+       FROM public.users
+       WHERE LOWER(email) = LOWER($1) OR id::text = $2
+       UNION ALL
+       SELECT customer::jsonb->>'id' AS customer_key
+       FROM shopify.orders
+       WHERE LOWER(COALESCE(NULLIF(contact_email, ''), NULLIF(email, ''))) = LOWER($1)
+          OR customer::jsonb->>'id' = $2
+       LIMIT 1`,
+      [normalizedIdentifier, customerKey],
+    );
+    const resolvedCustomerKey = identityResult.rows[0]?.customer_key ?? customerKey;
+
+    const result = await pool.query<Record<string, string | null>>(
+      `
+      WITH positive_wines AS (
+        SELECT DISTINCT
+          mapping.wl_id AS wine_id,
+          COALESCE(wines.name, mapping.name, 'Vin aime') AS wine_name
+        FROM public.ratings AS ratings
+        INNER JOIN public.mapping AS mapping ON mapping.vp_id::text = ratings.id::text
+        LEFT JOIN public.wines AS wines ON wines.id = mapping.wl_id
+        WHERE ratings.customer_id::text = $1
+          AND ratings.rating IN (2, 3)
+      ),
+      rated_wines AS (
+        SELECT DISTINCT mapping.wl_id AS wine_id
+        FROM public.ratings AS ratings
+        INNER JOIN public.mapping AS mapping ON mapping.vp_id::text = ratings.id::text
+        WHERE ratings.customer_id::text = $1
+      ),
+      purchased_products AS (
+        SELECT DISTINCT NULLIF(item->>'product_id', '') AS product_id
+        FROM shopify.orders AS orders
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(orders.line_items::jsonb) = 'array'
+            THEN orders.line_items::jsonb ELSE '[]'::jsonb END
+        ) AS item
+        WHERE orders.cancelled_at IS NULL
+          AND orders.customer::jsonb->>'id' = $1
+      ),
+      candidate_scores AS (
+        SELECT
+          candidate_mapping.vp_id::text AS product_id,
+          candidate_mapping.wl_id AS wine_id,
+          COALESCE(candidate_wines.name, candidate_mapping.name, 'Vin recommande') AS wine_name,
+          candidate_products.handle,
+          candidate_products.online_store_url,
+          candidate_products.shop_url,
+          candidate_products.total_inventory::numeric AS inventory,
+          distances.perceptive_distance::numeric AS distance,
+          positive_wines.wine_name AS based_on_wine_name,
+          ROW_NUMBER() OVER (
+            PARTITION BY candidate_mapping.vp_id
+            ORDER BY distances.perceptive_distance ASC, positive_wines.wine_name
+          ) AS source_rank
+        FROM positive_wines
+        INNER JOIN public.distances AS distances ON distances.wine_id_a = positive_wines.wine_id
+        INNER JOIN public.mapping AS candidate_mapping ON candidate_mapping.wl_id = distances.wine_id_b
+        LEFT JOIN public.wines AS candidate_wines ON candidate_wines.id = candidate_mapping.wl_id
+        INNER JOIN public.products AS candidate_products ON candidate_products.id = candidate_mapping.vp_id
+        LEFT JOIN rated_wines ON rated_wines.wine_id = candidate_mapping.wl_id
+        LEFT JOIN purchased_products ON purchased_products.product_id = candidate_mapping.vp_id::text
+        WHERE COALESCE(candidate_products.total_inventory, 0) > 0
+          AND rated_wines.wine_id IS NULL
+          AND purchased_products.product_id IS NULL
+      )
+      SELECT
+        product_id,
+        wine_name,
+        CASE
+          WHEN NULLIF(online_store_url, '') IS NOT NULL THEN online_store_url
+          WHEN NULLIF(shop_url, '') IS NOT NULL AND NULLIF(handle, '') IS NOT NULL
+            THEN RTRIM(shop_url, '/') || '/products/' || handle
+          ELSE NULL
+        END AS product_url,
+        GREATEST(0, LEAST(100, 100 - distance))::text AS score,
+        distance::text,
+        based_on_wine_name,
+        inventory::text
+      FROM candidate_scores
+      WHERE source_rank = 1
+      ORDER BY score::numeric DESC, wine_name
+      LIMIT 12
+      `,
+      [resolvedCustomerKey],
+    );
+
+    if (result.rows.length === 0) {
+      const positiveCount = await pool.query(
+        `SELECT COUNT(*)::int AS count
+         FROM public.ratings
+         WHERE customer_id::text = $1 AND rating IN (2, 3)`,
+        [resolvedCustomerKey],
+      );
+      return {
+        ok: false,
+        reason: positiveCount.rows[0]?.count > 0 ? 'connection-failed' : 'no-positive-ratings',
+      };
+    }
+
+    const recommendations: CustomerWineRecommendation[] = result.rows.map((row) => ({
+      productId: row.product_id ?? '',
+      wineName: row.wine_name ?? 'Vin recommande',
+      productUrl: row.product_url ?? null,
+      score: numberFromPg(row.score),
+      distance: numberFromPg(row.distance),
+      basedOnWineName: row.based_on_wine_name ?? 'Vin aime',
+      inventory: numberFromPg(row.inventory),
+    }));
+
+    return { ok: true, recommendations };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    console.error('Customer wine recommendations failed', { code: errorCode });
     return { ok: false, reason: 'connection-failed' };
   }
 }
