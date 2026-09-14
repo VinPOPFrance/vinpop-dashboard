@@ -241,7 +241,18 @@ function WineRow({ wine }: { wine: CustomerWineRating }) {
   return (
     <tr style={{ borderTop: `1px solid ${colors.border}` }}>
       <td style={{ ...cellStyle, color: colors.text, fontWeight: 700 }}>
-        {wine.wineName}
+        {wine.productUrl ? (
+          <a
+            href={wine.productUrl}
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: colors.text, textDecoration: 'underline', textUnderlineOffset: 2 }}
+          >
+            {wine.wineName}
+          </a>
+        ) : (
+          wine.wineName
+        )}
         {wine.quantity > 1 ? (
           <span style={{ marginLeft: 6, fontWeight: 400, color: colors.textMuted }}>x{formatNumber(wine.quantity)}</span>
         ) : null}

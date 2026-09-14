@@ -1085,6 +1085,15 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
         COALESCE(purchased.quantity, 0)::text AS quantity,
         (purchased.product_id IS NOT NULL) AS purchased,
         purchased.last_order_date AS order_date,
+        COALESCE(
+          NULLIF(shopify_products.online_store_url, ''),
+          CASE
+            WHEN NULLIF(shopify_products.shop_url, '') IS NOT NULL
+              AND NULLIF(shopify_products.handle, '') IS NOT NULL
+            THEN RTRIM(shopify_products.shop_url, '/') || '/products/' || shopify_products.handle
+            ELSE NULL
+          END
+        ) AS product_url,
         NULLIF(wines.wine->>'region', '') AS region,
         NULLIF(wines.wine->>'country', '') AS country,
         NULLIF(wines.wine->>'winery', '') AS winery,
@@ -1098,6 +1107,7 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
       LEFT JOIN customer_ratings ON customer_ratings.product_id = universe.product_id
       LEFT JOIN public.mapping ON public.mapping.vp_id::text = universe.product_id
       LEFT JOIN public.wines AS wines ON wines.id::text = public.mapping.wl_id::text
+      LEFT JOIN shopify.products AS shopify_products ON shopify_products.id::text = universe.product_id
       ORDER BY
         customer_ratings.created_at DESC NULLS LAST,
         purchased.last_order_date DESC NULLS LAST,
@@ -1115,6 +1125,7 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
 
       return {
         productId: (row.product_id as string | null) ?? '',
+        productUrl: (row.product_url as string | null) ?? null,
         wineName: (row.wine_name as string | null) ?? 'Vin inconnu',
         // "S/D" est la valeur posee par le laboratoire quand la region est
         // inconnue : l afficher telle quelle n apprendrait rien au lecteur.

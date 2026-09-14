@@ -691,6 +691,8 @@ export type RetentionResult =
 export type CustomerWineRating = {
   /** Identifiant produit Shopify, cle de rapprochement avec `public.mapping`. */
   productId: string;
+  /** URL publique de la fiche produit Shopify, quand le produit est publie. */
+  productUrl: string | null;
   wineName: string;
   /** Region et pays issus du profil labo (`public.wines.wine`). */
   appellation: string | null;
