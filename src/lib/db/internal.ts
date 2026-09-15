@@ -4,7 +4,6 @@
  */
 
 import 'server-only';
-import { createHmac } from 'node:crypto';
 import { dateFromPg, getPool, numberFromPg, rate, ratio } from './client';
 import { isSmartBoxLineItem, isTasteKitLineItem } from './sql';
 import { type CustomerDetailedRatingsResult, type CustomerProductSummary, type CustomerRatingsSummary, type CustomerWineRecommendation, type CustomerWineRecommendationsResult, type CustomerWineRating, type FoodPairingIntelligenceResult, type QuizFunnelResult, type QuizFunnelSegment, type RatedWineDetail, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type WineRatingSummary } from './types';
@@ -1186,9 +1185,6 @@ export async function getCustomerWineRecommendations(
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) return { ok: false, reason: 'missing-url' };
 
-  const apiSecret = process.env.VINPOP_API_HMAC_SECRET;
-  if (!apiSecret) return { ok: false, reason: 'api-configuration-missing' };
-
   const normalizedIdentifier = identifier.trim();
   if (!normalizedIdentifier) return { ok: false, reason: 'unknown-customer' };
 
@@ -1209,66 +1205,7 @@ export async function getCustomerWineRecommendations(
     );
     const resolvedCustomerKey = identityResult.rows[0]?.customer_key ?? customerKey;
 
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const signature = createHmac('sha256', apiSecret)
-      .update(`${resolvedCustomerKey}:${timestamp}`)
-      .digest('hex');
-    const apiBaseUrl = process.env.VINPOP_API_URL ?? 'https://api.vinpop.fr';
-    const ratingsResponse = await fetch(
-      `${apiBaseUrl}/api/ratings/getAll?customerId=${encodeURIComponent(resolvedCustomerKey)}`,
-      {
-        headers: {
-          'X-Customer-Id': resolvedCustomerKey,
-          'X-Timestamp': timestamp,
-          'X-Signature': signature,
-        },
-        signal: AbortSignal.timeout(8000),
-      },
-    );
-    if (!ratingsResponse.ok) {
-      console.error('VinPOP ratings API failed', { status: ratingsResponse.status });
-      return { ok: false, reason: 'connection-failed' };
-    }
-
-    const ratings = (await ratingsResponse.json()) as Array<{ id?: string; rating?: string | number }>;
     const selectedProductId = sourceProductId?.trim() ?? '';
-    const sourceRating = ratings.find((rating) => String(rating.id) === selectedProductId);
-    if (!sourceRating || ![2, 3].includes(Number(sourceRating.rating))) {
-      return { ok: false, reason: 'source-not-positive' };
-    }
-
-    const distanceResponse = await fetch(`${apiBaseUrl}/api/wines/getDistance`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: selectedProductId }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!distanceResponse.ok) {
-      console.error('VinPOP distance API failed', { status: distanceResponse.status });
-      return { ok: false, reason: 'connection-failed' };
-    }
-
-    const distancePairs = (await distanceResponse.json()) as Array<{
-      productid1?: string;
-      productid2?: string;
-      perceptive_distance?: number | string;
-      distance?: number | string;
-    }>;
-    const bestByProduct = new Map<string, { score: number; distance: number }>();
-    for (const pair of distancePairs) {
-      const productId1 = String(pair.productid1 ?? '');
-      const productId2 = String(pair.productid2 ?? '');
-      const otherProductId = productId1 === selectedProductId ? productId2 : productId2 === selectedProductId ? productId1 : '';
-      const distance = Number(pair.perceptive_distance ?? pair.distance);
-      if (!otherProductId || otherProductId === selectedProductId || !Number.isFinite(distance)) continue;
-      const score = Math.max(0, Math.floor(100 - distance));
-      const previous = bestByProduct.get(otherProductId);
-      if (!previous || score > previous.score) bestByProduct.set(otherProductId, { score, distance });
-    }
-
-    if (bestByProduct.size === 0) return { ok: false, reason: 'no-in-stock-recommendations' };
-
-    const candidateIds = [...bestByProduct.keys()];
     const purchasedProducts = await pool.query<{ product_id: string }>(
       `SELECT DISTINCT NULLIF(item->>'product_id', '') AS product_id
        FROM shopify.orders AS orders
@@ -1288,9 +1225,32 @@ export async function getCustomerWineRecommendations(
          products.shop_url,
          products.total_inventory::text AS inventory,
          prices.price::text AS price,
+         similarity.distance::text AS distance,
          product_variants.available_for_sale::text AS available_for_sale,
          product_variants.inventory_quantity::text AS variant_inventory
-       FROM public.products AS products
+       FROM (
+         SELECT DISTINCT ON (candidate_product_id)
+           candidate_product_id,
+           distance
+         FROM (
+           SELECT mapping_b.vp_id::text AS candidate_product_id,
+                  distances.perceptive_distance::numeric AS distance
+           FROM public.mapping AS mapping_source
+           INNER JOIN public.distances AS distances ON distances.wine_id_a = mapping_source.wl_id
+           INNER JOIN public.mapping AS mapping_b ON mapping_b.wl_id = distances.wine_id_b
+           WHERE mapping_source.vp_id::text = $2
+           UNION ALL
+           SELECT mapping_b.vp_id::text AS candidate_product_id,
+                  distances.perceptive_distance::numeric AS distance
+           FROM public.mapping AS mapping_source
+           INNER JOIN public.distances AS distances ON distances.wine_id_b = mapping_source.wl_id
+           INNER JOIN public.mapping AS mapping_b ON mapping_b.wl_id = distances.wine_id_a
+           WHERE mapping_source.vp_id::text = $2
+         ) AS pairs
+         WHERE candidate_product_id <> $2
+         ORDER BY candidate_product_id, distance ASC
+       ) AS similarity
+       INNER JOIN public.products AS products ON products.id::text = similarity.candidate_product_id
        LEFT JOIN LATERAL (
          SELECT MIN(CASE WHEN price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN price::numeric ELSE NULL END) AS price
          FROM shopify.product_variants WHERE product_id = products.id
@@ -1301,13 +1261,13 @@ export async function getCustomerWineRecommendations(
          WHERE product_id = products.id AND COALESCE(inventory_quantity, 0) > 0 AND available_for_sale IS TRUE
          ORDER BY inventory_quantity DESC LIMIT 1
        ) AS product_variants ON true
-       WHERE products.id::text = ANY($1::text[])
+       WHERE products.id::text <> $2
          AND products.status = 'ACTIVE'
          AND products.published_at IS NOT NULL
          AND NULLIF(products.online_store_url, '') IS NOT NULL
          AND COALESCE(products.total_inventory, 0) > 0
          AND product_variants.available_for_sale IS TRUE`,
-      [candidateIds],
+      [resolvedCustomerKey, selectedProductId],
     );
 
     const sourceProduct = await pool.query<{ title: string | null }>(
@@ -1318,14 +1278,14 @@ export async function getCustomerWineRecommendations(
     const recommendations: CustomerWineRecommendation[] = productResult.rows
       .filter((row) => !purchasedIds.has(row.product_id ?? ''))
       .map((row) => {
-        const similarity = bestByProduct.get(row.product_id ?? '')!;
+        const distance = numberFromPg(row.distance);
         return {
           productId: row.product_id ?? '',
           wineName: row.wine_name ?? 'Vin recommande',
           productUrl: row.online_store_url ?? null,
           price: row.price === null ? null : numberFromPg(row.price),
-          score: similarity.score,
-          distance: similarity.distance,
+          score: Math.max(0, Math.floor(100 - distance)),
+          distance,
           basedOnWineName,
           inventory: numberFromPg(row.inventory),
         };

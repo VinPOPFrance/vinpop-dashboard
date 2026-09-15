@@ -364,7 +364,7 @@ function RecommendationsPanel({
     <div style={{ borderTop: `1px solid ${colors.border}`, padding: '14px 18px 18px' }}>
       <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: colors.text }}>Vins similaires en stock</p>
       <p style={{ margin: '4px 0 12px', fontSize: 11.5, color: colors.textMuted, lineHeight: 1.5 }}>
-        Recommandations basees sur les vins que ce client a notes Like ou Love. Score = 100 - distance.
+        Vins correspondant au produit selectionne via le profil labo. Score = 100 - distance.
       </p>
 
       {state.status === 'loading' ? (
@@ -373,12 +373,8 @@ function RecommendationsPanel({
         <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>
           {state.reason === 'no-positive-ratings'
             ? 'Ce client n a pas encore note de vin Like ou Love.'
-            : state.reason === 'source-not-positive'
-              ? 'Selectionnez un vin note Like ou Love pour chercher des vins similaires.'
-              : state.reason === 'no-in-stock-recommendations'
+            : state.reason === 'no-in-stock-recommendations'
                 ? 'Aucun vin similaire actif et en stock n a ete trouve pour ce vin.'
-                : state.reason === 'api-configuration-missing'
-                  ? 'L API VinPOP n est pas configuree sur le serveur.'
                 : 'Les recommandations sont momentanement indisponibles.'}
         </p>
       ) : (
