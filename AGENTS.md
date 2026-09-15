@@ -17,6 +17,15 @@ Never modify files outside this repository.
 Never touch the Shopify theme repository.
 Never create or modify files in the Shopify project.
 
+## Terminal commands auto-approval
+
+`.vscode/settings.json` sets `chat.tools.terminal.autoApprove` with a
+catch-all rule so Copilot Chat runs terminal commands in this workspace
+without asking for confirmation each time. This is a deliberate, accepted
+risk to speed up local workflows (npm scripts, git, lint/build). Be extra
+careful with destructive commands (`rm`, `git push --force`,
+`git reset --hard`) since they will run without a prompt.
+
 This dashboard is built with:
 - Next.js App Router
 - TypeScript
