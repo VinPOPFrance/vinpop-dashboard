@@ -46,6 +46,7 @@ const STEP = FUNNEL_STEPS[4];
 type PipelineRow = {
   clientLabel: string;
   customerIdentifier: string;
+  tasteKit: string;
   bottlesBought: number;
   bottlesRated: number;
   remaining: number;
@@ -56,6 +57,7 @@ type PipelineRow = {
 
 const pipelineColumns: DataTableColumn<PipelineRow>[] = [
   { key: 'clientLabel', label: 'Client', type: 'text', strong: true, width: 220 },
+  { key: 'tasteKit', label: 'Taste Kit', type: 'text' },
   { key: 'bottlesBought', label: 'Bouteilles recues', type: 'number' },
   { key: 'bottlesRated', label: 'Notees', type: 'number' },
   {
@@ -113,6 +115,7 @@ export default async function Step5Page() {
     return {
       clientLabel: formatCustomerLabel(customerIdentifier),
       customerIdentifier,
+      tasteKit: customer.startupPackBuyer ? 'Yes' : 'No',
       bottlesBought: customer.bottlesBought,
       bottlesRated: customer.bottlesRated,
       remaining: customer.unratedBottlesRemaining,
