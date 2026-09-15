@@ -5,10 +5,12 @@
 
 import 'server-only';
 import { dateFromPg, getPool, numberFromPg, rate, ratio } from './client';
-import { isSmartBoxLineItem, isTasteKitLineItem } from './sql';
+import { isSmartBoxLineItem, isTasteKitLineItem, tasteKitProductIds } from './sql';
 import { type CustomerDetailedRatingsResult, type CustomerProductSummary, type CustomerRatingsSummary, type CustomerWineRecommendation, type CustomerWineRecommendationsResult, type CustomerWineRating, type FoodPairingIntelligenceResult, type QuizFunnelResult, type QuizFunnelSegment, type RatedWineDetail, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type WineRatingSummary } from './types';
 import { dateToSql, type DateRange } from '@/lib/analytics/dateRanges';
 import { classifyCustomerStage } from '@/lib/customerStages';
+
+const tasteKitProductIdSql = tasteKitProductIds.map((id) => `'${id}'`).join(', ');
 
 export async function insertSiteEvent(input: SiteEventInsertInput): Promise<SiteEventInsertResult> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -217,6 +219,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
           MAX(created_at) AS last_rating_date,
           STRING_AGG(DISTINCT color, ', ' ORDER BY color) AS wine_colors_rated
         FROM mapped_ratings
+        WHERE shopify_product_id NOT IN (${tasteKitProductIdSql})
         GROUP BY customer_id
       ),
       -- Cle de rapprochement : l id client Shopify, pas l email. L email de
@@ -240,7 +243,8 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
           orders.customer::jsonb->>'id' AS customer_key,
           COALESCE(SUM(
             CASE
-              WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
+              WHEN NOT (${isTasteKitLineItem('item')})
+                AND item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric
               ELSE 0
             END
           ), 0)::text AS bottles_bought,
@@ -1045,6 +1049,7 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
         -- Meme definition d achat qu aux etapes 5 et 6 : une commande annulee
         -- n a jamais ete recue, elle ne doit rien ajouter au compteur.
         WHERE orders.cancelled_at IS NULL
+          AND NOT (item->>'product_id' IN (${tasteKitProductIdSql}))
           AND COALESCE(
             NULLIF(orders.customer::jsonb->>'id', ''),
             NULLIF(orders.email::text, '')
@@ -1068,6 +1073,7 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
           created_at
         FROM public.ratings
         WHERE customer_id = $1
+          AND id::text NOT IN (${tasteKitProductIdSql})
         ORDER BY id::text, created_at DESC NULLS LAST
       ),
       universe AS (

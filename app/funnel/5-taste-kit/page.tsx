@@ -216,7 +216,8 @@ export default async function Step5Page() {
           columns={pipelineColumns}
           rows={pipelineRows}
           identifierKey="customerIdentifier"
-          initialSortKey="remaining"
+          initialSortKey="lastRatingDate"
+          initialSortDirection="desc"
           emptyMessage="Aucun client en attente de notation : tout le monde est a jour."
         />
       </Section>

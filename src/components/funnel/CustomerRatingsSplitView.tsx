@@ -29,6 +29,7 @@ export function CustomerRatingsSplitView<T extends SplitViewRow>({
   /** Colonne portant l identifiant du client (email, ou id a defaut). */
   identifierKey,
   initialSortKey,
+  initialSortDirection = 'asc',
   searchPlaceholder = 'Filtrer un client...',
   emptyMessage,
 }: {
@@ -36,6 +37,7 @@ export function CustomerRatingsSplitView<T extends SplitViewRow>({
   rows: T[];
   identifierKey: keyof T & string;
   initialSortKey?: keyof T & string;
+  initialSortDirection?: 'asc' | 'desc';
   searchPlaceholder?: string;
   emptyMessage?: string;
 }) {
@@ -50,6 +52,7 @@ export function CustomerRatingsSplitView<T extends SplitViewRow>({
             columns={columns}
             rows={rows}
             initialSortKey={initialSortKey}
+            initialSortDirection={initialSortDirection}
             searchPlaceholder={searchPlaceholder}
             emptyMessage={emptyMessage}
             getRowKey={(row) => String(row[identifierKey] ?? '')}
