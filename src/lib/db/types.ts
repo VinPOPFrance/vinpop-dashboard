@@ -737,6 +737,17 @@ export type CustomerWineRecommendationsResult =
         | 'connection-failed';
     };
 
+export type CustomerWineReplacement = {
+  productId: string;
+  wineName: string;
+  productUrl: string | null;
+  price: number | null;
+  score: number;
+  likedWineName: string;
+  rejectedWineName: string;
+  inventory: number;
+};
+
 /** Detail des bouteilles d un client, pour le panneau de droite du split view. */
 export type CustomerDetailedRatings = {
   /** Identifiant tel qu il a ete demande (email ou cle client). */

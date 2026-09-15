@@ -6,7 +6,7 @@
 import 'server-only';
 import { dateFromPg, getPool, numberFromPg, rate, ratio } from './client';
 import { isSmartBoxLineItem, isTasteKitLineItem, tasteKitProductIds } from './sql';
-import { type CustomerDetailedRatingsResult, type CustomerProductSummary, type CustomerRatingsSummary, type CustomerWineRecommendation, type CustomerWineRecommendationsResult, type CustomerWineRating, type FoodPairingIntelligenceResult, type QuizFunnelResult, type QuizFunnelSegment, type RatedWineDetail, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type WineRatingSummary } from './types';
+import { type CustomerDetailedRatingsResult, type CustomerProductSummary, type CustomerRatingsSummary, type CustomerWineRecommendation, type CustomerWineRecommendationsResult, type CustomerWineRating, type CustomerWineReplacement, type FoodPairingIntelligenceResult, type QuizFunnelResult, type QuizFunnelSegment, type RatedWineDetail, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type WineRatingSummary } from './types';
 import { dateToSql, type DateRange } from '@/lib/analytics/dateRanges';
 import { classifyCustomerStage } from '@/lib/customerStages';
 
@@ -1305,6 +1305,107 @@ export async function getCustomerWineRecommendations(
   } catch (error) {
     const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
     console.error('Customer wine recommendations failed', { code: errorCode });
+    return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+export async function getCustomerWineReplacements(
+  identifier: string,
+  rejectedProductId: string,
+): Promise<{ ok: true; replacements: CustomerWineReplacement[] } | { ok: false; reason: string }> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  try {
+    const pool = getPool(databaseUrl);
+    const customerKey = identifier.trim().replace(/^order:/, '');
+    const result = await pool.query<Record<string, string | null>>(
+      `
+      WITH customer_ratings AS (
+        SELECT mapping.vp_id::text AS product_id, ratings.rating,
+               mapping.wl_id AS wine_id,
+               COALESCE(wines.name, mapping.name, 'Vin') AS wine_name,
+               wines.wine->>'colour' AS colour
+        FROM public.ratings ratings
+        INNER JOIN public.mapping mapping ON mapping.vp_id::text = ratings.id::text
+        LEFT JOIN public.wines wines ON wines.id = mapping.wl_id
+        WHERE ratings.customer_id::text = $1
+      ), rejected AS (
+        SELECT * FROM customer_ratings
+        WHERE product_id = $2 AND rating = 1
+      ), liked AS (
+        SELECT * FROM customer_ratings WHERE rating IN (2, 3)
+      ), purchased AS (
+        SELECT DISTINCT item->>'product_id' AS product_id
+        FROM shopify.orders orders
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(orders.line_items::jsonb) = 'array' THEN orders.line_items::jsonb ELSE '[]'::jsonb END
+        ) item
+        WHERE orders.cancelled_at IS NULL AND orders.customer::jsonb->>'id' = $1
+      ), candidates AS (
+        SELECT
+          candidate_mapping.vp_id::text AS product_id,
+          COALESCE(candidate_wines.name, candidate_mapping.name, 'Vin recommande') AS wine_name,
+          candidate_wines.wine->>'colour' AS colour,
+          rejected.wine_name AS rejected_wine_name,
+          liked.wine_name AS liked_wine_name,
+          MIN(liked_distances.perceptive_distance::numeric) AS liked_distance,
+          MAX(rejected_distances.perceptive_distance::numeric) AS rejected_distance,
+          candidate_products.handle,
+          candidate_products.online_store_url,
+          candidate_products.total_inventory::numeric AS inventory,
+          prices.price::numeric AS price
+        FROM rejected
+        CROSS JOIN liked
+        CROSS JOIN public.wines AS candidate_wines
+        INNER JOIN public.distances rejected_distances
+          ON (rejected_distances.wine_id_a = rejected.wine_id AND rejected_distances.wine_id_b = candidate_wines.id)
+          OR (rejected_distances.wine_id_b = rejected.wine_id AND rejected_distances.wine_id_a = candidate_wines.id)
+        INNER JOIN public.distances liked_distances
+          ON (liked_distances.wine_id_a = liked.wine_id AND liked_distances.wine_id_b = candidate_wines.id)
+          OR (liked_distances.wine_id_b = liked.wine_id AND liked_distances.wine_id_a = candidate_wines.id)
+        INNER JOIN public.mapping candidate_mapping ON candidate_mapping.wl_id = candidate_wines.id
+        INNER JOIN public.products candidate_products ON candidate_products.id = candidate_mapping.vp_id
+        LEFT JOIN LATERAL (
+          SELECT MIN(CASE WHEN price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN price::numeric ELSE NULL END) AS price
+          FROM shopify.product_variants WHERE product_id = candidate_products.id
+        ) prices ON true
+        WHERE candidate_wines.wine->>'colour' = rejected.colour
+          AND candidate_mapping.vp_id::text <> $2
+          AND candidate_products.status = 'ACTIVE'
+          AND candidate_products.published_at IS NOT NULL
+          AND candidate_products.total_inventory > 0
+          AND NULLIF(candidate_products.online_store_url, '') IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM purchased WHERE purchased.product_id = candidate_mapping.vp_id::text)
+        GROUP BY candidate_mapping.vp_id, candidate_wines.name, candidate_mapping.name, candidate_wines.wine,
+                 rejected.wine_name, liked.wine_name, candidate_products.handle, candidate_products.online_store_url,
+                 candidate_products.total_inventory, prices.price
+      )
+      SELECT product_id, wine_name, rejected_wine_name, liked_wine_name,
+             online_store_url AS product_url, price::text, inventory::text,
+             GREATEST(0, LEAST(100, FLOOR(100 - liked_distance + ((rejected_distance - liked_distance) * 0.25))))::text AS score
+      FROM candidates
+      ORDER BY score::numeric DESC, liked_distance ASC, wine_name
+      LIMIT 12
+      `,
+      [customerKey, rejectedProductId.trim()],
+    );
+
+    return {
+      ok: true,
+      replacements: result.rows.map((row) => ({
+        productId: row.product_id ?? '',
+        wineName: row.wine_name ?? 'Vin recommande',
+        productUrl: row.product_url ?? null,
+        price: row.price === null ? null : numberFromPg(row.price),
+        score: numberFromPg(row.score),
+        likedWineName: row.liked_wine_name ?? 'Vin aime',
+        rejectedWineName: row.rejected_wine_name ?? 'Vin refuse',
+        inventory: numberFromPg(row.inventory),
+      })),
+    };
+  } catch (error) {
+    console.error('Customer wine replacements failed', { error });
     return { ok: false, reason: 'connection-failed' };
   }
 }

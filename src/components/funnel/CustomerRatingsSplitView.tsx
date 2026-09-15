@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, DataTable, StatusBadge, colors, radius, type DataTableColumn } from '@/components/ui';
 import { formatDate, formatEuro, formatNumber } from '@/lib/format';
-import type { CustomerDetailedRatings, CustomerWineRecommendation, CustomerWineRating } from '@/lib/db/types';
+import type { CustomerDetailedRatings, CustomerWineRecommendation, CustomerWineRating, CustomerWineReplacement } from '@/lib/db/types';
 
 /**
  * Vue maitre-detail des etapes 5 et 6 : la liste des clients a gauche, le
@@ -116,6 +116,12 @@ function CustomerWinesPanel({ email }: { email: string }) {
     | { status: 'ready'; wine: CustomerWineRating; items: CustomerWineRecommendation[] }
     | { status: 'empty'; wine: CustomerWineRating; reason: string }
   >({ status: 'idle' });
+  const [replacements, setReplacements] = useState<
+    | { status: 'idle' }
+    | { status: 'loading'; wine: CustomerWineRating }
+    | { status: 'ready'; wine: CustomerWineRating; items: CustomerWineReplacement[] }
+    | { status: 'empty'; wine: CustomerWineRating }
+  >({ status: 'idle' });
 
   useEffect(() => {
     // Un clic rapide sur plusieurs clients ne doit pas laisser une reponse
@@ -166,6 +172,28 @@ function CustomerWinesPanel({ email }: { email: string }) {
         setRecommendations({ status: 'empty', wine: selectedWine, reason: 'connection-failed' });
       });
 
+    return () => controller.abort();
+  }, [email, selectedWine]);
+
+  useEffect(() => {
+    if (!selectedWine || selectedWine.ratingLabel !== 'Dislike') return;
+    const controller = new AbortController();
+    const query = new URLSearchParams({ email, productId: selectedWine.productId });
+    fetch(`/api/customers/replacements?${query.toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json()) as
+          | { ok: true; replacements: CustomerWineReplacement[] }
+          | { ok: false; reason: string };
+        if (!body.ok || body.replacements.length === 0) {
+          setReplacements({ status: 'empty', wine: selectedWine });
+          return;
+        }
+        setReplacements({ status: 'ready', wine: selectedWine, items: body.replacements });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setReplacements({ status: 'empty', wine: selectedWine });
+      });
     return () => controller.abort();
   }, [email, selectedWine]);
 
@@ -255,6 +283,15 @@ function CustomerWinesPanel({ email }: { email: string }) {
             recommendations.status === 'idle' || recommendations.wine.productId !== selectedWine.productId
               ? { status: 'loading', wine: selectedWine }
               : recommendations
+          }
+        />
+      ) : null}
+      {selectedWine?.ratingLabel === 'Dislike' ? (
+        <ReplacementPanel
+          state={
+            replacements.status === 'idle' || replacements.wine.productId !== selectedWine.productId
+              ? { status: 'loading', wine: selectedWine }
+              : replacements
           }
         />
       ) : null}
@@ -418,6 +455,60 @@ function RecommendationsPanel({
                 <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
                   {formatNumber(recommendation.inventory)}
                 </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function ReplacementPanel({
+  state,
+}: {
+  state:
+    | { status: 'loading'; wine: CustomerWineRating }
+    | { status: 'ready'; wine: CustomerWineRating; items: CustomerWineReplacement[] }
+    | { status: 'empty'; wine: CustomerWineRating };
+}) {
+  return (
+    <div style={{ borderTop: `1px solid ${colors.border}`, padding: '14px 18px 18px', background: '#FFF9F0' }}>
+      <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: colors.text }}>Remplacement satisfait ou rembourse</p>
+      <p style={{ margin: '4px 0 12px', fontSize: 11.5, color: colors.textMuted, lineHeight: 1.5 }}>
+        Meme couleur que le vin refuse, proche des vins aimes et suffisamment eloigne du vin Dislike.
+      </p>
+      {state.status === 'loading' ? (
+        <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>Recherche des remplacements...</p>
+      ) : state.status === 'empty' ? (
+        <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>Aucun remplacement actif et en stock trouve pour cette couleur.</p>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ color: colors.textSecondary, textAlign: 'left' }}>
+              <th style={recommendationHeaderStyle}>Vin de remplacement</th>
+              <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Prix</th>
+              <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Compatibilite</th>
+              <th style={recommendationHeaderStyle}>Base aimee</th>
+              <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Stock</th>
+            </tr>
+          </thead>
+          <tbody>
+            {state.items.map((replacement) => (
+              <tr key={replacement.productId} style={{ borderTop: `1px solid ${colors.border}` }}>
+                <td style={{ ...cellStyle, color: colors.text, fontWeight: 700 }}>
+                  {replacement.productUrl ? (
+                    <a href={replacement.productUrl} target="_blank" rel="noreferrer" style={{ color: colors.text, textDecoration: 'underline' }}>
+                      {replacement.wineName}
+                    </a>
+                  ) : replacement.wineName}
+                </td>
+                <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>{formatEuro(replacement.price)}</td>
+                <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap', color: colors.good, fontWeight: 700 }}>
+                  {formatNumber(replacement.score, 1)}%
+                </td>
+                <td style={cellStyle}>{replacement.likedWineName}</td>
+                <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>{formatNumber(replacement.inventory)}</td>
               </tr>
             ))}
           </tbody>
