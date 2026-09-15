@@ -1349,6 +1349,7 @@ export async function getCustomerWineReplacements(
           candidate_wines.wine->>'colour' AS colour,
           rejected.wine_name AS rejected_wine_name,
           liked.wine_name AS liked_wine_name,
+          MAX(liked.rating) AS liked_rating,
           MIN(liked_distances.perceptive_distance::numeric) AS liked_distance,
           MAX(rejected_distances.perceptive_distance::numeric) AS rejected_distance,
           candidate_products.handle,
@@ -1358,10 +1359,10 @@ export async function getCustomerWineReplacements(
         FROM rejected
         CROSS JOIN liked
         CROSS JOIN public.wines AS candidate_wines
-        INNER JOIN public.distances rejected_distances
+        LEFT JOIN public.distances rejected_distances
           ON (rejected_distances.wine_id_a = rejected.wine_id AND rejected_distances.wine_id_b = candidate_wines.id)
           OR (rejected_distances.wine_id_b = rejected.wine_id AND rejected_distances.wine_id_a = candidate_wines.id)
-        INNER JOIN public.distances liked_distances
+        LEFT JOIN public.distances liked_distances
           ON (liked_distances.wine_id_a = liked.wine_id AND liked_distances.wine_id_b = candidate_wines.id)
           OR (liked_distances.wine_id_b = liked.wine_id AND liked_distances.wine_id_a = candidate_wines.id)
         INNER JOIN public.mapping candidate_mapping ON candidate_mapping.wl_id = candidate_wines.id
@@ -1376,16 +1377,23 @@ export async function getCustomerWineReplacements(
           AND candidate_products.published_at IS NOT NULL
           AND candidate_products.total_inventory > 0
           AND NULLIF(candidate_products.online_store_url, '') IS NOT NULL
+             AND EXISTS (
+               SELECT 1
+               FROM shopify.product_variants available_variants
+               WHERE available_variants.product_id = candidate_products.id
+            AND COALESCE(available_variants.inventory_quantity, 0) > 0
+            AND available_variants.available_for_sale IS TRUE
+             )
           AND NOT EXISTS (SELECT 1 FROM purchased WHERE purchased.product_id = candidate_mapping.vp_id::text)
         GROUP BY candidate_mapping.vp_id, candidate_wines.name, candidate_mapping.name, candidate_wines.wine,
-                 rejected.wine_name, liked.wine_name, candidate_products.handle, candidate_products.online_store_url,
+               rejected.wine_name, liked.wine_name, candidate_products.handle, candidate_products.online_store_url,
                  candidate_products.total_inventory, prices.price
       )
       SELECT product_id, wine_name, rejected_wine_name, liked_wine_name,
              online_store_url AS product_url, price::text, inventory::text,
-             GREATEST(0, LEAST(100, FLOOR(100 - liked_distance + ((rejected_distance - liked_distance) * 0.25))))::text AS score
+                GREATEST(0, LEAST(100, FLOOR(100 - COALESCE(liked_distance, 100))))::text AS score
       FROM candidates
-      ORDER BY score::numeric DESC, liked_distance ASC, wine_name
+              ORDER BY liked_rating DESC, liked_distance ASC NULLS LAST, rejected_distance DESC NULLS LAST, wine_name
       LIMIT 12
       `,
       [customerKey, rejectedProductId.trim()],
