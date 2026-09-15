@@ -1238,16 +1238,16 @@ export async function getCustomerWineRecommendations(
            FROM public.mapping AS mapping_source
            INNER JOIN public.distances AS distances ON distances.wine_id_a = mapping_source.wl_id
            INNER JOIN public.mapping AS mapping_b ON mapping_b.wl_id = distances.wine_id_b
-           WHERE mapping_source.vp_id::text = $2
+           WHERE mapping_source.vp_id::text = $1
            UNION ALL
            SELECT mapping_b.vp_id::text AS candidate_product_id,
                   distances.perceptive_distance::numeric AS distance
            FROM public.mapping AS mapping_source
            INNER JOIN public.distances AS distances ON distances.wine_id_b = mapping_source.wl_id
            INNER JOIN public.mapping AS mapping_b ON mapping_b.wl_id = distances.wine_id_a
-           WHERE mapping_source.vp_id::text = $2
+           WHERE mapping_source.vp_id::text = $1
          ) AS pairs
-         WHERE candidate_product_id <> $2
+         WHERE candidate_product_id <> $1
          ORDER BY candidate_product_id, distance ASC
        ) AS similarity
        INNER JOIN public.products AS products ON products.id::text = similarity.candidate_product_id
@@ -1261,13 +1261,13 @@ export async function getCustomerWineRecommendations(
          WHERE product_id = products.id AND COALESCE(inventory_quantity, 0) > 0 AND available_for_sale IS TRUE
          ORDER BY inventory_quantity DESC LIMIT 1
        ) AS product_variants ON true
-       WHERE products.id::text <> $2
+      WHERE products.id::text <> $1
          AND products.status = 'ACTIVE'
          AND products.published_at IS NOT NULL
          AND NULLIF(products.online_store_url, '') IS NOT NULL
          AND COALESCE(products.total_inventory, 0) > 0
          AND product_variants.available_for_sale IS TRUE`,
-      [resolvedCustomerKey, selectedProductId],
+      [selectedProductId],
     );
 
     const sourceProduct = await pool.query<{ title: string | null }>(
