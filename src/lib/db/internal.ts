@@ -1229,7 +1229,10 @@ export async function getCustomerWineRecommendations(
          products.handle,
          products.online_store_url,
          products.shop_url,
-         products.total_inventory::text AS inventory,
+            CASE WHEN COALESCE(products.total_inventory, 0) > 0
+              THEN products.total_inventory::text
+              ELSE product_variants.inventory_quantity::text
+            END AS inventory,
          prices.price::text AS price,
          similarity.distance::text AS distance,
          product_variants.available_for_sale::text AS available_for_sale,
@@ -1271,7 +1274,6 @@ export async function getCustomerWineRecommendations(
          AND products.status = 'ACTIVE'
          AND products.published_at IS NOT NULL
          AND NULLIF(products.online_store_url, '') IS NOT NULL
-         AND COALESCE(products.total_inventory, 0) > 0
          AND product_variants.available_for_sale IS TRUE`,
       [selectedProductId],
     );
@@ -1388,26 +1390,30 @@ export async function getCustomerWineReplacements(
           best_candidates.distance,
           candidate_products.handle,
           candidate_products.online_store_url,
-          candidate_products.total_inventory::numeric AS inventory,
+          CASE WHEN COALESCE(candidate_products.total_inventory, 0) > 0
+            THEN candidate_products.total_inventory::numeric
+            ELSE available_variant.inventory_quantity::numeric
+          END AS inventory,
           prices.price::numeric AS price
         FROM best_candidates
         INNER JOIN public.products candidate_products ON candidate_products.id::text = best_candidates.product_id
+        INNER JOIN LATERAL (
+          SELECT inventory_quantity
+          FROM shopify.product_variants
+          WHERE product_id = candidate_products.id
+            AND COALESCE(inventory_quantity, 0) > 0
+            AND available_for_sale IS TRUE
+          ORDER BY inventory_quantity DESC
+          LIMIT 1
+        ) available_variant ON true
         LEFT JOIN LATERAL (
           SELECT MIN(CASE WHEN price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN price::numeric ELSE NULL END) AS price
           FROM shopify.product_variants WHERE product_id = candidate_products.id
         ) prices ON true
         WHERE candidate_products.status = 'ACTIVE'
           AND candidate_products.published_at IS NOT NULL
-          AND candidate_products.total_inventory > 0
           AND NULLIF(candidate_products.online_store_url, '') IS NOT NULL
-             AND EXISTS (
-               SELECT 1
-               FROM shopify.product_variants available_variants
-               WHERE available_variants.product_id = candidate_products.id
-            AND COALESCE(available_variants.inventory_quantity, 0) > 0
-            AND available_variants.available_for_sale IS TRUE
-             )
-               AND NOT EXISTS (SELECT 1 FROM purchased WHERE purchased.product_id = best_candidates.product_id)
+          AND NOT EXISTS (SELECT 1 FROM purchased WHERE purchased.product_id = best_candidates.product_id)
       )
                 SELECT product_id, wine_name, liked_wine_name,
              online_store_url AS product_url, price::text, inventory::text,
