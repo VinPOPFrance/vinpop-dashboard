@@ -103,11 +103,15 @@ export default async function Step5Page() {
 
   const metrics = result.metrics;
 
-  // Le pipeline de relance : clients ayant recu des bouteilles et n ayant pas
-  // fini de les noter. Trie par volume restant, donc par effort de relance.
+  // La vue inclut tous les clients ayant recu des bouteilles. Les clients qui
+  // ont encore des notes a donner restent en tete du tableau.
   const pipeline = metrics.customers
-    .filter((customer) => customer.bottlesBought > 0 && customer.unratedBottlesRemaining > 0)
-    .sort((a, b) => b.unratedBottlesRemaining - a.unratedBottlesRemaining);
+    .filter((customer) => customer.bottlesBought > 0)
+    .sort(
+      (a, b) =>
+        b.unratedBottlesRemaining - a.unratedBottlesRemaining ||
+        (b.lastRatingDate ?? '').localeCompare(a.lastRatingDate ?? ''),
+    );
 
   const pipelineRows: PipelineRow[] = pipeline.map((customer) => {
     const customerIdentifier = customer.email || customer.customerId;
@@ -133,7 +137,8 @@ export default async function Step5Page() {
     ? (tasteKitStartedRating.length / tasteKitCustomers.length) * 100
     : null;
 
-  const bottlesToRate = pipeline.reduce((sum, customer) => sum + customer.unratedBottlesRemaining, 0);
+  const pendingCustomers = pipeline.filter((customer) => customer.unratedBottlesRemaining > 0);
+  const bottlesToRate = pendingCustomers.reduce((sum, customer) => sum + customer.unratedBottlesRemaining, 0);
 
   return (
     <DashboardLayout>
@@ -150,11 +155,11 @@ export default async function Step5Page() {
         <FunnelPipelineBar currentStep={STEP.step} />
       </Suspense>
 
-      {pipeline.length > 0 ? (
+      {pendingCustomers.length > 0 ? (
         <PageSection>
           <AlertBanner
             tone="warning"
-            title={`${pipeline.length} client(s) a relancer — ${formatNumber(bottlesToRate)} bouteilles en attente de notation`}
+            title={`${pendingCustomers.length} client(s) a relancer — ${formatNumber(bottlesToRate)} bouteilles en attente de notation`}
           >
             Sans ces notes, l algorithme de recommandation travaille a l aveugle pour ces clients :
             la Smart Wine Box de l etape 6 ne peut pas etre composee correctement.
@@ -192,7 +197,7 @@ export default async function Step5Page() {
             label="Bouteilles en attente"
             value={formatNumber(bottlesToRate)}
             tone={bottlesToRate > 0 ? 'warning' : 'good'}
-            hint={`Reparties sur ${formatNumber(pipeline.length)} clients`}
+            hint={`Reparties sur ${formatNumber(pendingCustomers.length)} clients a relancer`}
           />
         </StatGrid>
       </PageSection>
@@ -212,7 +217,7 @@ export default async function Step5Page() {
 
       <Section
         title="Pipeline de relance"
-        sub="Clients ayant recu des bouteilles et ne les ayant pas toutes notees, classes par volume restant. Cliquer une ligne affiche le detail de ses bouteilles a droite."
+        sub="Tous les clients ayant recu des bouteilles, classes par volume restant a noter. Cliquer une ligne affiche le detail de ses bouteilles a droite."
         bare
       >
         <CustomerRatingsSplitView
