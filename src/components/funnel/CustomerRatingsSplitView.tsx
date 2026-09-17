@@ -404,7 +404,7 @@ function RecommendationsPanel({
     <div style={{ borderTop: `1px solid ${colors.border}`, padding: '14px 18px 18px' }}>
       <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: colors.text }}>Vins similaires en stock</p>
       <p style={{ margin: '4px 0 12px', fontSize: 11.5, color: colors.textMuted, lineHeight: 1.5 }}>
-        Vins correspondant au produit selectionne via le profil labo. Score = 100 - distance.
+        Le score mesure la proximite avec le vin de la colonne Base : 90 % signifie que le vin est tres proche de cette base.
       </p>
 
       {state.status === 'loading' ? (
@@ -423,8 +423,8 @@ function RecommendationsPanel({
             <tr style={{ background: colors.surfaceMuted, color: colors.textSecondary, textAlign: 'left' }}>
               <th style={recommendationHeaderStyle}>Vin disponible</th>
               <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Prix</th>
-              <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Score</th>
-              <th style={recommendationHeaderStyle}>Base</th>
+              <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Proximite</th>
+              <th style={recommendationHeaderStyle}>Compare a</th>
               <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Stock</th>
             </tr>
           </thead>
