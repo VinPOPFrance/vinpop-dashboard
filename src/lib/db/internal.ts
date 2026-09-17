@@ -1319,6 +1319,19 @@ export async function getCustomerWineReplacements(
   try {
     const pool = getPool(databaseUrl);
     const customerKey = identifier.trim().replace(/^order:/, '');
+    const identityResult = await pool.query<{ customer_key: string }>(
+      `SELECT id::text AS customer_key
+       FROM public.users
+       WHERE LOWER(email) = LOWER($1) OR id::text = $2
+       UNION ALL
+       SELECT customer::jsonb->>'id' AS customer_key
+       FROM shopify.orders
+       WHERE LOWER(COALESCE(NULLIF(contact_email, ''), NULLIF(email, ''))) = LOWER($1)
+          OR customer::jsonb->>'id' = $2
+       LIMIT 1`,
+      [identifier.trim(), customerKey],
+    );
+    const resolvedCustomerKey = identityResult.rows[0]?.customer_key ?? customerKey;
     const result = await pool.query<Record<string, string | null>>(
       `
       WITH customer_ratings AS (
@@ -1345,16 +1358,21 @@ export async function getCustomerWineReplacements(
           COALESCE(candidate_wines.name, candidate_mapping.name, 'Vin recommande') AS wine_name,
           liked.wine_name AS liked_wine_name,
           liked.rating AS liked_rating,
-          MIN(liked_distances.perceptive_distance::numeric) AS liked_distance,
+          liked_distances.distance AS liked_distance,
           candidate_products.handle,
           candidate_products.online_store_url,
           candidate_products.total_inventory::numeric AS inventory,
           prices.price::numeric AS price
         FROM liked
         CROSS JOIN public.wines AS candidate_wines
-        LEFT JOIN public.distances liked_distances
-          ON (liked_distances.wine_id_a = liked.wine_id AND liked_distances.wine_id_b = candidate_wines.id)
-          OR (liked_distances.wine_id_b = liked.wine_id AND liked_distances.wine_id_a = candidate_wines.id)
+        INNER JOIN LATERAL (
+          SELECT distances.perceptive_distance::numeric AS distance
+          FROM public.distances AS distances
+          WHERE (distances.wine_id_a = liked.wine_id AND distances.wine_id_b = candidate_wines.id)
+             OR (distances.wine_id_b = liked.wine_id AND distances.wine_id_a = candidate_wines.id)
+          ORDER BY distances.perceptive_distance::numeric ASC
+          LIMIT 1
+        ) AS liked_distances ON true
         INNER JOIN public.mapping candidate_mapping ON candidate_mapping.wl_id = candidate_wines.id
         INNER JOIN public.products candidate_products ON candidate_products.id = candidate_mapping.vp_id
         LEFT JOIN LATERAL (
@@ -1375,7 +1393,7 @@ export async function getCustomerWineReplacements(
              )
           AND NOT EXISTS (SELECT 1 FROM purchased WHERE purchased.product_id = candidate_mapping.vp_id::text)
         GROUP BY candidate_mapping.vp_id, candidate_wines.name, candidate_mapping.name,
-                 liked.wine_id, liked.wine_name, liked.rating, candidate_products.handle,
+                 liked.wine_id, liked.wine_name, liked.rating, liked_distances.distance, candidate_products.handle,
                  candidate_products.online_store_url, candidate_products.total_inventory, prices.price
       ), ranked_candidates AS (
         SELECT candidate_matches.*,
@@ -1393,7 +1411,7 @@ export async function getCustomerWineReplacements(
       ORDER BY liked_rating DESC, liked_distance ASC, wine_name
       LIMIT 12
       `,
-      [customerKey, rejectedProductId.trim()],
+      [resolvedCustomerKey, rejectedProductId.trim()],
     );
 
     return {
