@@ -474,21 +474,21 @@ function ReplacementPanel({
 }) {
   return (
     <div style={{ borderTop: `1px solid ${colors.border}`, padding: '14px 18px 18px', background: '#FFF9F0' }}>
-      <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: colors.text }}>Remplacement satisfait ou rembourse</p>
+      <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: colors.text }}>Vins recommandes pour remplacer ce Dislike</p>
       <p style={{ margin: '4px 0 12px', fontSize: 11.5, color: colors.textMuted, lineHeight: 1.5 }}>
-        Meme couleur que le vin refuse, proche des vins aimes et suffisamment eloigne du vin Dislike.
+        Recommandations basees sur les vins notes par le client : les Love sont prioritaires sur les Like. Le score mesure la proximite avec la Base aimee.
       </p>
       {state.status === 'loading' ? (
         <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>Recherche des remplacements...</p>
       ) : state.status === 'empty' ? (
-        <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>Aucun remplacement actif et en stock trouve pour cette couleur.</p>
+          <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>Aucun vin recommande actif et en stock n a ete trouve a partir des Love ou Like du client.</p>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ color: colors.textSecondary, textAlign: 'left' }}>
               <th style={recommendationHeaderStyle}>Vin de remplacement</th>
               <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Prix</th>
-              <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Compatibilite</th>
+              <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Proximite</th>
               <th style={recommendationHeaderStyle}>Base aimee</th>
               <th style={{ ...recommendationHeaderStyle, textAlign: 'right' }}>Stock</th>
             </tr>

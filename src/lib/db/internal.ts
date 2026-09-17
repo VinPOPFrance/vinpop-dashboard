@@ -1330,9 +1330,6 @@ export async function getCustomerWineReplacements(
         INNER JOIN public.mapping mapping ON mapping.vp_id::text = ratings.id::text
         LEFT JOIN public.wines wines ON wines.id = mapping.wl_id
         WHERE ratings.customer_id::text = $1
-      ), rejected AS (
-        SELECT * FROM customer_ratings
-        WHERE product_id = $2 AND rating = 1
       ), liked AS (
         SELECT * FROM customer_ratings WHERE rating IN (2, 3)
       ), purchased AS (
@@ -1342,26 +1339,19 @@ export async function getCustomerWineReplacements(
           CASE WHEN jsonb_typeof(orders.line_items::jsonb) = 'array' THEN orders.line_items::jsonb ELSE '[]'::jsonb END
         ) item
         WHERE orders.cancelled_at IS NULL AND orders.customer::jsonb->>'id' = $1
-      ), candidates AS (
+      ), candidate_matches AS (
         SELECT
           candidate_mapping.vp_id::text AS product_id,
           COALESCE(candidate_wines.name, candidate_mapping.name, 'Vin recommande') AS wine_name,
-          candidate_wines.wine->>'colour' AS colour,
-          rejected.wine_name AS rejected_wine_name,
           liked.wine_name AS liked_wine_name,
-          MAX(liked.rating) AS liked_rating,
+          liked.rating AS liked_rating,
           MIN(liked_distances.perceptive_distance::numeric) AS liked_distance,
-          MAX(rejected_distances.perceptive_distance::numeric) AS rejected_distance,
           candidate_products.handle,
           candidate_products.online_store_url,
           candidate_products.total_inventory::numeric AS inventory,
           prices.price::numeric AS price
-        FROM rejected
-        CROSS JOIN liked
+        FROM liked
         CROSS JOIN public.wines AS candidate_wines
-        LEFT JOIN public.distances rejected_distances
-          ON (rejected_distances.wine_id_a = rejected.wine_id AND rejected_distances.wine_id_b = candidate_wines.id)
-          OR (rejected_distances.wine_id_b = rejected.wine_id AND rejected_distances.wine_id_a = candidate_wines.id)
         LEFT JOIN public.distances liked_distances
           ON (liked_distances.wine_id_a = liked.wine_id AND liked_distances.wine_id_b = candidate_wines.id)
           OR (liked_distances.wine_id_b = liked.wine_id AND liked_distances.wine_id_a = candidate_wines.id)
@@ -1371,8 +1361,7 @@ export async function getCustomerWineReplacements(
           SELECT MIN(CASE WHEN price::text ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN price::numeric ELSE NULL END) AS price
           FROM shopify.product_variants WHERE product_id = candidate_products.id
         ) prices ON true
-        WHERE candidate_wines.wine->>'colour' = rejected.colour
-          AND candidate_mapping.vp_id::text <> $2
+        WHERE candidate_mapping.vp_id::text <> $2
           AND candidate_products.status = 'ACTIVE'
           AND candidate_products.published_at IS NOT NULL
           AND candidate_products.total_inventory > 0
@@ -1385,15 +1374,23 @@ export async function getCustomerWineReplacements(
             AND available_variants.available_for_sale IS TRUE
              )
           AND NOT EXISTS (SELECT 1 FROM purchased WHERE purchased.product_id = candidate_mapping.vp_id::text)
-        GROUP BY candidate_mapping.vp_id, candidate_wines.name, candidate_mapping.name, candidate_wines.wine,
-               rejected.wine_name, liked.wine_name, candidate_products.handle, candidate_products.online_store_url,
-                 candidate_products.total_inventory, prices.price
+        GROUP BY candidate_mapping.vp_id, candidate_wines.name, candidate_mapping.name,
+                 liked.wine_id, liked.wine_name, liked.rating, candidate_products.handle,
+                 candidate_products.online_store_url, candidate_products.total_inventory, prices.price
+      ), ranked_candidates AS (
+        SELECT candidate_matches.*,
+               ROW_NUMBER() OVER (
+                 PARTITION BY product_id
+                 ORDER BY liked_rating DESC, liked_distance ASC NULLS LAST, liked_wine_name
+               ) AS liked_rank
+        FROM candidate_matches
       )
-      SELECT product_id, wine_name, rejected_wine_name, liked_wine_name,
+      SELECT product_id, wine_name, liked_wine_name,
              online_store_url AS product_url, price::text, inventory::text,
-                GREATEST(0, LEAST(100, FLOOR(100 - COALESCE(liked_distance, 100))))::text AS score
-      FROM candidates
-              ORDER BY liked_rating DESC, liked_distance ASC NULLS LAST, rejected_distance DESC NULLS LAST, wine_name
+             GREATEST(0, LEAST(100, FLOOR(100 - liked_distance)))::text AS score
+      FROM ranked_candidates
+      WHERE liked_rank = 1 AND liked_distance IS NOT NULL
+      ORDER BY liked_rating DESC, liked_distance ASC, wine_name
       LIMIT 12
       `,
       [customerKey, rejectedProductId.trim()],
