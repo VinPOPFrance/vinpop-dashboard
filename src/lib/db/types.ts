@@ -65,6 +65,7 @@ export type CustomerProductSummary = {
 export type CustomerRatingsSummary = {
   customerId: string;
   email: string;
+  followupContactedAt: string | null;
   totalSpent: number;
   ordersCount: number;
   bottlesBought: number;
@@ -768,6 +769,16 @@ export type CustomerDetailedRatings = {
 export type CustomerDetailedRatingsResult =
   | { ok: true; detail: CustomerDetailedRatings }
   | { ok: false; reason: 'missing-url' | 'connection-failed' | 'unknown-customer' };
+
+export type TasteKitFollowup = {
+  customerId: string;
+  contactedAt: string | null;
+  note: string | null;
+};
+
+export type TasteKitFollowupResult =
+  | { ok: true; followup: TasteKitFollowup }
+  | { ok: false; reason: 'missing-url' | 'schema-missing' | 'connection-failed' | 'unknown-customer' };
 
 /**
  * Palier de rapprochement entre une commande Shopify et une creative Meta,

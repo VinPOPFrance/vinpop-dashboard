@@ -63,6 +63,23 @@ COMMENT ON TABLE dashboard.forecast_assumptions IS
   'Hypotheses scalaires du modele financier (prix de vente moyen, etc.).';
 
 -- -----------------------------------------------------------------------------
+--  Suivi manuel des relances Taste Kit.
+-- -----------------------------------------------------------------------------
+--  Cette table appartient au dashboard, pas a Airbyte : elle conserve les
+--  actions commerciales meme quand les tables Shopify sont resynchronisees.
+--  La cle est l identifiant client Shopify, jamais l email qui peut changer.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS dashboard.taste_kit_followups (
+  customer_id  text PRIMARY KEY,
+  contacted_at timestamptz,
+  note         text,
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE dashboard.taste_kit_followups IS
+  'Suivi manuel des relances des clients Taste Kit. Les donnees source restent dans Airbyte.';
+
+-- -----------------------------------------------------------------------------
 --  Postes par defaut.
 -- -----------------------------------------------------------------------------
 --  Inseres a 0 : ils donnent au formulaire sa structure sans inventer de

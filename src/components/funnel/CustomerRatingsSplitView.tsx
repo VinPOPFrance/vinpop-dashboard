@@ -228,6 +228,7 @@ function CustomerWinesPanel({ email }: { email: string }) {
         <p style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: colors.text, wordBreak: 'break-all' }}>
           {detail.email ?? detail.identifier}
         </p>
+        <FollowupControl identifier={detail.email ?? detail.customerKey} />
         {/* Un client sans compte VinPop n a pas d email : le dire evite de
             croire a une donnee manquante alors que c est le modele. */}
         {!detail.email ? (
@@ -524,6 +525,61 @@ function RatingBadge({ label }: { label: CustomerWineRating['ratingLabel'] }) {
   if (label === 'Like') return <StatusBadge status="info" label="Like" />;
   if (label === 'Dislike') return <StatusBadge status="critical" label="Dislike" />;
   return <StatusBadge status="neutral" label="A noter" />;
+}
+
+function FollowupControl({ identifier }: { identifier: string }) {
+  const [contactedAt, setContactedAt] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/customers/followups?email=${encodeURIComponent(identifier)}`, { signal: controller.signal })
+      .then((response) => response.json())
+      .then((body: { ok?: boolean; followup?: { contactedAt?: string | null } }) => {
+        if (body.ok) setContactedAt(body.followup?.contactedAt ?? null);
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) console.error(error);
+      });
+    return () => controller.abort();
+  }, [identifier]);
+
+  async function markContacted() {
+    setSaving(true);
+    try {
+      const response = await fetch('/api/customers/followups', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: identifier, contactedAt: new Date().toISOString() }),
+      });
+      const body = (await response.json()) as { ok?: boolean; followup?: { contactedAt?: string | null } };
+      if (body.ok) setContactedAt(body.followup?.contactedAt ?? null);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+      <button
+        type="button"
+        onClick={markContacted}
+        disabled={saving}
+        style={{
+          border: `1px solid ${colors.border}`,
+          borderRadius: radius.sm,
+          padding: '6px 9px',
+          background: contactedAt ? colors.surfaceMuted : colors.surface,
+          color: colors.text,
+          fontSize: 11.5,
+          cursor: saving ? 'wait' : 'pointer',
+        }}
+      >
+        {saving ? 'Enregistrement...' : contactedAt ? 'Relance effectuee' : 'Marquer comme relance'}
+      </button>
+      {contactedAt ? <span style={{ fontSize: 11.5, color: colors.textMuted }}>le {formatDate(contactedAt)}</span> : null}
+    </div>
+  );
 }
 
 /** Compteur du bandeau de resume, au-dessus du tableau des vins. */

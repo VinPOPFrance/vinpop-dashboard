@@ -6,7 +6,7 @@
 import 'server-only';
 import { dateFromPg, getPool, numberFromPg, rate, ratio } from './client';
 import { isSmartBoxLineItem, isTasteKitLineItem, tasteKitProductIds } from './sql';
-import { type CustomerDetailedRatingsResult, type CustomerProductSummary, type CustomerRatingsSummary, type CustomerWineRecommendation, type CustomerWineRecommendationsResult, type CustomerWineRating, type CustomerWineReplacement, type FoodPairingIntelligenceResult, type QuizFunnelResult, type QuizFunnelSegment, type RatedWineDetail, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type WineRatingSummary } from './types';
+import { type CustomerDetailedRatingsResult, type CustomerProductSummary, type CustomerRatingsSummary, type CustomerWineRecommendation, type CustomerWineRecommendationsResult, type CustomerWineRating, type CustomerWineReplacement, type FoodPairingIntelligenceResult, type QuizFunnelResult, type QuizFunnelSegment, type RatedWineDetail, type RatingsIntelligenceResult, type SiteEventInsertInput, type SiteEventInsertResult, type TasteKitFollowupResult, type WineRatingSummary } from './types';
 import { dateToSql, type DateRange } from '@/lib/analytics/dateRanges';
 import { classifyCustomerStage } from '@/lib/customerStages';
 
@@ -265,6 +265,39 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
           AND orders.cancelled_at IS NULL
         GROUP BY orders.customer::jsonb->>'id'
       ),
+      taste_kit_orders AS (
+        SELECT DISTINCT orders.id, orders.customer::jsonb->>'id' AS customer_key
+        FROM shopify.orders AS orders
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(orders.line_items::jsonb) = 'array' THEN orders.line_items::jsonb ELSE '[]'::jsonb END
+        ) AS taste_item
+        WHERE orders.cancelled_at IS NULL
+          AND orders.customer::jsonb->>'id' IS NOT NULL
+          AND ${isTasteKitLineItem('taste_item')}
+      ),
+      taste_kit_products AS (
+        SELECT
+          orders.customer::jsonb->>'id' AS customer_key,
+          NULLIF(item->>'product_id', '') AS product_id,
+          SUM(CASE WHEN item->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (item->>'quantity')::numeric ELSE 0 END) AS quantity
+        FROM shopify.orders AS orders
+        INNER JOIN taste_kit_orders ON taste_kit_orders.id = orders.id
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(orders.line_items::jsonb) = 'array' THEN orders.line_items::jsonb ELSE '[]'::jsonb END
+        ) AS item
+        WHERE NOT (${isTasteKitLineItem('item')})
+        GROUP BY orders.customer::jsonb->>'id', item->>'product_id'
+      ),
+      taste_kit_rating_rollups AS (
+        SELECT
+          mapped_ratings.customer_id,
+          COUNT(DISTINCT mapped_ratings.shopify_product_id)::text AS bottles_rated
+        FROM mapped_ratings
+        INNER JOIN taste_kit_products
+          ON taste_kit_products.customer_key = mapped_ratings.customer_id::text
+         AND taste_kit_products.product_id = mapped_ratings.shopify_product_id
+        GROUP BY mapped_ratings.customer_id
+      ),
       quiz_rollups AS (
         SELECT customer_id, COUNT(*)::text AS quiz_count
         FROM public.quizz
@@ -304,7 +337,8 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         COALESCE(bottle_rollups.startup_pack_buyer, 'false') AS startup_pack_buyer,
         COALESCE(bottle_rollups.smart_box_buyer, 'false') AS smart_box_buyer,
         COALESCE(bottle_rollups.subscriber, 'false') AS subscriber,
-        COALESCE(rating_rollups.bottles_rated, '0') AS bottles_rated,
+        COALESCE(taste_kit_products_rollup.bottles_bought, '0') AS taste_kit_bottles_bought,
+        COALESCE(taste_kit_rating_rollups.bottles_rated, '0') AS bottles_rated,
         COALESCE(rating_rollups.total_ratings, '0') AS total_ratings,
         COALESCE(rating_rollups.love_count, '0') AS love_count,
         COALESCE(rating_rollups.like_count, '0') AS like_count,
@@ -314,11 +348,20 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
         rating_rollups.last_rating_date,
         COALESCE(quiz_rollups.quiz_count, '0') AS quiz_count,
         COALESCE(rating_rollups.wine_colors_rated, 'None') AS wine_colors_rated
+        ,taste_kit_followups.contacted_at AS followup_contacted_at
       FROM customer_base
       LEFT JOIN order_rollups ON order_rollups.customer_key = customer_base.customer_key
       LEFT JOIN bottle_rollups ON bottle_rollups.customer_key = customer_base.customer_key
+      LEFT JOIN (
+        SELECT customer_key, SUM(quantity)::text AS bottles_bought
+        FROM taste_kit_products
+        GROUP BY customer_key
+      ) AS taste_kit_products_rollup ON taste_kit_products_rollup.customer_key = customer_base.customer_key
+      LEFT JOIN taste_kit_rating_rollups ON taste_kit_rating_rollups.customer_id::text = customer_base.customer_key
       LEFT JOIN rating_rollups ON rating_rollups.customer_id::text = customer_base.customer_key
       LEFT JOIN quiz_rollups ON quiz_rollups.customer_id::text = customer_base.customer_key
+      LEFT JOIN dashboard.taste_kit_followups AS taste_kit_followups
+        ON taste_kit_followups.customer_id = customer_base.customer_key
       WHERE (
           COALESCE(order_rollups.orders_count, '0') <> '0'
           OR COALESCE(rating_rollups.total_ratings, '0') <> '0'
@@ -463,7 +506,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
     }
     const customers: CustomerRatingsSummary[] = customerResult.rows.map((customerRow) => {
       const customerId = (customerRow.customer_id as string | null) || '';
-      const bottlesBought = numberFromPg(customerRow.bottles_bought as string | null);
+      const bottlesBought = numberFromPg(customerRow.taste_kit_bottles_bought as string | null);
       const bottlesRated = numberFromPg(customerRow.bottles_rated as string | null);
       const unrated = Math.max(bottlesBought - bottlesRated, 0);
       const ordersCount = numberFromPg(customerRow.orders_count as string | null);
@@ -495,6 +538,7 @@ export async function getRatingsIntelligence(): Promise<RatingsIntelligenceResul
       return {
         customerId,
         email: (customerRow.email as string | null) || customerId,
+        followupContactedAt: dateFromPg((customerRow.followup_contacted_at as Date | string | null) ?? null),
         totalSpent: numberFromPg(customerRow.total_spent as string | null),
         ordersCount,
         bottlesBought,
@@ -1054,6 +1098,13 @@ export async function getCustomerDetailedRatings(email: string): Promise<Custome
             NULLIF(orders.customer::jsonb->>'id', ''),
             NULLIF(orders.email::text, '')
           ) = $1
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(orders.line_items::jsonb) = 'array' THEN orders.line_items::jsonb ELSE '[]'::jsonb END
+            ) AS taste_item
+            WHERE ${isTasteKitLineItem('taste_item')}
+          )
       ),
       purchased AS (
         SELECT
@@ -1441,5 +1492,92 @@ export async function getCustomerWineReplacements(
   } catch (error) {
     console.error('Customer wine replacements failed', { error });
     return { ok: false, reason: 'connection-failed' };
+  }
+}
+
+async function resolveCustomerKey(pool: ReturnType<typeof getPool>, identifier: string): Promise<string | null> {
+  const normalized = identifier.trim();
+  const fallback = normalized.replace(/^order:/, '');
+  const result = await pool.query<{ customer_key: string }>(
+    `SELECT customer_key
+     FROM (
+       SELECT id::text AS customer_key, 1 AS priority
+       FROM public.users
+       WHERE LOWER(email) = LOWER($1) OR id::text = $2
+       UNION ALL
+       SELECT id::text AS customer_key, 2 AS priority
+       FROM shopify.customers
+       WHERE LOWER(email) = LOWER($1) OR id::text = $2
+       UNION ALL
+       SELECT customer::jsonb->>'id' AS customer_key, 3 AS priority
+       FROM shopify.orders
+       WHERE LOWER(COALESCE(NULLIF(contact_email, ''), NULLIF(email, ''))) = LOWER($1)
+          OR customer::jsonb->>'id' = $2
+     ) identities
+     WHERE customer_key IS NOT NULL
+     ORDER BY priority
+     LIMIT 1`,
+    [normalized, fallback],
+  );
+  return result.rows[0]?.customer_key ?? (fallback || null);
+}
+
+export async function getTasteKitFollowup(identifier: string): Promise<TasteKitFollowupResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  try {
+    const pool = getPool(databaseUrl);
+    const customerId = await resolveCustomerKey(pool, identifier);
+    if (!customerId) return { ok: false, reason: 'unknown-customer' };
+    const result = await pool.query<{ contacted_at: Date | string | null; note: string | null }>(
+      `SELECT contacted_at, note FROM dashboard.taste_kit_followups WHERE customer_id = $1`,
+      [customerId],
+    );
+    return {
+      ok: true,
+      followup: {
+        customerId,
+        contactedAt: dateFromPg(result.rows[0]?.contacted_at ?? null),
+        note: result.rows[0]?.note ?? null,
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    return { ok: false, reason: errorCode === '42P01' ? 'schema-missing' : 'connection-failed' };
+  }
+}
+
+export async function updateTasteKitFollowup(
+  identifier: string,
+  contactedAt: string | null,
+  note: string | null,
+): Promise<TasteKitFollowupResult> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) return { ok: false, reason: 'missing-url' };
+
+  try {
+    const pool = getPool(databaseUrl);
+    const customerId = await resolveCustomerKey(pool, identifier);
+    if (!customerId) return { ok: false, reason: 'unknown-customer' };
+    const result = await pool.query<{ contacted_at: Date | string | null; note: string | null }>(
+      `INSERT INTO dashboard.taste_kit_followups (customer_id, contacted_at, note)
+       VALUES ($1, $2::timestamptz, $3)
+       ON CONFLICT (customer_id) DO UPDATE
+       SET contacted_at = EXCLUDED.contacted_at, note = EXCLUDED.note, updated_at = now()
+       RETURNING contacted_at, note`,
+      [customerId, contactedAt, note],
+    );
+    return {
+      ok: true,
+      followup: {
+        customerId,
+        contactedAt: dateFromPg(result.rows[0]?.contacted_at ?? null),
+        note: result.rows[0]?.note ?? null,
+      },
+    };
+  } catch (error) {
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    return { ok: false, reason: errorCode === '42P01' ? 'schema-missing' : 'connection-failed' };
   }
 }

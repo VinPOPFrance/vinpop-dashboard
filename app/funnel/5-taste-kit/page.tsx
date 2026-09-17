@@ -50,6 +50,7 @@ type PipelineRow = {
   bottlesBought: number;
   bottlesRated: number;
   remaining: number;
+  noteStatus: string;
   ratedPercentage: number | null;
   lastRatingDate: string | null;
   nextAction: string;
@@ -67,6 +68,7 @@ const pipelineColumns: DataTableColumn<PipelineRow>[] = [
     tone: 'warning',
     description: 'Bouteilles achetees et pas encore evaluees. C est le volume de relance.',
   },
+  { key: 'noteStatus', label: 'Statut notes', type: 'text' },
   { key: 'ratedPercentage', label: 'Avancement', type: 'percent' },
   { key: 'lastRatingDate', label: 'Derniere note', type: 'date' },
   { key: 'nextAction', label: 'Action', type: 'text' },
@@ -106,7 +108,7 @@ export default async function Step5Page() {
   // La vue inclut tous les clients ayant recu des bouteilles. Les clients qui
   // ont encore des notes a donner restent en tete du tableau.
   const pipeline = metrics.customers
-    .filter((customer) => customer.bottlesBought > 0)
+    .filter((customer) => customer.startupPackBuyer && customer.bottlesBought > 0)
     .sort(
       (a, b) =>
         b.unratedBottlesRemaining - a.unratedBottlesRemaining ||
@@ -123,6 +125,7 @@ export default async function Step5Page() {
       bottlesBought: customer.bottlesBought,
       bottlesRated: customer.bottlesRated,
       remaining: customer.unratedBottlesRemaining,
+      noteStatus: customer.unratedBottlesRemaining > 0 ? 'Notes manquantes' : 'Notes completes',
       ratedPercentage: customer.ratedPercentage,
       lastRatingDate: customer.lastRatingDate,
       nextAction: customer.nextAction,
