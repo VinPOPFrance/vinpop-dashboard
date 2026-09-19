@@ -32,6 +32,7 @@ export * from './internal';
 export * from './meta';
 export * from './metaAttribution';
 export * from './acquisitionOrders';
+export * from './orderAttribution';
 export * from './ga4';
 export * from './googleAds';
 export * from './googleAdsTraffic';

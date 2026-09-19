@@ -18,6 +18,7 @@ import { getPool, numberFromPg } from './client';
 import { microsToEuros } from './googleAds';
 import { dateToSql, type DateRange } from '@/lib/analytics/dateRanges';
 import { attributionMethodLabel, metaAdMatchMethodSql, metaAdResolutionSql } from './metaAttribution';
+import { getOrderChannelOverrides } from './orderAttribution';
 import type {
   AcquisitionChannel,
   AcquisitionOrderRow,
@@ -31,6 +32,7 @@ export const acquisitionChannelLabel: Record<AcquisitionChannel, string> = {
   'google-organic': 'Google naturel',
   referral: 'Site referent',
   direct: 'Direct / inconnu',
+  organic: 'Organique (confirme a la main)',
 };
 
 /**
@@ -90,7 +92,7 @@ export async function getAcquisitionOrders(range: DateRange): Promise<Acquisitio
 
   try {
     const pool = getPool(databaseUrl);
-    const [result, spendResult] = await Promise.all([
+    const [result, spendResult, overrides] = await Promise.all([
       pool.query<Record<string, string | null>>(`
       WITH base AS (
         SELECT
@@ -213,6 +215,7 @@ export async function getAcquisitionOrders(range: DateRange): Promise<Acquisitio
             WHERE metrics_cost_micros > 0 AND segments_date BETWEEN $1::date AND $2::date
           ) AS google_last_day
       `, [start, end]),
+      getOrderChannelOverrides(),
     ]);
 
     const spendRow = spendResult.rows[0];
@@ -281,6 +284,8 @@ export async function getAcquisitionOrders(range: DateRange): Promise<Acquisitio
         paid: row.financial_status === 'paid',
         cancelled: row.cancelled === 'true',
         channel,
+        automaticChannel: channel,
+        override: null,
         detail,
         evidence,
         adId: channel === 'meta' ? adId : null,
@@ -288,6 +293,18 @@ export async function getAcquisitionOrders(range: DateRange): Promise<Acquisitio
         landingPath: row.landing_path,
       };
     });
+
+    // Une correction manuelle remplace le canal deduit, jamais la preuve
+    // automatique elle-meme : `automaticChannel` reste celui calcule ci-dessus,
+    // pour que l on sache toujours quelles commandes ont ete reclassees.
+    for (const order of orders) {
+      const override = overrides.get(order.orderId);
+      if (!override) continue;
+      order.override = override;
+      order.channel = override.channel;
+      order.detail = override.note ?? acquisitionChannelLabel[override.channel];
+      order.evidence = 'Attribution corrigee a la main dans le dashboard';
+    }
 
     return {
       ok: true,

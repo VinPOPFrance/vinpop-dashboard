@@ -80,6 +80,30 @@ COMMENT ON TABLE dashboard.taste_kit_followups IS
   'Suivi manuel des relances des clients Taste Kit. Les donnees source restent dans Airbyte.';
 
 -- -----------------------------------------------------------------------------
+--  Correction manuelle du canal d acquisition d une commande.
+-- -----------------------------------------------------------------------------
+--  Une partie des ventes n a aucune preuve dans son URL d arrivee (pas d UTM,
+--  pas de gclid, pas de fbclid) et retombe dans le canal "direct". Certaines de
+--  ces ventes viennent pourtant bien de Meta ou de Google Ads : la personne a
+--  vu la publicite puis est revenue taper l adresse elle-meme. Cette table
+--  laisse l equipe reclasser ces commandes a la main, sans jamais toucher aux
+--  tables Airbyte qui portent la preuve automatique.
+--
+--  `channel` est volontairement plus restreint que les canaux deduits par le
+--  dashboard : seuls 'meta', 'google-ads' et 'organic' sont assignables a la
+--  main, parce que ce sont les seuls que l equipe peut trancher sans URL.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS dashboard.order_channel_overrides (
+  order_id     text PRIMARY KEY,
+  channel      text NOT NULL CHECK (channel IN ('meta', 'google-ads', 'organic')),
+  note         text,
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE dashboard.order_channel_overrides IS
+  'Canal d acquisition reassigne a la main pour une commande sans preuve dans son URL. La commande source reste dans public.orders (Airbyte).';
+
+-- -----------------------------------------------------------------------------
 --  Postes par defaut.
 -- -----------------------------------------------------------------------------
 --  Inseres a 0 : ils donnent au formulaire sa structure sans inventer de

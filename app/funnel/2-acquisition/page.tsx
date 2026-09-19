@@ -5,6 +5,7 @@ import { BarChart } from '@/components/BarChart';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { AcquisitionTabs, parseAcquisitionTab } from '@/components/funnel/AcquisitionTabs';
 import { FunnelPipelineBar, FunnelPipelineBarSkeleton } from '@/components/funnel/FunnelPipelineBar';
+import { UnattributedOrdersPanel, type UnattributedOrderRow } from '@/components/funnel/AttributionOverride';
 import { TopBar } from '@/components/TopBar';
 import {
   AlertBanner,
@@ -935,6 +936,20 @@ async function OrdersTab({
     landing: order.landingPath ?? '-',
   }));
 
+  // Commandes que l URL ne permet de rattacher a rien : le seul endroit ou
+  // une correction manuelle a du sens, faute de mieux, une regie ne peut pas
+  // etre jugee sur un cout par vente qui ignore ses ventes non tracees.
+  const unattributedOrders: UnattributedOrderRow[] = orders
+    .filter((order) => order.automaticChannel === 'direct')
+    .map((order) => ({
+      orderId: order.orderId,
+      orderName: order.orderName,
+      createdAt: order.createdAt,
+      revenue: order.revenue,
+      landingPath: order.landingPath,
+      currentOverride: order.override?.channel ?? null,
+    }));
+
   return (
     <>
       <PageSection>
@@ -993,6 +1008,18 @@ async function OrdersTab({
           />
         </Card>
       </Section>
+
+      {unattributedOrders.length > 0 ? (
+        <Section
+          title="Ventes sans preuve dans l URL a attribuer a la main"
+          sub="Ces commandes n ont ni UTM, ni gclid, ni fbclid : le dashboard les classe par defaut en Direct / inconnu. Si une vente vient en realite de Meta ou de Google Ads, l attribuer ici retire son cout du calcul 'Direct' et le rapproche de la bonne regie des le prochain chargement."
+          bare
+        >
+          <Card>
+            <UnattributedOrdersPanel orders={unattributedOrders} />
+          </Card>
+        </Section>
+      ) : null}
 
       <PageSection>
         <Card style={{ background: colors.surfaceMuted }}>

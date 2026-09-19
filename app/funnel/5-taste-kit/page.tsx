@@ -53,6 +53,7 @@ type PipelineRow = {
   noteStatus: string;
   ratedPercentage: number | null;
   lastRatingDate: string | null;
+  lastOrderDate: string | null;
   nextAction: string;
 };
 
@@ -70,6 +71,7 @@ const pipelineColumns: DataTableColumn<PipelineRow>[] = [
   },
   { key: 'noteStatus', label: 'Statut notes', type: 'text' },
   { key: 'ratedPercentage', label: 'Avancement', type: 'percent' },
+  { key: 'lastOrderDate', label: 'Derniere commande', type: 'date' },
   { key: 'lastRatingDate', label: 'Derniere note', type: 'date' },
   { key: 'nextAction', label: 'Action', type: 'text' },
 ];
@@ -127,6 +129,7 @@ export default async function Step5Page() {
       remaining: customer.unratedBottlesRemaining,
       noteStatus: customer.unratedBottlesRemaining > 0 ? 'Notes manquantes' : 'Notes completes',
       ratedPercentage: customer.ratedPercentage,
+      lastOrderDate: customer.lastOrderDate,
       lastRatingDate: customer.lastRatingDate,
       nextAction: customer.nextAction,
     };

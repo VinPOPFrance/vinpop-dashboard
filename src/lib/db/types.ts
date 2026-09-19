@@ -855,7 +855,27 @@ export type MetaCreativeAttributionResult =
   | { ok: false; reason: 'missing-url' | 'connection-failed' };
 
 /** Canal ayant amene une commande, deduit de son URL d arrivee. */
-export type AcquisitionChannel = 'meta' | 'google-ads' | 'google-organic' | 'referral' | 'direct';
+export type AcquisitionChannel = 'meta' | 'google-ads' | 'google-organic' | 'referral' | 'direct' | 'organic';
+
+/**
+ * Canal qu un humain peut assigner a la main a une commande sans preuve dans
+ * l URL. Volontairement plus restreint que `AcquisitionChannel` : on ne
+ * corrige que les trois cas que l equipe sait distinguer sans URL, jamais
+ * `google-organic` ou `referral` qui restent des deductions automatiques.
+ */
+export type ManualAttributionChannel = 'meta' | 'google-ads' | 'organic';
+
+/** Attribution manuelle enregistree pour une commande, saisie dans le dashboard. */
+export type OrderChannelOverride = {
+  orderId: string;
+  channel: ManualAttributionChannel;
+  note: string | null;
+  updatedAt: string | null;
+};
+
+export type OrderChannelOverrideResult =
+  | { ok: true; override: OrderChannelOverride | null }
+  | { ok: false; reason: 'missing-url' | 'schema-missing' | 'connection-failed' | 'invalid-channel' };
 
 /** Une commande encaissee, avec ce qui l a amenee. */
 export type AcquisitionOrderRow = {
@@ -867,6 +887,10 @@ export type AcquisitionOrderRow = {
   paid: boolean;
   cancelled: boolean;
   channel: AcquisitionChannel;
+  /** Canal deduit de l URL, avant toute correction manuelle. Sert a limiter la correction aux commandes reellement sans preuve. */
+  automaticChannel: AcquisitionChannel;
+  /** Renseigne quand une correction manuelle a ete enregistree pour cette commande. */
+  override: OrderChannelOverride | null;
   /** Creative, mot-cle, campagne ou site referent selon le canal. */
   detail: string;
   /** Ce qui a permis de l affirmer : sert a juger la fiabilite de la ligne. */
